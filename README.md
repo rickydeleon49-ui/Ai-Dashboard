@@ -1,0 +1,122 @@
+# Command Center
+
+A personal project operating system — one place to see, organise, launch and
+manage everything you work on: GitHub repositories, uploaded projects, manual
+projects, and eventually AI workflows.
+
+Built to be extended for years, not to be a throwaway dashboard.
+
+---
+
+## Quick start
+
+```bash
+npm install
+npm run db:migrate      # create the SQLite database
+npm run db:seed         # optional: a small starter library
+npm run dev             # http://localhost:3000
+```
+
+## Connecting GitHub
+
+The dashboard ships with a **real** GitHub client. Without credentials it runs on
+a clearly-labelled demo set so the hub is explorable immediately.
+
+To pull your actual repositories:
+
+1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens)
+   with the `repo` scope (or `public_repo` for public repositories only).
+2. Add it to `.env.local`:
+   ```
+   GITHUB_TOKEN=ghp_your_token_here
+   ```
+3. Restart, open **GitHub** in the sidebar, and press **Sync repositories**.
+
+Repositories are cached locally. Press **Add** on any repository to make it a
+first-class project on your dashboard. Re-syncing refreshes upstream metadata
+without touching your own edits.
+
+Phase 2 replaces the token with a full OAuth flow — the interface does not change.
+
+## What is here now (Phase 1)
+
+- **Dashboard** — totals, active work, recently opened, favorites, activity feed,
+  quick actions, status breakdown
+- **Unified project library** — GitHub, uploaded and manual projects in one
+  searchable, filterable place
+- **Search** across names, descriptions, notes, repository URLs and tags
+- **Filters** for source, status, tag, sort and archived — all URL-driven, so any
+  view is shareable and bookmarkable
+- **Project detail** — one reusable page for every source, with Open Project,
+  Open GitHub, Issues, Pull Requests, Projects and Copy URL
+- **GitHub hub** — connection status, sync, repository cards, add to dashboard
+- **Manual projects** — full create/edit/archive/delete
+- **Favorites**, **tags**, **notes**, **activity tracking**
+- **Command palette** — `⌘K` / `Ctrl+K` over projects, actions and pages
+- **Dark, light and system themes**, responsive from phone to wide desktop
+
+Sections for Uploads, AI, Prompts, Workflows, Tools and Notes exist as routes with
+their database tables already migrated. They say plainly what is coming and what is
+already in place underneath rather than showing fake screens.
+
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `npm run dev` | Development server |
+| `npm run build` / `npm start` | Production build and serve |
+| `npm run typecheck` | TypeScript, no emit |
+| `npm run lint` | ESLint |
+| `npm run db:generate` | Generate a migration after a schema change |
+| `npm run db:migrate` | Apply pending migrations |
+| `npm run db:seed` | Seed a starter library (skips if data exists) |
+| `npm run db:reset` | Delete the database, migrate and reseed |
+
+Migrations also run automatically on first request, so a fresh clone or a fresh
+Railway volume works without a manual step.
+
+## Configuration
+
+All optional — see `.env.example`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_PATH` | `./data/dashboard.db` | SQLite file location |
+| `UPLOADS_DIR` | `./data/uploads` | Uploaded files (Phase 3) |
+| `GITHUB_TOKEN` | — | Personal access token for live repository data |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | — | OAuth app (Phase 2) |
+
+## Deploying to Railway
+
+1. Create a service from this repository. Railway detects Next.js; the start
+   command is `npm start` and the app binds `$PORT`.
+2. Add a **volume** mounted at `/data`.
+3. Set service variables:
+   ```
+   DATABASE_PATH=/data/dashboard.db
+   UPLOADS_DIR=/data/uploads
+   GITHUB_TOKEN=...
+   ```
+
+The volume is what makes your library survive redeploys. Without it, SQLite lives
+on ephemeral container disk.
+
+## Architecture
+
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the layer model, the data
+model, the GitHub provider seam, the phase plan, and a quick reference for adding
+new sections, fields and integrations.
+
+The short version:
+
+```
+app/          Routes — thin
+components/   ui/ primitives, then feature folders
+core/         Domain: types, validation, logic, integrations (no framework)
+db/           Schema, client, repositories behind an interface
+config/       Navigation and quick actions as data
+```
+
+Dependencies point downward only. `db/repositories/index.ts` is the single place
+that names a concrete database implementation — swapping SQLite for Postgres later
+is one new class and one changed line.

@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens.
+ *
+ * Every colour in the app resolves through one of these variables. Retheming
+ * (or adding a third theme) means editing this block, not hunting components.
+ * Dark is the default; `.light` on <html> flips the palette.
+ */
+:root {
+  --bg: #08090b;
+  --bg-elevated: #0d0f12;
+  --bg-subtle: #111318;
+  --bg-hover: #16191f;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --text: #ededef;
+  --text-muted: #8b8d98;
+  --text-subtle: #62646c;
+
+  --accent: #6e56cf;
+  --accent-hover: #7c66d9;
+  --accent-soft: rgba(110, 86, 207, 0.14);
+  --accent-text: #b9a7ff;
+
+  --ring: rgba(110, 86, 207, 0.55);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.8);
+
+  --sidebar-width: 240px;
+}
+
+html.light {
+  --bg: #fcfcfd;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f4f4f6;
+  --bg-hover: #ededf0;
+
+  --border: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.16);
+
+  --text: #1a1a1e;
+  --text-muted: #60626c;
+  --text-subtle: #8b8d98;
+
+  --accent: #6e56cf;
+  --accent-hover: #5c46b8;
+  --accent-soft: rgba(110, 86, 207, 0.1);
+  --accent-text: #5b45b0;
+
+  --ring: rgba(110, 86, 207, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px -12px rgba(0, 0, 0, 0.18);
+}
+
+/* Expose tokens to Tailwind v4 utilities: bg-surface, text-muted, border-line… */
+@theme inline {
+  --color-canvas: var(--bg);
+  --color-surface: var(--bg-elevated);
+  --color-subtle: var(--bg-subtle);
+  --color-hover: var(--bg-hover);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: dark;
+  /* The theme script sets .light before paint, so there is no flash. */
+}
+html.light {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* Thin, unobtrusive scrollbars — closer to a native app than a web page. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-fade-in {
+  animation: fade-in 160ms ease-out both;
+}
+.animate-scale-in {
+  animation: scale-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
