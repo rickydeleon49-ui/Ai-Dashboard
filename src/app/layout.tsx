@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { AppShell } from "@/components/layout/app-shell";
+import { DesktopBridge } from "@/components/layout/desktop-bridge";
 import { themeScript } from "@/components/layout/theme-toggle";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectRepository } from "@/db/repositories";
@@ -49,6 +50,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
+        <DesktopBridge />
         <AppShell stats={stats} paletteProjects={paletteProjects}>
           {children}
         </AppShell>

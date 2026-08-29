@@ -32,6 +32,8 @@ to replace.
 Dependencies point **downward only**. A layer never imports from the one above it.
 
 ```
+  desktop/      Electron main process and preload bridge (desktop target only).
+    ↓
   app/          Routes. Thin — fetch, compose, render.
     ↓
   components/   UI. ui/ primitives, then feature folders.
@@ -40,6 +42,9 @@ Dependencies point **downward only**. A layer never imports from the one above i
     ↓
   db/           Persistence: schema, client, repositories.
 ```
+
+The desktop shell sits above everything and knows nothing about the domain — it
+sets two environment variables and manages a window.
 
 ### `src/core/` — the domain
 
@@ -148,7 +153,57 @@ scoped. `resolveProvider()` probes the connection once and falls back to demo da
 on rejection, preserving GitHub's actual error message in `connection.detail`. A
 bad token degrades the hub instead of killing it.
 
-## 7. State and URLs
+## 7. Desktop shell
+
+The desktop build wraps the **same application** — it reimplements nothing.
+Server Components query SQLite directly, so the app needs a Node runtime; Electron
+starts the Next standalone server on a private localhost port and points a window
+at it.
+
+```
+Electron main process
+  ├─ sets DATABASE_PATH / UPLOADS_DIR → OS user-data directory
+  ├─ fork()s .next/standalone/server.js on a free port
+  └─ BrowserWindow → http://127.0.0.1:<port>
+```
+
+Three decisions carry it:
+
+- **Storage is environment-driven.** `src/db/path.ts` already read `DATABASE_PATH`
+  and `UPLOADS_DIR` (they exist so a Railway volume can be used). The desktop build
+  sets them to `app.getPath("userData")` before the server starts — zero code
+  changes for a completely different storage location.
+- **Standalone output is conditional.** `output: "standalone"` is enabled only when
+  `DESKTOP_BUILD=1`, because `next start` rejects standalone output. One codebase
+  still ships to both Railway and the desktop.
+- **asar is disabled.** `fork()` and Node's module resolution both need real files
+  on disk. This is what lets the packaged server resolve `better-sqlite3` upward to
+  the application's own copy — the one electron-builder rebuilt against Electron's
+  ABI. The traced copy Next emits is built for plain Node and is deliberately
+  deleted during the build (`desktop/build.mjs`).
+
+### Security posture
+
+The renderer is a web page and is treated as one: `contextIsolation: true`,
+`nodeIntegration: false`, `sandbox: true`. The preload bridge exposes exactly one
+capability — letting the application menu drive client-side navigation — and the
+route it accepts must start with `/`. Verified: `window.require` and
+`window.process` are both `undefined` in the renderer.
+
+Outbound links (Open GitHub, Open Project) are intercepted by
+`setWindowOpenHandler` and a `will-navigate` guard, and handed to
+`shell.openExternal`. They open in the real browser, with your sessions and
+extensions — never in a chrome-less Electron window.
+
+### Build-time data isolation
+
+`next build` evaluates the root layout, which opens the database and runs
+migrations. Left alone that writes into `./data`, and Next's file tracing would
+copy the **developer's real database into the shipped application**.
+`desktop/build.mjs` points `DATABASE_PATH` at a temporary directory for the
+duration of the build and strips any `data/` directory from the bundle afterwards.
+
+## 8. State and URLs
 
 Filter state lives in the **URL**, not React state. A filtered library view is
 shareable, bookmarkable and survives a refresh, and the Server Component re-queries
@@ -156,7 +211,7 @@ on every change. `ProjectFilters` writes search params; `buildQuery()` in
 `app/projects/page.tsx` translates them into a repository query, and every listing
 page reuses it so filters behave identically everywhere.
 
-## 8. Phases
+## 9. Phases
 
 **Phase 1 — Foundation (shipped).** Shell, sidebar, dashboard, unified library,
 project cards, detail page, search, filtering, manual CRUD, favorites, archive,
@@ -175,7 +230,7 @@ workflows on the same repository pattern.
 
 **Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
 
-## 9. Adding things — quick reference
+## 10. Adding things — quick reference
 
 | To add… | Do this |
 | --- | --- |

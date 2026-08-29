@@ -4,11 +4,31 @@ A personal project operating system — one place to see, organise, launch and
 manage everything you work on: GitHub repositories, uploaded projects, manual
 projects, and eventually AI workflows.
 
+**Runs as a desktop application** (macOS, Windows, Linux) and as a web app from
+the same codebase.
+
 Built to be extended for years, not to be a throwaway dashboard.
 
 ---
 
-## Quick start
+## Quick start — desktop
+
+```bash
+npm install
+npm run desktop:dev     # starts the dev server and opens the app window
+```
+
+Building an installer for the machine you are on:
+
+```bash
+npm run desktop:package     # -> release/
+```
+
+`desktop:package:all` targets macOS, Windows and Linux at once, but each
+platform's installer must be built on that platform (or in CI) — code signing
+and native rebuilds are platform-specific.
+
+## Quick start — web
 
 ```bash
 npm install
@@ -16,6 +36,21 @@ npm run db:migrate      # create the SQLite database
 npm run db:seed         # optional: a small starter library
 npm run dev             # http://localhost:3000
 ```
+
+## Where your data lives
+
+The desktop app stores everything in the standard per-user application data
+directory, so it survives app updates and reinstalls:
+
+| Platform | Location |
+| --- | --- |
+| macOS | `~/Library/Application Support/Command Center/data` |
+| Windows | `%APPDATA%\Command Center\data` |
+| Linux | `~/.config/Command Center/data` |
+
+**File → Open Data Folder** opens it. Back that folder up and you have backed up
+your entire library. Running the web version instead uses `./data`, or whatever
+`DATABASE_PATH` points at.
 
 ## Connecting GitHub
 
@@ -63,8 +98,11 @@ already in place underneath rather than showing fake screens.
 
 | Command | Does |
 | --- | --- |
-| `npm run dev` | Development server |
-| `npm run build` / `npm start` | Production build and serve |
+| `npm run desktop:dev` | Desktop app against a hot-reloading dev server |
+| `npm run desktop:build` | Build the bundle the desktop app ships |
+| `npm run desktop:package` | Build an installer for the current platform |
+| `npm run dev` | Web development server |
+| `npm run build` / `npm start` | Web production build and serve |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint |
 | `npm run db:generate` | Generate a migration after a schema change |
@@ -86,7 +124,12 @@ All optional — see `.env.example`.
 | `GITHUB_TOKEN` | — | Personal access token for live repository data |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | — | OAuth app (Phase 2) |
 
-## Deploying to Railway
+## Deploying to Railway (optional)
+
+The desktop app is self-contained, but the same codebase still deploys as a web
+service — useful if you want the library reachable from a phone or another
+machine.
+
 
 1. Create a service from this repository. Railway detects Next.js; the start
    command is `npm start` and the app binds `$PORT`.
@@ -110,6 +153,7 @@ new sections, fields and integrations.
 The short version:
 
 ```
+desktop/      Electron main process, preload bridge, build scripts
 app/          Routes — thin
 components/   ui/ primitives, then feature folders
 core/         Domain: types, validation, logic, integrations (no framework)
