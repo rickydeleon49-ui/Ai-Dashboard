@@ -1,9 +1,9 @@
 # Builds the desktop installers.
 #
-# Packaging compiles better-sqlite3 against Electron's ABI, which needs the
-# platform's native toolchain — so each installer must be produced on its own
-# operating system. Run this workflow from the Actions tab and download the
-# installer from the run's artifacts.
+# Installers cannot be cross-built — a Windows .exe must be produced on Windows
+# and a macOS .dmg on macOS — so each target runs on its own hosted runner.
+# Run this from the Actions tab, pick a platform, then download the installer
+# from the run's Artifacts section.
 name: Desktop build
 
 on:
@@ -21,25 +21,39 @@ permissions:
   contents: read
 
 jobs:
+  # The `matrix` context is not available to a job-level `if`, so the platform
+  # choice is resolved here and handed to the build job as a matrix definition.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        shell: bash
+        env:
+          # Tag pushes build everything; a manual run builds what was chosen.
+          PLATFORM: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'all' }}
+        run: |
+          windows='{"id":"windows","os":"windows-latest","flag":"--win"}'
+          macos='{"id":"macos","os":"macos-latest","flag":"--mac"}'
+          linux='{"id":"linux","os":"ubuntu-latest","flag":"--linux"}'
+
+          case "$PLATFORM" in
+            windows) include="[$windows]" ;;
+            macos)   include="[$macos]" ;;
+            linux)   include="[$linux]" ;;
+            all)     include="[$windows,$macos,$linux]" ;;
+            *) echo "Unknown platform: $PLATFORM" >&2; exit 1 ;;
+          esac
+
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+          echo "Building: $PLATFORM"
+
   build:
-    # Job-level `if` can read the matrix, so one matrix serves every choice.
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.platform == 'all' ||
-      github.event.inputs.platform == matrix.id
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - id: windows
-            os: windows-latest
-            flag: "--win"
-          - id: macos
-            os: macos-latest
-            flag: "--mac"
-          - id: linux
-            os: ubuntu-latest
-            flag: "--linux"
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.id }}
@@ -59,11 +73,10 @@ jobs:
         run: npm run desktop:build
 
       - name: Package installer
-        # Unsigned builds: skip the certificate lookup that would otherwise
-        # fail the macOS job. Signing can be added later with real credentials.
+        # Unsigned builds: skip the certificate lookup that would otherwise fail
+        # the macOS job. Signing can be added later with real credentials.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          GH_TOKEN: ""
         run: npx electron-builder ${{ matrix.flag }} --publish never
 
       - name: Upload installer
@@ -76,4 +89,3 @@ jobs:
             release/*.exe
             release/*.dmg
             release/*.AppImage
-            release/*.zip
