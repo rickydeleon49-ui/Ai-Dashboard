@@ -19,6 +19,7 @@ export interface SyncResult {
   fetched: number;
   created: number;
   updated: number;
+  removed: number;
   syncedAt: string;
 }
 
@@ -128,6 +129,7 @@ export async function syncRepositories(): Promise<SyncResult> {
 
   let created = 0;
   let updated = 0;
+  let removed = 0;
 
   for (const repo of repos) {
     const existing = db
@@ -183,18 +185,42 @@ export async function syncRepositories(): Promise<SyncResult> {
     }
   }
 
+  /*
+   * Drop cached rows the provider no longer returns — repositories deleted on
+   * GitHub, access revoked, or the demo set after the first real sync. A row
+   * that is linked to a dashboard project is kept: the project (and the user's
+   * notes on it) must never vanish because upstream did, and the hub can still
+   * show it as linked.
+   */
+  const fetchedIds = new Set(repos.map((repo) => repo.externalId));
+  const cachedRows = db
+    .select({
+      externalId: githubRepositories.externalId,
+      linkedProjectId: githubRepositories.linkedProjectId,
+    })
+    .from(githubRepositories)
+    .all();
+
+  for (const row of cachedRows) {
+    if (fetchedIds.has(row.externalId) || row.linkedProjectId) continue;
+    db.delete(githubRepositories)
+      .where(eq(githubRepositories.externalId, row.externalId))
+      .run();
+    removed += 1;
+  }
+
   db.insert(activityEvents)
     .values({
       id: createId("act"),
       projectId: null,
       type: "github.synced",
       message: `Synced ${repos.length} GitHub ${repos.length === 1 ? "repository" : "repositories"}`,
-      metadata: JSON.stringify({ created, updated, mode: connection.mode }),
+      metadata: JSON.stringify({ created, updated, removed, mode: connection.mode }),
       createdAt: syncedAt,
     })
     .run();
 
-  return { connection, fetched: repos.length, created, updated, syncedAt };
+  return { connection, fetched: repos.length, created, updated, removed, syncedAt };
 }
 
 /** The subset of GitHub data worth carrying on the Project record. */
