@@ -6,23 +6,22 @@ Context for whoever picks this up next. Written at commit `64625be`.
 
 ## Where this stands
 
-**The application is built and works.** Phase 1 is complete, and it runs as both a
-desktop app and a web app from one codebase. What is *not* yet confirmed is a
-Windows installer produced on the user's own machine — that is the only open task.
+**The application is built, packaged and installed.** Phase 1 is complete, and it
+runs as both a desktop app and a web app from one codebase.
 
 | | Status |
 | --- | --- |
 | Phase 1 web app | Done. Typecheck, lint and production build clean. |
 | Electron desktop shell | Done. Verified by running the real packaged app. |
-| Linux AppImage | **Built and run successfully.** |
-| Windows `.exe` | **Not yet produced.** Five packaging bugs found and fixed; the last fix is pushed but untested on the user's machine. |
+| Linux AppImage | Built and run successfully. |
+| Windows `.exe` | **Done.** Built on the user's machine, installed, app confirmed running with menus, sync and demo fallback working. |
 | macOS `.dmg` | Not attempted. User does not have the machine yet. |
 
 ---
 
-## The one open task
+## Reproducing the Windows build
 
-The user runs this on Windows (Ryzen desktop, Git Bash, Node 24):
+Confirmed working on the user's machine (Ryzen desktop, Git Bash, Node 24):
 
 ```bash
 cd ~/code/Ai-Dashboard
@@ -30,7 +29,7 @@ git pull
 npm run desktop:package
 ```
 
-Expected result: `release/Command Center-0.1.0-win-x64.exe`, which installs
+Result: `release/Command Center-0.1.0-win-x64.exe`, which installs
 per-user (no admin prompt) and creates a desktop shortcut plus Start Menu entry
 named **Command Center**.
 
@@ -40,10 +39,9 @@ To launch it from Git Bash, the filename contains a space, so use a glob:
 ./release/*.exe
 ```
 
-### If it fails again
+### Alternative build path
 
-**Stop iterating through the user.** Five rounds of "try this" have already been
-spent. Use the CI path instead — `.github/workflows/desktop.yml` builds installers
+If a local build ever regresses, use CI instead of iterating on the user's machine — `.github/workflows/desktop.yml` builds installers
 on hosted runners for Windows, macOS and Linux:
 
 - Actions tab → **Desktop build** → Run workflow → pick `windows`
