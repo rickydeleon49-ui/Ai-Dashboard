@@ -232,12 +232,15 @@ project cards, detail page, search, filtering, manual CRUD, favorites, archive,
 tags, activity feed, command palette, dark/light themes, GitHub hub with a real
 client and demo fallback.
 
-**Phase 2 — GitHub OAuth.** Add `OAuthGitHubProvider`, the callback route and token
-storage in `settings`. The hub UI does not change.
+**Phase 2 — GitHub OAuth.** Add `OAuthGitHubProvider` and the callback route.
+Token storage in `settings` already exists and backs the token field on the
+settings screen, so OAuth writes to the same key. The hub UI does not change.
 
-**Phase 3 — Uploads.** `project_files` and the uploads directory resolver exist.
-Add a storage driver interface (local disk first), the upload route, ZIP handling
-and the file panel on the detail page.
+**Phase 3 — Uploads (shipped).** A `StorageDriver` interface behind a local-disk
+implementation, upload and download routes, a file panel on the project detail
+page, and an upload-first flow for projects that do not live on GitHub. Uploaded
+filenames are display data only — files on disk are named by generated id, so a
+filename can never become a path.
 
 **Phase 4 — AI.** `prompts` is migrated. Build the workspace, prompt library and
 workflows on the same repository pattern.

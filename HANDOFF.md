@@ -193,16 +193,16 @@ Phases 2–5 are described in `docs/ARCHITECTURE.md`. In order:
 - **Phase 2 — GitHub OAuth.** Add an `OAuthGitHubProvider` implementing the
   existing interface, a callback route, and token storage in the `settings` table.
   The hub UI does not change.
-- **Phase 3 — Uploads.** `project_files` and the uploads directory resolver
-  already exist. Needs a storage driver interface, upload route, ZIP handling and
-  the file panel on the detail page.
+- **Phase 3 — Uploads.** Shipped: storage driver, upload and download routes,
+  a file panel on the detail page, and an upload-first project flow.
 - **Phase 4 — AI.** The `prompts` table is already migrated.
 - **Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
 
-### Small known cleanups
+### Audit follow-ups, all completed
 
-- `next.config.ts` has an `images.remotePatterns` block that is dead — nothing in
-  the app uses `next/image`.
-- The repository was empty when this started, so this branch became the default
-  branch and there is no base to open a pull request against. Creating `main` from
-  the first commit would make future work reviewable.
+An audit after the installer shipped raised eleven items; all are done. Access
+control for networked deployments, crash recovery for the bundled server, a
+cached GitHub connection probe, activity-log pruning, a token field in Settings,
+in-app update checking with CI-published releases, and Phase 3 uploads. The dead
+image config, the page-importing-a-page coupling and the missing `main` branch
+were cleared in the same pass; PR #1 now tracks the whole branch.

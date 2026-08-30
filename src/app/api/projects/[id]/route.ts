@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { projectRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectUpdateSchema } from "@/core/projects/schema";
+import { storage } from "@/core/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -51,5 +52,11 @@ export async function DELETE(_request: Request, { params }: Context) {
   if (!deleted) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
+
+  // The database cascade removes the file rows; the bytes are ours to clean up.
+  // A failure here leaves unreferenced files, which is untidy but harmless, so
+  // it must not turn a successful delete into an error.
+  await storage.deleteProject(id).catch(() => undefined);
+
   return NextResponse.json({ ok: true });
 }

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import {
   CircleDot,
   ExternalLink,
-  FileUp,
   GitBranch,
   GitFork,
   GitPullRequest,
@@ -17,7 +16,6 @@ import {
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { FavoriteButton } from "@/components/projects/favorite-button";
 import {
   ArchiveButton,
@@ -28,6 +26,8 @@ import {
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { projectRepository } from "@/db/repositories";
 import { listProjectActivity } from "@/core/activity/service";
+import { listProjectFiles } from "@/core/files/service";
+import { ProjectFiles } from "@/components/projects/project-files";
 import { SOURCE_META, STATUS_META, TYPE_META, languageColor } from "@/core/projects/labels";
 import { githubLinks } from "@/core/github/types";
 import type { Project } from "@/core/projects/types";
@@ -82,7 +82,10 @@ export default async function ProjectDetailPage({
   const project = await projectRepository.findById(id);
   if (!project) notFound();
 
-  const activity = await listProjectActivity(project.id, 15);
+  const [activity, files] = await Promise.all([
+    listProjectActivity(project.id, 15),
+    listProjectFiles(project.id),
+  ]);
   const status = STATUS_META[project.status];
   const gh = githubMeta(project);
   const repoUrl = project.repositoryUrl ?? gh?.htmlUrl ?? null;
@@ -302,21 +305,17 @@ export default async function ProjectDetailPage({
             </CardBody>
           </Card>
 
-          {/* Files — Phase 3 */}
           <Card>
             <CardHeader>
               <CardTitle>Files &amp; assets</CardTitle>
-              <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-faint">
-                Phase 3
-              </span>
+              {files.length > 0 ? (
+                <span className="text-[12px] tabular-nums text-faint">
+                  {files.length}
+                </span>
+              ) : null}
             </CardHeader>
             <CardBody>
-              <EmptyState
-                icon={FileUp}
-                title="No files attached"
-                description="ZIP archives, documents, scripts and configuration files attach here once uploads ship. The storage layer and database table are already in place."
-                className="border-0 bg-transparent py-8"
-              />
+              <ProjectFiles projectId={project.id} files={files} />
             </CardBody>
           </Card>
 

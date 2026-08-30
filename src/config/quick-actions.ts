@@ -52,7 +52,8 @@ export const QUICK_ACTIONS: QuickAction[] = [
     description: "Import a ZIP, folder or asset",
     href: "/uploads",
     icon: FileUp,
-    phase: 3,
+    phase: 1,
+    shortcut: "U",
   },
   {
     label: "New AI Workspace",
