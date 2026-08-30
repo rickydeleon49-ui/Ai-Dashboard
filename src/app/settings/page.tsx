@@ -1,10 +1,12 @@
-import { Database, Github, Palette } from "lucide-react";
+import { Boxes, Database, Github, Palette } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { getConnection, getCredentialSource } from "@/core/github/service";
 import { describeSecret, SETTING_KEYS } from "@/core/settings/service";
 import { GitHubTokenForm } from "@/components/settings/github-token-form";
+import { UpdateCheck } from "@/components/settings/update-check";
+import { APP_VERSION } from "@/config/app";
 import { projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 
@@ -85,6 +87,18 @@ export default async function SettingsPage() {
               <code className="font-mono">UPLOADS_DIR</code>. On Railway, point them at a
               mounted volume so your data survives redeploys.
             </p>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Boxes className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+              Application
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <UpdateCheck version={APP_VERSION} />
           </CardBody>
         </Card>
 

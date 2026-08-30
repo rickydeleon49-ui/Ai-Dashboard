@@ -18,7 +18,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # publishing a release on a tag
 
 jobs:
   # The `matrix` context is not available to a job-level `if`, so the platform
@@ -86,6 +86,20 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+
+      # Tag pushes also publish a release, which is what the in-app update
+      # check reads. Manual runs only produce artifacts.
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          files: |
             release/*.exe
             release/*.dmg
             release/*.AppImage
