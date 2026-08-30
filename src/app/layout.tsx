@@ -31,17 +31,13 @@ export default async function RootLayout({
   // Migrations run once per process, before the first query.
   ensureDatabaseReady();
 
-  const [stats, projects] = await Promise.all([
+  // Runs on every navigation, so both reads are deliberately cheap: counts by
+  // aggregation, and the palette index as four columns rather than whole
+  // projects with their tags and metadata.
+  const [stats, paletteProjects] = await Promise.all([
     projectRepository.stats(),
-    projectRepository.list({ includeArchived: true, limit: 300 }),
+    projectRepository.listSummaries(),
   ]);
-
-  const paletteProjects = projects.map((project) => ({
-    id: project.id,
-    name: project.name,
-    source: project.source,
-    status: project.status,
-  }));
 
   return (
     <html lang="en" suppressHydrationWarning>

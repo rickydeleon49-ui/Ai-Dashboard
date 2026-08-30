@@ -2,7 +2,11 @@ import { and, desc, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "../client";
 import { activityEvents, projectTags, projects, tags } from "../schema";
 import type { ProjectRow } from "../schema";
-import type { ProjectRepository, TagCount } from "./project-repository";
+import type {
+  ProjectRepository,
+  ProjectSummary,
+  TagCount,
+} from "./project-repository";
 import type {
   Project,
   ProjectCreateInput,
@@ -90,6 +94,17 @@ function syncTags(projectId: string, tagNames: string[]): void {
   }
 }
 
+/**
+ * How many events to keep. The feed shows a dozen at a time and the detail page
+ * twenty, so this is generous — it exists to stop an append-only table growing
+ * without limit over years of use.
+ */
+const ACTIVITY_RETENTION = 1000;
+
+/** Prune every so often rather than on each write; the cap is not exact. */
+const PRUNE_INTERVAL = 50;
+let writesSincePrune = 0;
+
 function recordActivity(
   projectId: string | null,
   type: string,
@@ -106,6 +121,22 @@ function recordActivity(
       createdAt: nowIso(),
     })
     .run();
+
+  writesSincePrune += 1;
+  if (writesSincePrune < PRUNE_INTERVAL) return;
+  writesSincePrune = 0;
+
+  // Delete everything older than the newest ACTIVITY_RETENTION rows. The
+  // subquery reads a single row through the created_at index, so this stays
+  // cheap regardless of how large the table has become.
+  db.run(sql`
+    delete from ${activityEvents}
+    where ${activityEvents.createdAt} < (
+      select ${activityEvents.createdAt} from ${activityEvents}
+      order by ${activityEvents.createdAt} desc
+      limit 1 offset ${ACTIVITY_RETENTION}
+    )
+  `);
 }
 
 /**
@@ -194,6 +225,20 @@ export class DrizzleProjectRepository implements ProjectRepository {
     const rows = statement.all();
     const tagMap = loadTags(rows.map((r) => r.id));
     return rows.map((row) => toDomain(row, tagMap.get(row.id) ?? []));
+  }
+
+  async listSummaries(limit = 500): Promise<ProjectSummary[]> {
+    return db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        source: projects.source,
+        status: projects.status,
+      })
+      .from(projects)
+      .orderBy(desc(projects.updatedAt))
+      .limit(limit)
+      .all();
   }
 
   async findById(id: string): Promise<Project | null> {

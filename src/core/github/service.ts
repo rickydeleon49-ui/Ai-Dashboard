@@ -60,6 +60,26 @@ function rowToHub(row: GithubRepositoryRow): HubRepository {
   };
 }
 
+/*
+ * Connection probes hit the GitHub API, and three pages read the connection
+ * while rendering — the hub, settings and integrations. Without a cache, simply
+ * navigating between them spends network round-trips and rate limit on a value
+ * that changes only when credentials change.
+ *
+ * Cached per process with a short lifetime, and cleared explicitly on sync so a
+ * newly configured token is reflected immediately rather than after a wait.
+ */
+const CONNECTION_CACHE_MS = 5 * 60 * 1000;
+
+let connectionCache: {
+  at: number;
+  value: { provider: GitHubProvider; connection: GitHubConnection };
+} | null = null;
+
+export function invalidateConnectionCache(): void {
+  connectionCache = null;
+}
+
 /**
  * Picks the provider to actually read from, after checking that it works.
  *
@@ -69,6 +89,19 @@ function rowToHub(row: GithubRepositoryRow): HubRepository {
  * `connection.detail` so the UI can tell you exactly what to fix.
  */
 async function resolveProvider(): Promise<{
+  provider: GitHubProvider;
+  connection: GitHubConnection;
+}> {
+  if (connectionCache && Date.now() - connectionCache.at < CONNECTION_CACHE_MS) {
+    return connectionCache.value;
+  }
+
+  const resolved = await probeProvider();
+  connectionCache = { at: Date.now(), value: resolved };
+  return resolved;
+}
+
+async function probeProvider(): Promise<{
   provider: GitHubProvider;
   connection: GitHubConnection;
 }> {
@@ -123,6 +156,8 @@ export async function findCachedRepository(
  * any user edits on the linked project are never touched.
  */
 export async function syncRepositories(): Promise<SyncResult> {
+  // Syncing is the moment credentials are most likely to have just changed.
+  invalidateConnectionCache();
   const { provider, connection } = await resolveProvider();
   const repos = await provider.listRepositories();
   const syncedAt = new Date().toISOString();
