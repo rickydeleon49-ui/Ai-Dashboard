@@ -7,10 +7,34 @@
  */
 import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, rm, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+const require_ = createRequire(import.meta.url);
 const root = process.cwd();
+
+/**
+ * Locates the project's own Next.js install.
+ *
+ * Deliberately not `npx next`: when the project has no node_modules, npx
+ * silently runs some other copy of Next, which then fails deep inside the build
+ * with an opaque "Could not find the Next.js package" resolution error. Checking
+ * here turns that into one clear sentence.
+ */
+function resolveNextBin() {
+  try {
+    const pkg = require_.resolve("next/package.json");
+    return path.join(path.dirname(pkg), "dist", "bin", "next");
+  } catch {
+    console.error(
+      "Next.js is not installed in this project.\n" +
+        "Run `npm install` in the project directory first, and make sure it " +
+        "finishes without errors.",
+    );
+    process.exit(1);
+  }
+}
 const standalone = path.join(root, ".next", "standalone");
 
 async function exists(target) {
@@ -39,7 +63,9 @@ async function exists(target) {
 const buildDataDir = await mkdtemp(path.join(tmpdir(), "command-center-build-"));
 
 console.log("• building Next.js (standalone output)");
-const build = spawnSync("npx", ["next", "build"], {
+// Run the binary through the current Node executable: no shell, so there is no
+// argument-quoting difference between Windows and everything else.
+const build = spawnSync(process.execPath, [resolveNextBin(), "build"], {
   stdio: "inherit",
   env: {
     ...process.env,
@@ -47,7 +73,6 @@ const build = spawnSync("npx", ["next", "build"], {
     DATABASE_PATH: path.join(buildDataDir, "build.db"),
     UPLOADS_DIR: path.join(buildDataDir, "uploads"),
   },
-  shell: process.platform === "win32",
 });
 
 await rm(buildDataDir, { recursive: true, force: true });

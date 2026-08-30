@@ -6,13 +6,43 @@
  * Quitting either one tears down the other, so no orphan server is left behind.
  */
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import net from "node:net";
+import path from "node:path";
 
+const require_ = createRequire(import.meta.url);
 const PORT = Number(process.env.PORT ?? 3000);
 const URL_ = `http://localhost:${PORT}`;
 
-const isWindows = process.platform === "win32";
 let shuttingDown = false;
+
+/**
+ * Resolves a dependency's executable from this project.
+ *
+ * Going through npx would silently fall back to some other copy when the
+ * project has no node_modules, producing a confusing failure much later.
+ */
+function requireLocal(name, onMissing) {
+  try {
+    return require_(name);
+  } catch {
+    console.error(onMissing);
+    process.exit(1);
+  }
+}
+
+function nextBin() {
+  try {
+    const pkg = require_.resolve("next/package.json");
+    return path.join(path.dirname(pkg), "dist", "bin", "next");
+  } catch {
+    console.error(
+      "Next.js is not installed in this project.\n" +
+        "Run `npm install` first, and make sure it finishes without errors.",
+    );
+    process.exit(1);
+  }
+}
 
 function waitForPort(port, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
@@ -37,9 +67,9 @@ function waitForPort(port, timeoutMs = 90_000) {
   });
 }
 
-const next = spawn("npx", ["next", "dev", "--port", String(PORT)], {
+// No shell: argument quoting then behaves identically on every platform.
+const next = spawn(process.execPath, [nextBin(), "dev", "--port", String(PORT)], {
   stdio: "inherit",
-  shell: isWindows,
   env: process.env,
 });
 
@@ -65,9 +95,15 @@ try {
 
 console.log("Launching desktop shell…");
 
-const electron = spawn("npx", ["electron", "."], {
+// The electron package exports the path to its own binary.
+const electronBin = requireLocal(
+  "electron",
+  "Electron is not installed in this project.\n" +
+    "Run `npm install` first, and make sure it finishes without errors.",
+);
+
+const electron = spawn(electronBin, ["."], {
   stdio: "inherit",
-  shell: isWindows,
   env: { ...process.env, DESKTOP_DEV_URL: URL_ },
 });
 
