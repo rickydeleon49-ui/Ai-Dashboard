@@ -104,7 +104,6 @@
           ]
         }
       ],
-      "desktopName": "command-center.desktop",
       "synopsis": "Personal project command center"
     },
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
