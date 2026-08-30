@@ -12,6 +12,78 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 
+/**
+ * Builds a Windows .ico containing several sizes.
+ *
+ * Each entry is a classic BMP/DIB rather than an embedded PNG: NSIS parses the
+ * installer icon itself and rejects PNG-compressed entries with "invalid icon
+ * file", so a PNG — or a PNG-based .ico — cannot be used for the installer.
+ */
+async function buildIco(svgBuffer, sizes) {
+  const images = [];
+
+  for (const size of sizes) {
+    const rgba = await sharp(svgBuffer)
+      .resize(size, size)
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+
+    // DIB pixel data is BGRA and stored bottom-up.
+    const xor = Buffer.alloc(size * size * 4);
+    for (let y = 0; y < size; y += 1) {
+      const src = (size - 1 - y) * size * 4;
+      const dst = y * size * 4;
+      for (let x = 0; x < size * 4; x += 4) {
+        xor[dst + x] = rgba[src + x + 2];
+        xor[dst + x + 1] = rgba[src + x + 1];
+        xor[dst + x + 2] = rgba[src + x];
+        xor[dst + x + 3] = rgba[src + x + 3];
+      }
+    }
+
+    // 1bpp AND mask, rows padded to 4 bytes. Alpha carries transparency, so
+    // the mask is fully opaque (all zero) — but the structure must be present.
+    const maskRow = Math.ceil(size / 32) * 4;
+    const mask = Buffer.alloc(maskRow * size);
+
+    const header = Buffer.alloc(40);
+    header.writeUInt32LE(40, 0); // biSize
+    header.writeInt32LE(size, 4); // biWidth
+    header.writeInt32LE(size * 2, 8); // biHeight: XOR image plus AND mask
+    header.writeUInt16LE(1, 12); // biPlanes
+    header.writeUInt16LE(32, 14); // biBitCount
+    header.writeUInt32LE(0, 16); // biCompression: BI_RGB
+    header.writeUInt32LE(xor.length + mask.length, 20); // biSizeImage
+
+    images.push({ size, data: Buffer.concat([header, xor, mask]) });
+  }
+
+  const dir = Buffer.alloc(6);
+  dir.writeUInt16LE(0, 0); // reserved
+  dir.writeUInt16LE(1, 2); // type: icon
+  dir.writeUInt16LE(images.length, 4);
+
+  const entries = Buffer.alloc(16 * images.length);
+  let offset = dir.length + entries.length;
+
+  images.forEach((image, i) => {
+    const at = i * 16;
+    // 256 is encoded as 0 in a single byte.
+    entries.writeUInt8(image.size === 256 ? 0 : image.size, at);
+    entries.writeUInt8(image.size === 256 ? 0 : image.size, at + 1);
+    entries.writeUInt8(0, at + 2); // palette colours
+    entries.writeUInt8(0, at + 3); // reserved
+    entries.writeUInt16LE(1, at + 4); // colour planes
+    entries.writeUInt16LE(32, at + 6); // bits per pixel
+    entries.writeUInt32LE(image.data.length, at + 8);
+    entries.writeUInt32LE(offset, at + 12);
+    offset += image.data.length;
+  });
+
+  return Buffer.concat([dir, entries, ...images.map((i) => i.data)]);
+}
+
 const OUT = path.join(process.cwd(), "desktop", "resources");
 
 /*
@@ -52,9 +124,10 @@ const buffer = Buffer.from(svg);
 // electron-builder generates .ico / .icns from this single 1024px source.
 await sharp(buffer).resize(1024, 1024).png().toFile(path.join(OUT, "icon.png"));
 
-// A smaller copy for the Linux AppImage and the in-window title bar.
-await sharp(buffer).resize(512, 512).png().toFile(path.join(OUT, "icon@512.png"));
-
 await writeFile(path.join(OUT, "icon.svg"), svg.trimStart());
+
+// Windows: the app icon, the installer and the uninstaller all read this.
+const ico = await buildIco(buffer, [16, 24, 32, 48, 64, 128, 256]);
+await writeFile(path.join(OUT, "icon.ico"), ico);
 
 console.log("Icons written to desktop/resources/");

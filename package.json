@@ -92,7 +92,7 @@
           ]
         }
       ],
-      "icon": "desktop/resources/icon.png"
+      "icon": "desktop/resources/icon.ico"
     },
     "linux": {
       "category": "Development",
@@ -117,8 +117,8 @@
       "shortcutName": "Command Center",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "installerIcon": "desktop/resources/icon.png",
-      "uninstallerIcon": "desktop/resources/icon.png"
+      "installerIcon": "desktop/resources/icon.ico",
+      "uninstallerIcon": "desktop/resources/icon.ico"
     }
   }
 }
