@@ -6,7 +6,7 @@
  * served by a CDN. A desktop app has no CDN, so they are copied in here.
  */
 import { spawnSync } from "node:child_process";
-import { cp, mkdtemp, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readlink, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -101,6 +101,50 @@ if (await exists(path.join(root, "public"))) {
     recursive: true,
   });
   console.log("• copied public/");
+}
+
+/*
+ * Replace symlinks with real copies.
+ *
+ * Next emits the standalone bundle with a symlink per external server package
+ * (better-sqlite3 here), pointing at the real copy inside the same bundle.
+ * That is fine on the machine that builds it, but electron-builder recreates
+ * every symlink when it copies the bundle into the app — and creating a symlink
+ * on Windows requires Administrator rights or Developer Mode, so packaging fails
+ * with EPERM for anyone who has neither.
+ *
+ * Materialising the links keeps resolution behaviour identical and leaves the
+ * bundle as plain files, which every platform can copy without special rights.
+ */
+async function materializeSymlinks(dir) {
+  let replaced = 0;
+
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+
+    if (entry.isSymbolicLink()) {
+      const target = path.resolve(path.dirname(full), await readlink(full));
+      if (!(await exists(target))) {
+        // A link to something outside the bundle would be dangling once
+        // packaged; dropping it is better than shipping a broken path.
+        await rm(full, { force: true });
+        console.log(`• removed dangling symlink ${entry.name}`);
+        continue;
+      }
+      await rm(full, { recursive: true, force: true });
+      await cp(target, full, { recursive: true, dereference: true });
+      replaced += 1;
+    } else if (entry.isDirectory()) {
+      replaced += await materializeSymlinks(full);
+    }
+  }
+
+  return replaced;
+}
+
+const replaced = await materializeSymlinks(standalone);
+if (replaced > 0) {
+  console.log(`• replaced ${replaced} symlink(s) with real files (Windows cannot create them without elevation)`);
 }
 
 /*
