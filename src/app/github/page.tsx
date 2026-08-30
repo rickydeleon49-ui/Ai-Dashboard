@@ -70,16 +70,22 @@ export default async function GitHubPage() {
                       className="text-[var(--accent-text)] hover:underline"
                     >
                       github.com/settings/tokens
-                    </a>{" "}
-                    with the <code className="font-mono text-[11.5px]">repo</code> scope.
+                    </a>
+                    . Fine-grained tokens need repository access plus Contents and
+                    Metadata read; classic tokens need the{" "}
+                    <code className="font-mono text-[11.5px]">repo</code> scope.
                   </li>
                   <li>
-                    Add{" "}
-                    <code className="font-mono text-[11.5px]">GITHUB_TOKEN=…</code> to
-                    your <code className="font-mono text-[11.5px]">.env.local</code> (or
-                    Railway service variables).
+                    Paste it into{" "}
+                    <Link
+                      href="/settings"
+                      className="text-[var(--accent-text)] hover:underline"
+                    >
+                      Settings
+                    </Link>
+                    . No restart needed.
                   </li>
-                  <li>Restart the app and press Sync repositories.</li>
+                  <li>Come back here and press Sync repositories.</li>
                 </ol>
                 <p className="text-[11.5px] text-faint">
                   Phase 2 replaces this with a full OAuth flow — the interface below

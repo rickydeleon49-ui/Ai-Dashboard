@@ -2,7 +2,9 @@ import { Database, Github, Palette } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { getConnection } from "@/core/github/service";
+import { getConnection, getCredentialSource } from "@/core/github/service";
+import { describeSecret, SETTING_KEYS } from "@/core/settings/service";
+import { GitHubTokenForm } from "@/components/settings/github-token-form";
 import { projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 
@@ -10,11 +12,14 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [stats, github, tags] = await Promise.all([
+  const [stats, github, tags, credentialSource] = await Promise.all([
     projectRepository.stats(),
     getConnection(),
     projectRepository.allTags(),
+    getCredentialSource(),
   ]);
+
+  const tokenStatus = describeSecret(SETTING_KEYS.githubToken);
 
   return (
     <div className="space-y-5">
@@ -23,7 +28,8 @@ export default async function SettingsPage() {
         description="How this dashboard is configured and where its data lives."
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* items-start so a tall card does not stretch its neighbour. */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-1.5">
@@ -49,11 +55,18 @@ export default async function SettingsPage() {
               GitHub
             </CardTitle>
           </CardHeader>
-          <CardBody className="space-y-2">
+          <CardBody className="space-y-3">
             <Row label="Status" value={github.connected ? "Connected" : "Not connected"} />
             <Row label="Mode" value={github.mode} />
             {github.account ? <Row label="Account" value={`@${github.account.login}`} /> : null}
-            <p className="pt-1 text-[12px] leading-relaxed text-muted">{github.detail}</p>
+            <p className="text-[12px] leading-relaxed text-muted">{github.detail}</p>
+
+            <div className="border-t border-line pt-3">
+              <GitHubTokenForm
+                status={tokenStatus}
+                credentialSource={credentialSource}
+              />
+            </div>
           </CardBody>
         </Card>
 

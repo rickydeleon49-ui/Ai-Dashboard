@@ -6,7 +6,7 @@ import { activityEvents, githubRepositories } from "@/db/schema";
 import type { GithubRepositoryRow } from "@/db/schema";
 import { projectRepository } from "@/db/repositories";
 import { createId } from "@/lib/ids";
-import { getGitHubProvider } from "./provider";
+import { resolveGitHubProvider, type CredentialSource } from "./provider";
 import { DemoGitHubProvider } from "./demo-provider";
 import type {
   GitHubConnection,
@@ -71,10 +71,13 @@ function rowToHub(row: GithubRepositoryRow): HubRepository {
  */
 const CONNECTION_CACHE_MS = 5 * 60 * 1000;
 
-let connectionCache: {
-  at: number;
-  value: { provider: GitHubProvider; connection: GitHubConnection };
-} | null = null;
+interface ResolvedConnection {
+  provider: GitHubProvider;
+  connection: GitHubConnection;
+  credentialSource: CredentialSource;
+}
+
+let connectionCache: { at: number; value: ResolvedConnection } | null = null;
 
 export function invalidateConnectionCache(): void {
   connectionCache = null;
@@ -88,10 +91,7 @@ export function invalidateConnectionCache(): void {
  * token falls back to the demo provider — with the real reason preserved in
  * `connection.detail` so the UI can tell you exactly what to fix.
  */
-async function resolveProvider(): Promise<{
-  provider: GitHubProvider;
-  connection: GitHubConnection;
-}> {
+async function resolveProvider(): Promise<ResolvedConnection> {
   if (connectionCache && Date.now() - connectionCache.at < CONNECTION_CACHE_MS) {
     return connectionCache.value;
   }
@@ -101,20 +101,18 @@ async function resolveProvider(): Promise<{
   return resolved;
 }
 
-async function probeProvider(): Promise<{
-  provider: GitHubProvider;
-  connection: GitHubConnection;
-}> {
-  const configured = getGitHubProvider();
+async function probeProvider(): Promise<ResolvedConnection> {
+  const { provider: configured, credentialSource } = resolveGitHubProvider();
   const connection = await configured.getConnection();
 
   if (connection.connected || configured.mode === "demo") {
-    return { provider: configured, connection };
+    return { provider: configured, connection, credentialSource };
   }
 
   const fallback = new DemoGitHubProvider();
   return {
     provider: fallback,
+    credentialSource,
     connection: {
       ...connection,
       mode: "demo",
@@ -122,6 +120,11 @@ async function probeProvider(): Promise<{
       detail: `${connection.detail} Falling back to demo repositories until a working token is configured.`,
     },
   };
+}
+
+/** Which credential the hub and settings screens are currently using. */
+export async function getCredentialSource(): Promise<CredentialSource> {
+  return (await resolveProvider()).credentialSource;
 }
 
 export async function getConnection(): Promise<GitHubConnection> {
