@@ -33,6 +33,13 @@ let mainWindow = null;
 let serverProcess = null;
 let baseUrl = "http://localhost:3000";
 
+/** Set once the user is quitting, so a dying server is not treated as a crash. */
+let quitting = false;
+/** Environment for the bundled server, kept so it can be restarted. */
+let serverEnv = null;
+let restartAttempts = 0;
+const MAX_RESTART_ATTEMPTS = 3;
+
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
@@ -142,6 +149,7 @@ function waitForServer(url, timeoutMs = 30_000) {
  * process also means a server crash cannot take the window down with it.
  */
 async function startServer(env) {
+  serverEnv = env;
   const port = await findFreePort();
   const root = serverRoot();
   const serverEntry = path.join(root, "server.js");
@@ -161,6 +169,10 @@ async function startServer(env) {
       ELECTRON_RUN_AS_NODE: "1",
       PORT: String(port),
       HOSTNAME: "127.0.0.1",
+      // Tells the server it is running locally, so it does not demand the
+      // password a public deployment requires. Safe because the server binds
+      // 127.0.0.1 on a random port and nothing off this machine can reach it.
+      DASHBOARD_LOCAL: "1",
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
@@ -168,9 +180,59 @@ async function startServer(env) {
   serverProcess.stdout?.on("data", (d) => console.log(`[next] ${d}`.trimEnd()));
   serverProcess.stderr?.on("data", (d) => console.error(`[next] ${d}`.trimEnd()));
 
+  // The window is only a view onto this process. If it dies the app is not
+  // closed — it is showing a page that will never load again — so recover
+  // rather than leaving a window that looks broken with no explanation.
+  serverProcess.on("exit", (code, signal) => {
+    if (quitting) return;
+    console.error(`[next] server exited unexpectedly (code=${code} signal=${signal})`);
+    void recoverFromServerCrash();
+  });
+
   const url = `http://127.0.0.1:${port}`;
   await waitForServer(url);
   return url;
+}
+
+/**
+ * Restarts the bundled server after an unexpected exit and reloads the window.
+ *
+ * Bounded: a server that cannot stay up would otherwise restart forever behind a
+ * blank window. After the limit the user is told what happened instead.
+ */
+async function recoverFromServerCrash() {
+  serverProcess = null;
+
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    dialog.showErrorBox(
+      "Command Center stopped responding",
+      "Its background service exited repeatedly and could not be restarted.\n\n" +
+        "Reopening the application usually clears this. If it keeps happening, " +
+        "the log from a terminal launch will show why the service is failing.",
+    );
+    app.quit();
+    return;
+  }
+
+  restartAttempts += 1;
+
+  try {
+    baseUrl = await startServer(serverEnv ?? {});
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.loadURL(baseUrl);
+    }
+    // A restart that survives long enough to serve the window is treated as a
+    // recovery, so an unrelated crash weeks later gets a full set of retries.
+    setTimeout(() => {
+      restartAttempts = 0;
+    }, 60_000);
+  } catch (error) {
+    dialog.showErrorBox(
+      "Command Center could not restart its background service",
+      error instanceof Error ? error.message : String(error),
+    );
+    app.quit();
+  }
 }
 
 function stopServer() {
@@ -371,6 +433,12 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", stopServer);
-  app.on("will-quit", stopServer);
+  app.on("before-quit", () => {
+    quitting = true;
+    stopServer();
+  });
+  app.on("will-quit", () => {
+    quitting = true;
+    stopServer();
+  });
 }
