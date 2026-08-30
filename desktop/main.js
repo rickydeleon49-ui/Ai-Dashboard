@@ -20,10 +20,10 @@ const isDev = !app.isPackaged;
 /**
  * Where the packaged Next standalone server lives.
  *
- * Packaging runs with asar disabled so that both `fork()` and Node's module
- * resolution see real files on disk. That matters for better-sqlite3: the
- * server resolves it upward to the app's own copy, which electron-builder has
- * rebuilt against Electron's ABI.
+ * Packaging runs with asar disabled so that `fork()` and the native
+ * better-sqlite3 binary both see real files on disk — neither works from inside
+ * an asar archive. The binary itself is Node-API, so the same file is valid
+ * under plain Node and under Electron with no rebuild step.
  */
 function serverRoot() {
   return path.join(app.getAppPath(), ".next", "standalone");

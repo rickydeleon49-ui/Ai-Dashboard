@@ -24,9 +24,16 @@ Building an installer for the machine you are on:
 npm run desktop:package     # -> release/
 ```
 
-`desktop:package:all` targets macOS, Windows and Linux at once, but each
-platform's installer must be built on that platform (or in CI) — code signing
-and native rebuilds are platform-specific.
+No compiler or build tools are required — the one native dependency ships
+Node-API binaries that work unmodified in both Node and Electron.
+
+Installers are platform-specific, so a Windows `.exe` must be produced on
+Windows and a macOS `.dmg` on macOS. The **Desktop build** GitHub Actions
+workflow does this on hosted runners: run it from the Actions tab, pick a
+platform, and download the installer from the run's artifacts.
+
+The Windows installer is per-user (no admin prompt) and creates a desktop
+shortcut and Start Menu entry named **Command Center**.
 
 ## Quick start — web
 

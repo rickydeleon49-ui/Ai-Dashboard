@@ -1,0 +1,79 @@
+# Builds the desktop installers.
+#
+# Packaging compiles better-sqlite3 against Electron's ABI, which needs the
+# platform's native toolchain — so each installer must be produced on its own
+# operating system. Run this workflow from the Actions tab and download the
+# installer from the run's artifacts.
+name: Desktop build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform to build for
+        type: choice
+        default: windows
+        options: [windows, macos, linux, all]
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Job-level `if` can read the matrix, so one matrix serves every choice.
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == matrix.id
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows
+            os: windows-latest
+            flag: "--win"
+          - id: macos
+            os: macos-latest
+            flag: "--mac"
+          - id: linux
+            os: ubuntu-latest
+            flag: "--linux"
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the application bundle
+        run: npm run desktop:build
+
+      - name: Package installer
+        # Unsigned builds: skip the certificate lookup that would otherwise
+        # fail the macOS job. Signing can be added later with real credentials.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GH_TOKEN: ""
+        run: npx electron-builder ${{ matrix.flag }} --publish never
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: command-center-${{ matrix.id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.zip

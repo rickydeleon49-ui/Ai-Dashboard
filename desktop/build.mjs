@@ -79,20 +79,6 @@ if (await exists(path.join(root, "public"))) {
 }
 
 /*
- * Drop the traced copy of better-sqlite3.
- *
- * Next traces the binary that was built for plain Node. Electron runs a
- * different ABI, so leaving this copy in place would shadow — and crash against
- * — the one electron-builder rebuilds. Removing it makes Node's resolution walk
- * up to the application's own correctly-built copy.
- */
-const tracedNative = path.join(standalone, "node_modules", "better-sqlite3");
-if (await exists(tracedNative)) {
-  await rm(tracedNative, { recursive: true, force: true });
-  console.log("• removed traced better-sqlite3 (Electron rebuilds its own)");
-}
-
-/*
  * Migrations must ship: the app applies them on first launch so a new install
  * (or a new machine) creates its database without a manual step.
  */

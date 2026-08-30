@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Personal AI Dashboard / Command Center \u2014 web and desktop",
+  "author": "rickydeleon49-ui",
   "engines": {
     "node": ">=20"
   },
@@ -19,10 +20,11 @@
     "desktop:dev": "node desktop/dev.mjs",
     "desktop:build": "node desktop/build.mjs",
     "desktop:package": "npm run desktop:build && electron-builder --publish never",
-    "desktop:package:all": "npm run desktop:build && electron-builder -mwl --publish never"
+    "desktop:package:all": "npm run desktop:build && electron-builder -mwl --publish never",
+    "desktop:icon": "node desktop/make-icon.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.44.2",
     "lucide-react": "^0.544.0",
@@ -34,7 +36,6 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.2.0",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.0",
@@ -45,6 +46,7 @@
     "electron-builder": "^26.15.3",
     "eslint": "^9.35.0",
     "eslint-config-next": "16.3.3",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.1.13",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
@@ -66,9 +68,10 @@
       "!**/*.map",
       "!**/{test,tests,__tests__,example,examples}/**"
     ],
-    "npmRebuild": true,
+    "npmRebuild": false,
     "mac": {
       "category": "public.app-category.developer-tools",
+      "icon": "desktop/resources/icon.png",
       "target": [
         {
           "target": "dmg",
@@ -87,10 +90,12 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "desktop/resources/icon.png"
     },
     "linux": {
       "category": "Development",
+      "icon": "desktop/resources/icon.png",
       "target": [
         {
           "target": "AppImage",
@@ -98,7 +103,22 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "desktopName": "command-center.desktop",
+      "synopsis": "Personal project command center"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Command Center",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "desktop/resources/icon.png",
+      "uninstallerIcon": "desktop/resources/icon.png"
     }
   }
 }

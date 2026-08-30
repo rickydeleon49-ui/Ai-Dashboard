@@ -176,11 +176,25 @@ Three decisions carry it:
 - **Standalone output is conditional.** `output: "standalone"` is enabled only when
   `DESKTOP_BUILD=1`, because `next start` rejects standalone output. One codebase
   still ships to both Railway and the desktop.
-- **asar is disabled.** `fork()` and Node's module resolution both need real files
-  on disk. This is what lets the packaged server resolve `better-sqlite3` upward to
-  the application's own copy — the one electron-builder rebuilt against Electron's
-  ABI. The traced copy Next emits is built for plain Node and is deliberately
-  deleted during the build (`desktop/build.mjs`).
+- **asar is disabled.** `fork()` cannot execute a script from inside an asar
+  archive, and a native `.node` binary cannot be loaded from one either. Both need
+  real files on disk.
+
+### No native rebuild step
+
+Electron and Node use different V8 ABIs, so a native module normally has to be
+recompiled at packaging time — which means a full toolchain (Visual Studio Build
+Tools on Windows) on every machine that packages the app.
+
+better-sqlite3 v13 ships **Node-API** binaries instead, one per platform, inside
+the published package. Node-API is ABI-stable across both Node versions and
+Electron versions, so the same binary file is valid in every runtime this project
+uses. `npmRebuild` is therefore set to `false`: there is nothing to rebuild,
+packaging needs no compiler, and the web and desktop targets share one binary.
+
+This is worth preserving. Pinning to a native module that needs `node-gyp` would
+reintroduce a toolchain requirement on every developer machine and every CI
+runner.
 
 ### Security posture
 
