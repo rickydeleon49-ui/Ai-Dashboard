@@ -6,7 +6,8 @@ import { buttonClasses } from "@/components/ui/button";
 import { ProjectFilters } from "@/components/projects/project-filters";
 import { ProjectGrid } from "@/components/projects/project-card";
 import { projectRepository } from "@/db/repositories";
-import { buildQuery, type SearchParams } from "@/app/projects/page";
+import { buildProjectQuery } from "@/core/projects/query";
+import type { SearchParams } from "@/lib/routing";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Favorites" };
@@ -18,7 +19,7 @@ export default async function FavoritesPage({
 }) {
   const raw = await searchParams;
   const [projects, tags] = await Promise.all([
-    projectRepository.list(buildQuery(raw, { favorite: true })),
+    projectRepository.list(buildProjectQuery(raw, { favorite: true })),
     projectRepository.allTags(),
   ]);
 

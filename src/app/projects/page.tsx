@@ -6,45 +6,11 @@ import { buttonClasses } from "@/components/ui/button";
 import { ProjectFilters } from "@/components/projects/project-filters";
 import { ProjectGrid } from "@/components/projects/project-card";
 import { projectRepository } from "@/db/repositories";
-import { projectQuerySchema } from "@/core/projects/schema";
-import type { ProjectQuery } from "@/core/projects/types";
+import { buildProjectQuery } from "@/core/projects/query";
+import type { SearchParams } from "@/lib/routing";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "All Projects" };
-
-export type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-/**
- * Translates URL search params into a repository query.
- * Shared by every listing page so filters behave identically everywhere.
- */
-export function buildQuery(
-  raw: Record<string, string | string[] | undefined>,
-  overrides: Partial<ProjectQuery> = {},
-): ProjectQuery {
-  const flat = Object.fromEntries(
-    Object.entries(raw).map(([key, value]) => [
-      key,
-      Array.isArray(value) ? value[0] : value,
-    ]),
-  );
-
-  const parsed = projectQuerySchema.safeParse({
-    search: flat.search,
-    source: flat.source,
-    status: flat.status,
-    type: flat.type,
-    tag: flat.tag,
-    sort: flat.sort,
-  });
-
-  const base: ProjectQuery = parsed.success ? parsed.data : {};
-  return {
-    ...base,
-    includeArchived: flat.archived === "1",
-    ...overrides,
-  };
-}
 
 export default async function ProjectsPage({
   searchParams,
@@ -52,7 +18,7 @@ export default async function ProjectsPage({
   searchParams: SearchParams;
 }) {
   const raw = await searchParams;
-  const query = buildQuery(raw);
+  const query = buildProjectQuery(raw);
 
   const [projects, tags] = await Promise.all([
     projectRepository.list(query),

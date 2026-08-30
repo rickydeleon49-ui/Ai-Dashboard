@@ -8,11 +8,6 @@ const nextConfig: NextConfig = {
   // It stays off for the web build because `next start` rejects standalone output,
   // so one codebase still ships to both Railway and the desktop.
   output: process.env.DESKTOP_BUILD === "1" ? "standalone" : undefined,
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "avatars.githubusercontent.com" },
-    ],
-  },
 };
 
 export default nextConfig;
