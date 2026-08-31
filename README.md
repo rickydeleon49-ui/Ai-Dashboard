@@ -70,9 +70,10 @@ scope; a fine-grained token needs repository access plus **Contents: Read** and
 **Metadata: Read** — fine-grained tokens grant nothing by default, so both must
 be set explicitly.
 
-**Or connect an account.** Set `GITHUB_CLIENT_ID` and Settings gains
-**Connect with GitHub**: it shows a short code, you approve it in the browser,
-and the connection completes — no token to create, no permissions to pick.
+**Or connect an account.** Paste an OAuth app Client ID into Settings (or set
+`GITHUB_CLIENT_ID`) and Settings gains **Connect with GitHub**: it shows a short
+code, you approve it in the browser, and the connection completes — no token to
+create, no permissions to pick.
 
 Create the OAuth App at [github.com/settings/developers](https://github.com/settings/developers).
 The callback URL is required by the form but unused (`http://localhost` is fine),

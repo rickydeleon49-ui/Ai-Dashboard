@@ -1,5 +1,7 @@
 import "server-only";
 
+import { getSetting, SETTING_KEYS } from "@/core/settings/service";
+
 /**
  * GitHub OAuth via the Device Authorization Grant.
  *
@@ -44,8 +46,30 @@ export type DevicePollResult =
   | { status: "denied" }
   | { status: "error"; message: string };
 
+/**
+ * The OAuth app to authorise against.
+ *
+ * Settings first, environment second — the same order the access token uses,
+ * and for the same reason: an installed desktop application has no terminal in
+ * front of it, so anything a person must configure has to be configurable from
+ * inside the app. The environment remains for servers and CI.
+ *
+ * A client id is public by design, so unlike the token it is safe to display.
+ */
 export function getClientId(): string | null {
-  return process.env.GITHUB_CLIENT_ID?.trim() || null;
+  return (
+    getSetting(SETTING_KEYS.githubClientId) ??
+    process.env.GITHUB_CLIENT_ID?.trim() ??
+    null
+  );
+}
+
+export type ClientIdSource = "settings" | "environment" | "none";
+
+export function getClientIdSource(): ClientIdSource {
+  if (getSetting(SETTING_KEYS.githubClientId)) return "settings";
+  if (process.env.GITHUB_CLIENT_ID?.trim()) return "environment";
+  return "none";
 }
 
 export function isDeviceFlowConfigured(): boolean {
@@ -57,7 +81,7 @@ export async function startDeviceFlow(): Promise<DeviceFlowStart> {
   const clientId = getClientId();
   if (!clientId) {
     throw new Error(
-      "No GitHub client id configured. Set GITHUB_CLIENT_ID to enable Connect with GitHub.",
+      "No GitHub OAuth app configured. Add a Client ID in Settings to enable Connect with GitHub.",
     );
   }
 

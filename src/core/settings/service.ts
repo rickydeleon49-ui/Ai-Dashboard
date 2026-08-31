@@ -18,6 +18,8 @@ export const SETTING_KEYS = {
   githubToken: "github.token",
   /** How the stored token was obtained: "oauth" or "pat". */
   githubTokenOrigin: "github.token_origin",
+  /** OAuth app client id enabling "Connect with GitHub". Not a secret. */
+  githubClientId: "github.client_id",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];

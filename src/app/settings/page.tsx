@@ -6,7 +6,12 @@ import { getConnection, getCredentialSource } from "@/core/github/service";
 import { describeSecret, SETTING_KEYS } from "@/core/settings/service";
 import { GitHubTokenForm } from "@/components/settings/github-token-form";
 import { GitHubConnect } from "@/components/settings/github-connect";
-import { isDeviceFlowConfigured } from "@/core/github/device-flow";
+import {
+  getClientId,
+  getClientIdSource,
+  isDeviceFlowConfigured,
+} from "@/core/github/device-flow";
+import { GitHubClientIdForm } from "@/components/settings/github-client-id-form";
 import { UpdateCheck } from "@/components/settings/update-check";
 import { APP_VERSION } from "@/config/app";
 import { projectRepository } from "@/db/repositories";
@@ -25,6 +30,8 @@ export default async function SettingsPage() {
 
   const tokenStatus = describeSecret(SETTING_KEYS.githubToken);
   const canConnect = isDeviceFlowConfigured();
+  const clientId = getClientId();
+  const clientIdSource = getClientIdSource();
 
   return (
     <div className="space-y-5">
@@ -70,7 +77,13 @@ export default async function SettingsPage() {
               <div className="border-t border-line pt-3">
                 <GitHubConnect connected={github.connected} />
               </div>
-            ) : null}
+            ) : (
+              /* Without a client id there is nothing to connect to, so the
+                 setup is shown outright rather than hidden behind a summary. */
+              <div className="border-t border-line pt-3">
+                <GitHubClientIdForm clientId={clientId} source={clientIdSource} />
+              </div>
+            )}
 
             <details className="border-t border-line pt-3">
               <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
@@ -85,6 +98,17 @@ export default async function SettingsPage() {
                 />
               </div>
             </details>
+
+            {canConnect ? (
+              <details className="border-t border-line pt-3">
+                <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
+                  OAuth app
+                </summary>
+                <div className="pt-3">
+                  <GitHubClientIdForm clientId={clientId} source={clientIdSource} />
+                </div>
+              </details>
+            ) : null}
           </CardBody>
         </Card>
 
