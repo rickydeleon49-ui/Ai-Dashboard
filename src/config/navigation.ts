@@ -29,7 +29,7 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   /** Shown as a small trailing count; resolved at render time. */
-  countKey?: "total" | "github" | "uploaded" | "favorites" | "active";
+  countKey?: "total" | "github" | "uploaded" | "favorites" | "active" | "prompts";
   /** 1 = shipped now. Higher numbers render as upcoming. */
   phase: number;
 }
@@ -58,9 +58,9 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "AI",
     items: [
-      { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 4 },
-      { label: "Prompts", href: "/ai/prompts", icon: Bot, phase: 4 },
-      { label: "Workflows", href: "/ai/workflows", icon: Workflow, phase: 4 },
+      { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
+      { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
+      { label: "Workflows", href: "/ai/workflows", icon: Workflow, phase: 5 },
     ],
   },
   {

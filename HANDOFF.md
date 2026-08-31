@@ -204,7 +204,9 @@ Phases 2–5 are described in `docs/ARCHITECTURE.md`. In order:
   The hub UI does not change.
 - **Phase 3 — Uploads.** Shipped: storage driver, upload and download routes,
   a file panel on the detail page, and an upload-first project flow.
-- **Phase 4 — AI.** The `prompts` table is already migrated.
+- **Phase 4 — AI.** Shipped: prompt library (CRUD, search over bodies,
+  categories, favourites) and an AI workspace hub. Workflows stayed scaffolded —
+  they need Phase 5's runner to mean anything.
 - **Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
 
 ### Audit follow-ups, all completed

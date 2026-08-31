@@ -56,11 +56,12 @@ export const QUICK_ACTIONS: QuickAction[] = [
     shortcut: "U",
   },
   {
-    label: "New AI Workspace",
-    description: "Assistants, agents and workflows",
-    href: "/ai",
+    label: "New Prompt",
+    description: "Save a prompt you keep rewriting",
+    href: "/ai/prompts/new",
     icon: Sparkles,
-    phase: 4,
+    phase: 1,
+    shortcut: "P",
   },
   {
     label: "Add Note",

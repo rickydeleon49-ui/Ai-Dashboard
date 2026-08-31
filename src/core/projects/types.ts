@@ -126,7 +126,13 @@ export const PROJECT_SORTS = [
 ] as const;
 export type ProjectSort = (typeof PROJECT_SORTS)[number];
 
-/** Aggregate counts powering the dashboard overview. */
+/**
+ * Aggregate counts powering the dashboard overview and sidebar.
+ *
+ * `prompts` is not a project count, but the sidebar renders one badge per entry
+ * from a single object, and threading a second source through every consumer to
+ * avoid one field would cost more than it explains.
+ */
 export interface ProjectStats {
   total: number;
   active: number;
@@ -136,5 +142,6 @@ export interface ProjectStats {
   favorites: number;
   archived: number;
   completed: number;
+  prompts: number;
   byStatus: Record<ProjectStatus, number>;
 }

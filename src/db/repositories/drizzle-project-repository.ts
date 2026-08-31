@@ -1,6 +1,6 @@
 import { and, desc, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "../client";
-import { activityEvents, projectTags, projects, tags } from "../schema";
+import { activityEvents, projectTags, projects, prompts, tags } from "../schema";
 import type { ProjectRow } from "../schema";
 import type {
   ProjectRepository,
@@ -378,8 +378,14 @@ export class DrizzleProjectRepository implements ProjectRepository {
       PROJECT_STATUSES.map((s) => [s, 0]),
     ) as Record<ProjectStatus, number>;
 
+    // One extra scalar read rather than a second source threaded through every
+    // consumer of stats; see the note on ProjectStats.
+    const promptCount =
+      db.get<{ c: number }>(sql`select count(*) as c from ${prompts}`)?.c ?? 0;
+
     const stats: ProjectStats = {
       total: 0,
+      prompts: promptCount,
       active: 0,
       github: 0,
       uploaded: 0,

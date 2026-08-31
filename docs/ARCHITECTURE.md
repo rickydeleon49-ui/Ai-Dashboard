@@ -250,7 +250,14 @@ page, and an upload-first flow for projects that do not live on GitHub. Uploaded
 filenames are display data only — files on disk are named by generated id, so a
 filename can never become a path.
 
-**Phase 4 — AI.** `prompts` is migrated. Build the workspace, prompt library and
+**Phase 4 — AI (shipped).** A prompt library with full CRUD, search across
+titles *and* bodies, categories and favourites; and an AI workspace collecting
+prompts, AI-typed projects and one-click links to the tools you actually use.
+
+Workflows deliberately stayed scaffolded. A workflow that cannot be executed is
+only a list, and what executes it — a scheduler, run history, somewhere for
+results to land — is Phase 5. Building the UI first would have produced
+something that looked finished and did nothing.
 workflows on the same repository pattern.
 
 **Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
