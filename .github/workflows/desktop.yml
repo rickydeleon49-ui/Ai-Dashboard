@@ -4,6 +4,11 @@
 # and a macOS .dmg on macOS — so each target runs on its own hosted runner.
 # Run this from the Actions tab, pick a platform, then download the installer
 # from the run's Artifacts section.
+#
+# The same constraint applies to architecture, which is why the macOS target is
+# arm64 only. better-sqlite3 downloads a prebuilt binary for the installing
+# machine, so an x64 dmg produced on an arm64 runner would ship an arm64 native
+# module and crash on launch. Building for Intel needs an x64 runner.
 name: Desktop build
 
 on:
