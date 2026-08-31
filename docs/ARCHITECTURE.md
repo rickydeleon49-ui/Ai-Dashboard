@@ -232,9 +232,17 @@ project cards, detail page, search, filtering, manual CRUD, favorites, archive,
 tags, activity feed, command palette, dark/light themes, GitHub hub with a real
 client and demo fallback.
 
-**Phase 2 — GitHub OAuth.** Add `OAuthGitHubProvider` and the callback route.
-Token storage in `settings` already exists and backs the token field on the
-settings screen, so OAuth writes to the same key. The hub UI does not change.
+**Phase 2 — GitHub OAuth (shipped).** Connecting an account uses GitHub's device
+flow rather than the authorization-code flow. The redirect flow does not fit a
+desktop application: it needs a registered callback URL, but the bundled server
+listens on a different random port each launch, and it needs a client secret,
+which in a distributed installer is not secret. The device flow needs neither —
+only a public client id — and it grants classic scopes, avoiding the
+fine-grained repository/permission configuration that is easy to get wrong.
+
+No new provider was required. The token it returns is stored under the same
+settings key a pasted token uses, so `resolveGitHubProvider` was unchanged apart
+from recording which route produced the credential.
 
 **Phase 3 — Uploads (shipped).** A `StorageDriver` interface behind a local-disk
 implementation, upload and download routes, a file panel on the project detail

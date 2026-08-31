@@ -64,15 +64,21 @@ your entire library. Running the web version instead uses `./data`, or whatever
 The dashboard ships with a **real** GitHub client. Without credentials it runs on
 a clearly-labelled demo set so the hub is explorable immediately.
 
-To pull your actual repositories:
+**Paste a token.** Settings → GitHub → paste a personal access token → Sync. It
+takes effect immediately, with no restart. A classic token needs the `repo`
+scope; a fine-grained token needs repository access plus **Contents: Read** and
+**Metadata: Read** — fine-grained tokens grant nothing by default, so both must
+be set explicitly.
 
-1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens)
-   with the `repo` scope (or `public_repo` for public repositories only).
-2. Add it to `.env.local`:
-   ```
-   GITHUB_TOKEN=ghp_your_token_here
-   ```
-3. Restart, open **GitHub** in the sidebar, and press **Sync repositories**.
+**Or connect an account.** Set `GITHUB_CLIENT_ID` and Settings gains
+**Connect with GitHub**: it shows a short code, you approve it in the browser,
+and the connection completes — no token to create, no permissions to pick.
+
+Create the OAuth App at [github.com/settings/developers](https://github.com/settings/developers).
+The callback URL is required by the form but unused (`http://localhost` is fine),
+and **Enable Device Flow** must be ticked. Only the Client ID is needed; the
+device flow uses no client secret, which is what makes it safe for a desktop
+application.
 
 Repositories are cached locally. Press **Add** on any repository to make it a
 first-class project on your dashboard. Re-syncing refreshes upstream metadata

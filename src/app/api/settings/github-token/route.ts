@@ -32,6 +32,8 @@ export async function PUT(request: Request) {
   }
 
   setSetting(SETTING_KEYS.githubToken, parsed.data.token);
+  // A pasted token is not an OAuth one; do not let a stale origin claim it is.
+  setSetting(SETTING_KEYS.githubTokenOrigin, "pat");
   // The next read must probe with the new credential, not a cached verdict.
   invalidateConnectionCache();
 
@@ -43,6 +45,7 @@ export async function PUT(request: Request) {
 export async function DELETE() {
   ensureDatabaseReady();
   deleteSetting(SETTING_KEYS.githubToken);
+  deleteSetting(SETTING_KEYS.githubTokenOrigin);
   invalidateConnectionCache();
   return NextResponse.json({ status: describeSecret(SETTING_KEYS.githubToken) });
 }

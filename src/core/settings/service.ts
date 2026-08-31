@@ -16,6 +16,8 @@ import { settings } from "@/db/schema";
 /** Namespaced so future integrations do not collide. */
 export const SETTING_KEYS = {
   githubToken: "github.token",
+  /** How the stored token was obtained: "oauth" or "pat". */
+  githubTokenOrigin: "github.token_origin",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];

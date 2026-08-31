@@ -75,7 +75,7 @@ export function GitHubTokenForm({
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2">
           <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" strokeWidth={2} />
           <span className="text-[12.5px] text-fg">
-            Token saved
+            {credentialSource === "oauth" ? "Connected via GitHub" : "Token saved"}
             <span className="ml-1 font-mono text-faint">…{status.hint}</span>
           </span>
           <Button

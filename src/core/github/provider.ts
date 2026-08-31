@@ -12,7 +12,7 @@ import type { GitHubProvider } from "./types";
  * play — otherwise a token saved in the app appears to do nothing when an
  * environment variable is quietly taking precedence, or vice versa.
  */
-export type CredentialSource = "settings" | "environment" | "none";
+export type CredentialSource = "oauth" | "settings" | "environment" | "none";
 
 export interface ResolvedProvider {
   provider: GitHubProvider;
@@ -23,7 +23,7 @@ export interface ResolvedProvider {
  * Selects the active GitHub provider.
  *
  * Resolution order:
- *   1. A token saved in the application's own settings — pasted into the UI
+ *   1. A token saved in the application's own settings — from OAuth or pasted
  *   2. GITHUB_TOKEN from the environment — for servers and CI
  *   3. The demo provider — clearly-labelled sample data
  *
@@ -37,7 +37,13 @@ export interface ResolvedProvider {
 export function resolveGitHubProvider(): ResolvedProvider {
   const stored = getSetting(SETTING_KEYS.githubToken);
   if (stored) {
-    return { provider: new RestGitHubProvider(stored), credentialSource: "settings" };
+    // Same credential either way; only how it was obtained differs, and the
+    // settings screen says so rather than leaving the user guessing.
+    const origin = getSetting(SETTING_KEYS.githubTokenOrigin);
+    return {
+      provider: new RestGitHubProvider(stored),
+      credentialSource: origin === "oauth" ? "oauth" : "settings",
+    };
   }
 
   const fromEnv = process.env.GITHUB_TOKEN?.trim();
