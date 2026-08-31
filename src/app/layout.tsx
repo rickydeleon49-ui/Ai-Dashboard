@@ -4,6 +4,7 @@ import { DesktopBridge } from "@/components/layout/desktop-bridge";
 import { themeScript } from "@/components/layout/theme-toggle";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectRepository } from "@/db/repositories";
+import { unreadCount } from "@/core/automation/notifications";
 import { APP_NAME } from "@/config/navigation";
 import "./globals.css";
 
@@ -34,9 +35,10 @@ export default async function RootLayout({
   // Runs on every navigation, so both reads are deliberately cheap: counts by
   // aggregation, and the palette index as four columns rather than whole
   // projects with their tags and metadata.
-  const [stats, paletteProjects] = await Promise.all([
+  const [stats, paletteProjects, unreadNotifications] = await Promise.all([
     projectRepository.stats(),
     projectRepository.listSummaries(),
+    unreadCount(),
   ]);
 
   return (
@@ -47,7 +49,11 @@ export default async function RootLayout({
       </head>
       <body>
         <DesktopBridge />
-        <AppShell stats={stats} paletteProjects={paletteProjects}>
+        <AppShell
+          stats={stats}
+          paletteProjects={paletteProjects}
+          unreadNotifications={unreadNotifications}
+        >
           {children}
         </AppShell>
       </body>

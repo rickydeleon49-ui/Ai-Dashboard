@@ -207,7 +207,9 @@ Phases 2–5 are described in `docs/ARCHITECTURE.md`. In order:
 - **Phase 4 — AI.** Shipped: prompt library (CRUD, search over bodies,
   categories, favourites) and an AI workspace hub. Workflows stayed scaffolded —
   they need Phase 5's runner to mean anything.
-- **Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
+- **Phase 5 — Automation.** Shipped: task catalogue, in-process scheduler with
+  catch-up on launch, run history, and a notification inbox. Not cron — there is
+  no always-on server behind a desktop app, and the UI says so.
 
 ### Audit follow-ups, all completed
 

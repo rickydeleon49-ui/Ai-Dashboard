@@ -258,9 +258,21 @@ Workflows deliberately stayed scaffolded. A workflow that cannot be executed is
 only a list, and what executes it — a scheduler, run history, somewhere for
 results to land — is Phase 5. Building the UI first would have produced
 something that looked finished and did nothing.
-workflows on the same repository pattern.
 
-**Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
+**Phase 5 — Automation (shipped).** A task catalogue in code, schedules in the
+database, an in-process scheduler, and a notification inbox.
+
+The scheduling model is shaped by what a desktop app actually is. There is no
+always-on server, so this is not cron: the scheduler ticks while the app is open,
+and because due-ness is computed from `lastRunAt` rather than a live timer,
+anything that fell due while the app was closed runs shortly after it reopens.
+That is the honest behaviour for a dashboard you open regularly, and the
+Automations page says so rather than implying background execution.
+
+Adding an automation is one entry in `core/automation/tasks.ts` — the scheduler,
+the settings UI and the run history all read from that list. Rows are created on
+read rather than by migration, so a task added in a later version needs no
+schema change.
 
 ## 10. Adding things — quick reference
 
@@ -271,5 +283,6 @@ workflows on the same repository pattern.
 | An experimental field | Put it in `metadata`; no migration |
 | A project status or type | Add to the const array in `types.ts` + an entry in `labels.ts` |
 | A quick action | One entry in `config/quick-actions.ts` |
+| A scheduled automation | One entry in `core/automation/tasks.ts`; the row is created on read |
 | An integration | Define a provider interface in `core/<name>/`, resolve it in one place |
 | A different database | New `ProjectRepository` implementation + one line in `db/repositories/index.ts` |

@@ -8,6 +8,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import {
+  Bell,
   Bot,
   Boxes,
   FileUp,
@@ -60,13 +61,14 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
       { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
-      { label: "Workflows", href: "/ai/workflows", icon: Workflow, phase: 5 },
+      { label: "Automations", href: "/ai/workflows", icon: Workflow, phase: 1 },
     ],
   },
   {
     label: "Tools",
     items: [
       { label: "Tools", href: "/tools", icon: Wrench, phase: 5 },
+      { label: "Notifications", href: "/notifications", icon: Bell, phase: 1 },
       { label: "Integrations", href: "/integrations", icon: Plug, phase: 2 },
     ],
   },
