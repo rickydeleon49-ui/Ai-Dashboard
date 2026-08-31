@@ -48,7 +48,16 @@ const API = "https://api.github.com";
 export class RestGitHubProvider implements GitHubProvider {
   readonly mode = "token" as const;
 
-  constructor(private readonly token: string) {}
+  /**
+   * @param credentialLabel How the token was obtained, for the status message.
+   *   The API call is identical either way, but telling someone who connected
+   *   an account that they are "authenticated via personal access token" is
+   *   simply wrong, and makes the settings screen hard to trust.
+   */
+  constructor(
+    private readonly token: string,
+    private readonly credentialLabel = "personal access token",
+  ) {}
 
   private async request<T>(path: string): Promise<T> {
     const response = await fetch(`${API}${path}`, {
@@ -84,7 +93,7 @@ export class RestGitHubProvider implements GitHubProvider {
         connected: true,
         mode: "token",
         account,
-        detail: `Authenticated as @${user.login} via personal access token.`,
+        detail: `Authenticated as @${user.login} via ${this.credentialLabel}.`,
       };
     } catch (error) {
       return {

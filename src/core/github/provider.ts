@@ -40,16 +40,23 @@ export function resolveGitHubProvider(): ResolvedProvider {
     // Same credential either way; only how it was obtained differs, and the
     // settings screen says so rather than leaving the user guessing.
     const origin = getSetting(SETTING_KEYS.githubTokenOrigin);
+    const isOAuth = origin === "oauth";
     return {
-      provider: new RestGitHubProvider(stored),
-      credentialSource: origin === "oauth" ? "oauth" : "settings",
+      provider: new RestGitHubProvider(
+        stored,
+        isOAuth ? "a connected GitHub account" : "personal access token",
+      ),
+      credentialSource: isOAuth ? "oauth" : "settings",
     };
   }
 
   const fromEnv = process.env.GITHUB_TOKEN?.trim();
   if (fromEnv) {
     return {
-      provider: new RestGitHubProvider(fromEnv),
+      provider: new RestGitHubProvider(
+        fromEnv,
+        "the GITHUB_TOKEN environment variable",
+      ),
       credentialSource: "environment",
     };
   }
