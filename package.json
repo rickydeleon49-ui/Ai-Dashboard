@@ -1,8 +1,8 @@
 {
   "name": "ai-dashboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Personal AI Dashboard / Command Center — web and desktop",
+  "description": "Personal AI Dashboard / Command Center \u2014 web and desktop",
   "author": "rickydeleon49-ui",
   "engines": {
     "node": ">=20"
