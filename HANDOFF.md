@@ -14,7 +14,7 @@ runs as both a desktop app and a web app from one codebase.
 | Phase 1 web app | Done. Typecheck, lint and production build clean. |
 | Electron desktop shell | Done. Verified by running the real packaged app. |
 | Linux AppImage | Built and run successfully. |
-| Windows `.exe` | **Done.** Built on the user's machine, installed, app confirmed running with menus, sync and demo fallback working. |
+| Windows `.exe` | **Done.** Built locally and in CI, installed, running at 0.2.0 with live GitHub sync against a real token. |
 | macOS `.dmg` | Not attempted. User does not have the machine yet. |
 
 ---
@@ -109,6 +109,15 @@ reasoning is not lost.
   rm -rf node_modules package-lock.json
   npm install
   ```
+
+- **A fine-grained GitHub PAT grants nothing by default.** Repository access and
+  permissions are both opt-in, and a token with neither still authenticates — so
+  the hub reported "Connected as @user" while listing a single repository, and
+  `git pull` failed with "Write access to repository not granted". Neither
+  message points at the real cause. A working token needs **All repositories**
+  (or the specific repo) plus **Contents: Read** and **Metadata: Read**;
+  permissions can be edited on an existing token without regenerating it. A
+  classic token with the `repo` scope avoids the whole distinction.
 
 - Five `npm audit` vulnerabilities are all in dev-only tooling (the deprecated
   `glob`/`inflight`/`rimraf` chain under electron-builder and eslint). Nothing
