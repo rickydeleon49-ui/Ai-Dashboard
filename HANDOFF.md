@@ -95,7 +95,7 @@ reasoning is not lost.
    Verified against the same `makensis` binary electron-builder uses, with the old
    PNG as a failing control.
 
-### Two environment problems that were not code
+### Environment problems that were not code
 
 - The user's first attempt ran in `C:\Program Files\Git` (Git Bash's `/` is the
   Git install root). The clone failed on permissions, `cd` then failed, and
@@ -109,6 +109,25 @@ reasoning is not lost.
   rm -rf node_modules package-lock.json
   npm install
   ```
+  Restore the lockfile afterwards with `git checkout -- package-lock.json`.
+  Deleting it is what makes the recovery work, but `npm install` then writes a
+  fresh one that differs from the committed file, and a permanently dirty
+  lockfile blocks every later `git pull` (see below).
+
+- **`git pull` aborting on `package-lock.json`.** The message is "Your local
+  changes to the following files would be overwritten by merge", and the file is
+  always `package-lock.json`. It is a generated file and the local version is
+  never worth keeping, so discard it and pull:
+  ```bash
+  git checkout -- package-lock.json
+  git pull
+  ```
+  The lock already carries every platform's optional dependencies (win32, darwin
+  and linux binaries for swc, esbuild, sharp, oxide and lightningcss), so
+  installing on Windows does not legitimately need to rewrite it. If it comes
+  back dirty after a plain `npm install`, the npm major version differs from the
+  one that generated it — commit the rewrite once rather than discarding it
+  every time.
 
 - **A fine-grained GitHub PAT grants nothing by default.** Repository access and
   permissions are both opt-in, and a token with neither still authenticates — so
