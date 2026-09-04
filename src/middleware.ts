@@ -1,0 +1,113 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+/**
+ * Access control for the whole application.
+ *
+ * The dashboard has no user accounts — it is one person's tool — but it holds
+ * project notes and can create, edit and delete everything through its API. Two
+ * very different deployments have to be served:
+ *
+ *   Desktop  the bundled server binds 127.0.0.1 on a random port and is
+ *            unreachable from outside the machine. Asking for a password there
+ *            would be pure friction, so the desktop shell marks itself with
+ *            DASHBOARD_LOCAL and is let through.
+ *
+ *   Hosted   a Railway (or similar) deployment is reachable by anyone who finds
+ *            the URL. It requires DASHBOARD_PASSWORD.
+ *
+ * The default is deliberately fail-safe: a production deployment with no
+ * password configured serves a setup notice instead of the dashboard. Forgetting
+ * to set it cannot silently publish the library to the internet.
+ */
+
+const REALM = "Command Center";
+
+/** Compares two strings in time independent of how early they differ. */
+function safeEqual(a: string, b: string): boolean {
+  // Lengths are compared through the accumulator too, so an early length
+  // mismatch does not shortcut the loop.
+  let mismatch = a.length ^ b.length;
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i += 1) {
+    mismatch |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return mismatch === 0;
+}
+
+function unauthorized(): NextResponse {
+  return new NextResponse("Authentication required.", {
+    status: 401,
+    headers: {
+      "WWW-Authenticate": `Basic realm="${REALM}", charset="UTF-8"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+/** Shown when a public deployment has no password set. */
+function setupRequired(): NextResponse {
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configuration required</title>
+<style>
+  body { background:#08090b; color:#ededef; font:14px/1.6 ui-sans-serif,system-ui,sans-serif;
+         display:grid; place-items:center; min-height:100dvh; margin:0; padding:24px; }
+  main { max-width:34rem; }
+  h1 { font-size:1.05rem; margin:0 0 .75rem; }
+  p { color:#8b8d98; margin:0 0 .75rem; }
+  code { background:#16191f; border:1px solid rgba(255,255,255,.1); border-radius:4px;
+         padding:.15em .4em; font-family:ui-monospace,monospace; font-size:.9em; color:#b9a7ff; }
+</style>
+<main>
+  <h1>Command Center is not configured for public access</h1>
+  <p>This deployment is reachable over the network, so it will not serve the
+     dashboard until a password is set.</p>
+  <p>Set <code>DASHBOARD_PASSWORD</code> in your service variables and redeploy.
+     You will then be prompted for it in the browser.</p>
+  <p>The desktop application is unaffected — it runs on your own machine and
+     needs no password.</p>
+</main>`;
+
+  return new NextResponse(html, {
+    status: 503,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
+
+export function middleware(request: NextRequest) {
+  // The desktop shell sets this when it forks the bundled server. That server
+  // listens on 127.0.0.1 only, so nothing off the machine can reach it.
+  if (process.env.DASHBOARD_LOCAL === "1") return NextResponse.next();
+
+  // Local development is equally unreachable and should not need a password.
+  if (process.env.NODE_ENV !== "production") return NextResponse.next();
+
+  const password = process.env.DASHBOARD_PASSWORD?.trim();
+  if (!password) return setupRequired();
+
+  const header = request.headers.get("authorization");
+  if (!header?.startsWith("Basic ")) return unauthorized();
+
+  let decoded: string;
+  try {
+    decoded = atob(header.slice("Basic ".length));
+  } catch {
+    return unauthorized();
+  }
+
+  // Any username is accepted; the password is the secret. Browsers require a
+  // username field, and inventing a second credential adds nothing here.
+  const supplied = decoded.slice(decoded.indexOf(":") + 1);
+  if (!safeEqual(supplied, password)) return unauthorized();
+
+  return NextResponse.next();
+}
+
+export const config = {
+  /*
+   * Everything except Next's own static output. Pages and API routes are both
+   * covered: gating only the UI would leave /api/projects wide open.
+   */
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};

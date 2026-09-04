@@ -1,0 +1,110 @@
+# Builds the desktop installers.
+#
+# Installers cannot be cross-built — a Windows .exe must be produced on Windows
+# and a macOS .dmg on macOS — so each target runs on its own hosted runner.
+# Run this from the Actions tab, pick a platform, then download the installer
+# from the run's Artifacts section.
+#
+# The same constraint applies to architecture, which is why the macOS target is
+# arm64 only. better-sqlite3 downloads a prebuilt binary for the installing
+# machine, so an x64 dmg produced on an arm64 runner would ship an arm64 native
+# module and crash on launch. Building for Intel needs an x64 runner.
+name: Desktop build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platform to build for
+        type: choice
+        default: windows
+        options: [windows, macos, linux, all]
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # publishing a release on a tag
+
+jobs:
+  # The `matrix` context is not available to a job-level `if`, so the platform
+  # choice is resolved here and handed to the build job as a matrix definition.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        shell: bash
+        env:
+          # Tag pushes build everything; a manual run builds what was chosen.
+          PLATFORM: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'all' }}
+        run: |
+          windows='{"id":"windows","os":"windows-latest","flag":"--win"}'
+          macos='{"id":"macos","os":"macos-latest","flag":"--mac"}'
+          linux='{"id":"linux","os":"ubuntu-latest","flag":"--linux"}'
+
+          case "$PLATFORM" in
+            windows) include="[$windows]" ;;
+            macos)   include="[$macos]" ;;
+            linux)   include="[$linux]" ;;
+            all)     include="[$windows,$macos,$linux]" ;;
+            *) echo "Unknown platform: $PLATFORM" >&2; exit 1 ;;
+          esac
+
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+          echo "Building: $PLATFORM"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the application bundle
+        run: npm run desktop:build
+
+      - name: Package installer
+        # Unsigned builds: skip the certificate lookup that would otherwise fail
+        # the macOS job. Signing can be added later with real credentials.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder ${{ matrix.flag }} --publish never
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: command-center-${{ matrix.id }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+
+      # Tag pushes also publish a release, which is what the in-app update
+      # check reads. Manual runs only produce artifacts.
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          files: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage

@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { AppShell } from "@/components/layout/app-shell";
+import { DesktopBridge } from "@/components/layout/desktop-bridge";
 import { themeScript } from "@/components/layout/theme-toggle";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectRepository } from "@/db/repositories";
+import { unreadCount } from "@/core/automation/notifications";
 import { APP_NAME } from "@/config/navigation";
 import "./globals.css";
 
@@ -30,17 +32,14 @@ export default async function RootLayout({
   // Migrations run once per process, before the first query.
   ensureDatabaseReady();
 
-  const [stats, projects] = await Promise.all([
+  // Runs on every navigation, so both reads are deliberately cheap: counts by
+  // aggregation, and the palette index as four columns rather than whole
+  // projects with their tags and metadata.
+  const [stats, paletteProjects, unreadNotifications] = await Promise.all([
     projectRepository.stats(),
-    projectRepository.list({ includeArchived: true, limit: 300 }),
+    projectRepository.listSummaries(),
+    unreadCount(),
   ]);
-
-  const paletteProjects = projects.map((project) => ({
-    id: project.id,
-    name: project.name,
-    source: project.source,
-    status: project.status,
-  }));
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -49,7 +48,12 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <AppShell stats={stats} paletteProjects={paletteProjects}>
+        <DesktopBridge />
+        <AppShell
+          stats={stats}
+          paletteProjects={paletteProjects}
+          unreadNotifications={unreadNotifications}
+        >
           {children}
         </AppShell>
       </body>

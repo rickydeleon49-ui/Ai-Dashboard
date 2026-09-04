@@ -193,6 +193,61 @@ export const settings = sqliteTable("settings", {
   updatedAt: text("updated_at").notNull().default(now),
 });
 
+/**
+ * Scheduled work the application performs for you.
+ *
+ * There is no always-on server behind a desktop app, so these run while it is
+ * open and catch up on launch. `intervalMinutes` is therefore a "no more often
+ * than" rather than a guarantee, and `lastRunAt` is what makes catch-up
+ * possible: on start, anything overdue runs once.
+ */
+export const automations = sqliteTable(
+  "automations",
+  {
+    id: text("id").primaryKey(),
+    /** Which registered task this runs, e.g. github.sync */
+    type: text("type").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    intervalMinutes: integer("interval_minutes").notNull().default(60),
+    /** Task-specific options, shape owned by the task definition. */
+    config: text("config").notNull().default("{}"),
+    lastRunAt: text("last_run_at"),
+    /** ok | failed | skipped */
+    lastStatus: text("last_status"),
+    lastMessage: text("last_message"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [uniqueIndex("automations_type_idx").on(t.type)],
+);
+
+/**
+ * Things worth telling you about, produced by automations.
+ *
+ * Separate from activity_events: activity is a log of what happened, this is a
+ * short list of what you have not seen yet. Conflating them would mean either
+ * marking ordinary history as read or losing the unread notion entirely.
+ */
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    body: text("body"),
+    /** info | success | warning */
+    level: text("level").notNull().default("info"),
+    /** Optional in-app destination, e.g. /projects/abc */
+    href: text("href"),
+    source: text("source"),
+    readAt: text("read_at"),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [index("notifications_created_idx").on(t.createdAt)],
+);
+
+export type AutomationRow = typeof automations.$inferSelect;
+export type NotificationRow = typeof notifications.$inferSelect;
+
 export type ProjectRow = typeof projects.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;

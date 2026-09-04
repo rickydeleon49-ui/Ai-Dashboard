@@ -8,6 +8,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import {
+  Bell,
   Bot,
   Boxes,
   FileUp,
@@ -29,7 +30,7 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   /** Shown as a small trailing count; resolved at render time. */
-  countKey?: "total" | "github" | "uploaded" | "favorites" | "active";
+  countKey?: "total" | "github" | "uploaded" | "favorites" | "active" | "prompts";
   /** 1 = shipped now. Higher numbers render as upcoming. */
   phase: number;
 }
@@ -51,22 +52,23 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       { label: "All Projects", href: "/projects", icon: Library, countKey: "total", phase: 1 },
       { label: "GitHub", href: "/github", icon: Github, countKey: "github", phase: 1 },
-      { label: "Uploaded", href: "/uploads", icon: FileUp, countKey: "uploaded", phase: 3 },
+      { label: "Uploaded", href: "/uploads", icon: FileUp, countKey: "uploaded", phase: 1 },
       { label: "Favorites", href: "/favorites", icon: Star, countKey: "favorites", phase: 1 },
     ],
   },
   {
     label: "AI",
     items: [
-      { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 4 },
-      { label: "Prompts", href: "/ai/prompts", icon: Bot, phase: 4 },
-      { label: "Workflows", href: "/ai/workflows", icon: Workflow, phase: 4 },
+      { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
+      { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
+      { label: "Automations", href: "/ai/workflows", icon: Workflow, phase: 1 },
     ],
   },
   {
     label: "Tools",
     items: [
       { label: "Tools", href: "/tools", icon: Wrench, phase: 5 },
+      { label: "Notifications", href: "/notifications", icon: Bell, phase: 1 },
       { label: "Integrations", href: "/integrations", icon: Plug, phase: 2 },
     ],
   },

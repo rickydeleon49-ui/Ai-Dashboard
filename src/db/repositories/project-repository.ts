@@ -19,8 +19,23 @@ export interface TagCount {
   count: number;
 }
 
+/** The few fields the command palette needs to index a project. */
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  source: string;
+  status: string;
+}
+
 export interface ProjectRepository {
   list(query?: ProjectQuery): Promise<Project[]>;
+  /**
+   * Names and identifiers only, for the command palette.
+   *
+   * Kept separate from `list` because the palette is rebuilt on every page
+   * navigation: it must not pay for tag joins or metadata parsing it discards.
+   */
+  listSummaries(limit?: number): Promise<ProjectSummary[]>;
   findById(id: string): Promise<Project | null>;
   findByExternalId(source: string, externalId: string): Promise<Project | null>;
   create(input: ProjectCreateInput): Promise<Project>;

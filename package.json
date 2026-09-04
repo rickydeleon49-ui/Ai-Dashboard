@@ -1,24 +1,30 @@
 {
   "name": "ai-dashboard",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Personal AI Dashboard / Command Center",
+  "description": "Personal AI Dashboard / Command Center — web and desktop",
+  "author": "rickydeleon49-ui",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start -p ${PORT:-3000}",
+    "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:reset": "rm -f data/dashboard.db && npm run db:migrate && npm run db:seed"
+    "db:reset": "node -e \"require('fs').rmSync('data/dashboard.db',{force:true})\" && npm run db:migrate && npm run db:seed",
+    "desktop:dev": "node desktop/dev.mjs",
+    "desktop:build": "node desktop/build.mjs",
+    "desktop:package": "npm run desktop:build && electron-builder --publish never",
+    "desktop:package:all": "npm run desktop:build && electron-builder -mwl --publish never",
+    "desktop:icon": "node desktop/make-icon.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.44.2",
     "lucide-react": "^0.544.0",
@@ -36,10 +42,83 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "drizzle-kit": "^0.31.4",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.35.0",
     "eslint-config-next": "16.3.3",
+    "playwright": "^1.62.1",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.1.13",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
+  },
+  "main": "desktop/main.js",
+  "build": {
+    "appId": "com.rickydeleon.commandcenter",
+    "productName": "Command Center",
+    "asar": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "desktop/resources"
+    },
+    "files": [
+      "desktop/**/*",
+      ".next/standalone/**/*",
+      "drizzle/**/*",
+      "package.json",
+      "!node_modules/**/*",
+      "!**/*.map",
+      "!**/{test,tests,__tests__,example,examples}/**"
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "desktop/resources/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/resources/icon.ico"
+    },
+    "linux": {
+      "category": "Development",
+      "icon": "desktop/resources/icon.png",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "synopsis": "Personal project command center"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Command Center",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "desktop/resources/icon.ico",
+      "uninstallerIcon": "desktop/resources/icon.ico"
+    }
   }
 }

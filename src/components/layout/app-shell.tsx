@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, Plus, X } from "lucide-react";
+import { Bell, Menu, Plus, X } from "lucide-react";
 import { SidebarBrand, SidebarNav } from "./sidebar";
 import { ThemeToggle } from "./theme-toggle";
 import { CommandPalette, type PaletteProject } from "./command-palette";
@@ -16,10 +16,12 @@ import type { ProjectStats } from "@/core/projects/types";
 export function AppShell({
   stats,
   paletteProjects,
+  unreadNotifications,
   children,
 }: {
   stats: ProjectStats;
   paletteProjects: PaletteProject[];
+  unreadNotifications: number;
   children: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -80,6 +82,22 @@ export function AppShell({
           <div className="flex min-w-0 flex-1 justify-start">
             <CommandPalette projects={paletteProjects} />
           </div>
+
+          <Link
+            href="/notifications"
+            aria-label={
+              unreadNotifications > 0
+                ? `Notifications, ${unreadNotifications} unread`
+                : "Notifications"
+            }
+            title="Notifications"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
+          >
+            <Bell className="h-4 w-4" strokeWidth={1.75} />
+            {unreadNotifications > 0 ? (
+              <span className="absolute right-1 top-1 flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+            ) : null}
+          </Link>
 
           <Link href="/projects/new" className={buttonClasses("primary", "md")}>
             <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />

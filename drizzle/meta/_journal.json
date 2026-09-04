@@ -8,6 +8,13 @@
       "when": 1787985829547,
       "tag": "0000_shiny_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788152372574,
+      "tag": "0001_large_doomsday",
+      "breakpoints": true
     }
   ]
 }

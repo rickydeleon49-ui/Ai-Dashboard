@@ -3,7 +3,16 @@ import next from "eslint-config-next";
 
 const config = [
   ...next,
-  { ignores: [".next/**", "node_modules/**", "drizzle/**", "data/**"] },
+  {
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "drizzle/**",
+      "data/**",
+      // Packaged desktop output — third-party and generated code.
+      "release/**",
+    ],
+  },
 ];
 
 export default config;

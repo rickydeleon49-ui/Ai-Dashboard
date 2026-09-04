@@ -6,7 +6,7 @@ import { activityEvents, githubRepositories } from "@/db/schema";
 import type { GithubRepositoryRow } from "@/db/schema";
 import { projectRepository } from "@/db/repositories";
 import { createId } from "@/lib/ids";
-import { getGitHubProvider } from "./provider";
+import { resolveGitHubProvider, type CredentialSource } from "./provider";
 import { DemoGitHubProvider } from "./demo-provider";
 import type {
   GitHubConnection,
@@ -19,6 +19,7 @@ export interface SyncResult {
   fetched: number;
   created: number;
   updated: number;
+  removed: number;
   syncedAt: string;
 }
 
@@ -59,6 +60,29 @@ function rowToHub(row: GithubRepositoryRow): HubRepository {
   };
 }
 
+/*
+ * Connection probes hit the GitHub API, and three pages read the connection
+ * while rendering — the hub, settings and integrations. Without a cache, simply
+ * navigating between them spends network round-trips and rate limit on a value
+ * that changes only when credentials change.
+ *
+ * Cached per process with a short lifetime, and cleared explicitly on sync so a
+ * newly configured token is reflected immediately rather than after a wait.
+ */
+const CONNECTION_CACHE_MS = 5 * 60 * 1000;
+
+interface ResolvedConnection {
+  provider: GitHubProvider;
+  connection: GitHubConnection;
+  credentialSource: CredentialSource;
+}
+
+let connectionCache: { at: number; value: ResolvedConnection } | null = null;
+
+export function invalidateConnectionCache(): void {
+  connectionCache = null;
+}
+
 /**
  * Picks the provider to actually read from, after checking that it works.
  *
@@ -67,20 +91,28 @@ function rowToHub(row: GithubRepositoryRow): HubRepository {
  * token falls back to the demo provider — with the real reason preserved in
  * `connection.detail` so the UI can tell you exactly what to fix.
  */
-async function resolveProvider(): Promise<{
-  provider: GitHubProvider;
-  connection: GitHubConnection;
-}> {
-  const configured = getGitHubProvider();
+async function resolveProvider(): Promise<ResolvedConnection> {
+  if (connectionCache && Date.now() - connectionCache.at < CONNECTION_CACHE_MS) {
+    return connectionCache.value;
+  }
+
+  const resolved = await probeProvider();
+  connectionCache = { at: Date.now(), value: resolved };
+  return resolved;
+}
+
+async function probeProvider(): Promise<ResolvedConnection> {
+  const { provider: configured, credentialSource } = resolveGitHubProvider();
   const connection = await configured.getConnection();
 
   if (connection.connected || configured.mode === "demo") {
-    return { provider: configured, connection };
+    return { provider: configured, connection, credentialSource };
   }
 
   const fallback = new DemoGitHubProvider();
   return {
     provider: fallback,
+    credentialSource,
     connection: {
       ...connection,
       mode: "demo",
@@ -88,6 +120,11 @@ async function resolveProvider(): Promise<{
       detail: `${connection.detail} Falling back to demo repositories until a working token is configured.`,
     },
   };
+}
+
+/** Which credential the hub and settings screens are currently using. */
+export async function getCredentialSource(): Promise<CredentialSource> {
+  return (await resolveProvider()).credentialSource;
 }
 
 export async function getConnection(): Promise<GitHubConnection> {
@@ -122,12 +159,15 @@ export async function findCachedRepository(
  * any user edits on the linked project are never touched.
  */
 export async function syncRepositories(): Promise<SyncResult> {
+  // Syncing is the moment credentials are most likely to have just changed.
+  invalidateConnectionCache();
   const { provider, connection } = await resolveProvider();
   const repos = await provider.listRepositories();
   const syncedAt = new Date().toISOString();
 
   let created = 0;
   let updated = 0;
+  let removed = 0;
 
   for (const repo of repos) {
     const existing = db
@@ -183,18 +223,42 @@ export async function syncRepositories(): Promise<SyncResult> {
     }
   }
 
+  /*
+   * Drop cached rows the provider no longer returns — repositories deleted on
+   * GitHub, access revoked, or the demo set after the first real sync. A row
+   * that is linked to a dashboard project is kept: the project (and the user's
+   * notes on it) must never vanish because upstream did, and the hub can still
+   * show it as linked.
+   */
+  const fetchedIds = new Set(repos.map((repo) => repo.externalId));
+  const cachedRows = db
+    .select({
+      externalId: githubRepositories.externalId,
+      linkedProjectId: githubRepositories.linkedProjectId,
+    })
+    .from(githubRepositories)
+    .all();
+
+  for (const row of cachedRows) {
+    if (fetchedIds.has(row.externalId) || row.linkedProjectId) continue;
+    db.delete(githubRepositories)
+      .where(eq(githubRepositories.externalId, row.externalId))
+      .run();
+    removed += 1;
+  }
+
   db.insert(activityEvents)
     .values({
       id: createId("act"),
       projectId: null,
       type: "github.synced",
       message: `Synced ${repos.length} GitHub ${repos.length === 1 ? "repository" : "repositories"}`,
-      metadata: JSON.stringify({ created, updated, mode: connection.mode }),
+      metadata: JSON.stringify({ created, updated, removed, mode: connection.mode }),
       createdAt: syncedAt,
     })
     .run();
 
-  return { connection, fetched: repos.length, created, updated, syncedAt };
+  return { connection, fetched: repos.length, created, updated, removed, syncedAt };
 }
 
 /** The subset of GitHub data worth carrying on the Project record. */

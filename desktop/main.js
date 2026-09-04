@@ -1,0 +1,444 @@
+/**
+ * Electron main process.
+ *
+ * The dashboard is a full Next.js application — Server Components query SQLite
+ * directly — so the desktop build does not reimplement anything. It starts the
+ * same Next server on a private localhost port and points a window at it.
+ *
+ * Two things make it behave like an application rather than a wrapped web page:
+ *   1. Storage lives in the OS user-data directory, not the working directory.
+ *   2. Outbound links (Open GitHub, Open Project) go to the real browser.
+ */
+const { app, BrowserWindow, Menu, shell, dialog } = require("electron");
+const { fork } = require("node:child_process");
+const fs = require("node:fs");
+const net = require("node:net");
+const path = require("node:path");
+
+const isDev = !app.isPackaged;
+
+/**
+ * Where the packaged Next standalone server lives.
+ *
+ * Packaging runs with asar disabled so that `fork()` and the native
+ * better-sqlite3 binary both see real files on disk — neither works from inside
+ * an asar archive. The binary itself is Node-API, so the same file is valid
+ * under plain Node and under Electron with no rebuild step.
+ */
+function serverRoot() {
+  return path.join(app.getAppPath(), ".next", "standalone");
+}
+
+let mainWindow = null;
+let serverProcess = null;
+let baseUrl = "http://localhost:3000";
+
+/** Set once the user is quitting, so a dying server is not treated as a crash. */
+let quitting = false;
+/** Environment for the bundled server, kept so it can be restarted. */
+let serverEnv = null;
+let restartAttempts = 0;
+const MAX_RESTART_ATTEMPTS = 3;
+
+// ---------------------------------------------------------------------------
+// Storage
+// ---------------------------------------------------------------------------
+
+/**
+ * Point the database and uploads at the per-user application data directory.
+ *
+ * `src/db/path.ts` already reads these variables (they exist so a Railway volume
+ * can be used in production), so the desktop build needs no code changes — it
+ * just sets them before the server starts.
+ *
+ *   macOS   ~/Library/Application Support/Command Center
+ *   Windows %APPDATA%\Command Center
+ *   Linux   ~/.config/Command Center
+ */
+function resolveUserPaths() {
+  const userData = app.getPath("userData");
+  const dataDir = path.join(userData, "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  return {
+    userData,
+    DATABASE_PATH: path.join(dataDir, "dashboard.db"),
+    UPLOADS_DIR: path.join(dataDir, "uploads"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Window state
+// ---------------------------------------------------------------------------
+
+/** Remembering size and position is table stakes for a desktop app. */
+function windowStateFile() {
+  return path.join(app.getPath("userData"), "window-state.json");
+}
+
+function loadWindowState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(windowStateFile(), "utf8"));
+    if (typeof state.width === "number" && typeof state.height === "number") {
+      return state;
+    }
+  } catch {
+    // No saved state, or it is unreadable — fall through to defaults.
+  }
+  return { width: 1440, height: 940 };
+}
+
+function saveWindowState(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+    fs.writeFileSync(
+      windowStateFile(),
+      JSON.stringify({ ...bounds, maximized: win.isMaximized() }),
+    );
+  } catch {
+    // Losing window position is not worth surfacing to the user.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+
+/** Asks the OS for an unused port so two copies never collide. */
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function waitForServer(url, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+
+  return new Promise((resolve, reject) => {
+    const attempt = () => {
+      const request = net.connect({ host: "127.0.0.1", port: Number(new URL(url).port) });
+      request.on("connect", () => {
+        request.end();
+        resolve();
+      });
+      request.on("error", () => {
+        request.destroy();
+        if (Date.now() > deadline) {
+          reject(new Error(`Server did not start within ${timeoutMs / 1000}s`));
+        } else {
+          setTimeout(attempt, 150);
+        }
+      });
+    };
+    attempt();
+  });
+}
+
+/**
+ * Starts the bundled Next standalone server as a child process.
+ *
+ * ELECTRON_RUN_AS_NODE makes Electron's own binary behave as plain Node, so the
+ * packaged app carries no separate Node runtime. Running the server out of
+ * process also means a server crash cannot take the window down with it.
+ */
+async function startServer(env) {
+  serverEnv = env;
+  const port = await findFreePort();
+  const root = serverRoot();
+  const serverEntry = path.join(root, "server.js");
+
+  if (!fs.existsSync(serverEntry)) {
+    throw new Error(
+      `Bundled server not found at ${serverEntry}. Run \`npm run desktop:build\` first.`,
+    );
+  }
+
+  serverProcess = fork(serverEntry, [], {
+    cwd: root,
+    env: {
+      ...process.env,
+      ...env,
+      NODE_ENV: "production",
+      ELECTRON_RUN_AS_NODE: "1",
+      PORT: String(port),
+      HOSTNAME: "127.0.0.1",
+      // Tells the server it is running locally, so it does not demand the
+      // password a public deployment requires. Safe because the server binds
+      // 127.0.0.1 on a random port and nothing off this machine can reach it.
+      DASHBOARD_LOCAL: "1",
+    },
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+  });
+
+  serverProcess.stdout?.on("data", (d) => console.log(`[next] ${d}`.trimEnd()));
+  serverProcess.stderr?.on("data", (d) => console.error(`[next] ${d}`.trimEnd()));
+
+  // The window is only a view onto this process. If it dies the app is not
+  // closed — it is showing a page that will never load again — so recover
+  // rather than leaving a window that looks broken with no explanation.
+  serverProcess.on("exit", (code, signal) => {
+    if (quitting) return;
+    console.error(`[next] server exited unexpectedly (code=${code} signal=${signal})`);
+    void recoverFromServerCrash();
+  });
+
+  const url = `http://127.0.0.1:${port}`;
+  await waitForServer(url);
+  return url;
+}
+
+/**
+ * Restarts the bundled server after an unexpected exit and reloads the window.
+ *
+ * Bounded: a server that cannot stay up would otherwise restart forever behind a
+ * blank window. After the limit the user is told what happened instead.
+ */
+async function recoverFromServerCrash() {
+  serverProcess = null;
+
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    dialog.showErrorBox(
+      "Command Center stopped responding",
+      "Its background service exited repeatedly and could not be restarted.\n\n" +
+        "Reopening the application usually clears this. If it keeps happening, " +
+        "the log from a terminal launch will show why the service is failing.",
+    );
+    app.quit();
+    return;
+  }
+
+  restartAttempts += 1;
+
+  try {
+    baseUrl = await startServer(serverEnv ?? {});
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.loadURL(baseUrl);
+    }
+    // A restart that survives long enough to serve the window is treated as a
+    // recovery, so an unrelated crash weeks later gets a full set of retries.
+    setTimeout(() => {
+      restartAttempts = 0;
+    }, 60_000);
+  } catch (error) {
+    dialog.showErrorBox(
+      "Command Center could not restart its background service",
+      error instanceof Error ? error.message : String(error),
+    );
+    app.quit();
+  }
+}
+
+function stopServer() {
+  if (serverProcess && !serverProcess.killed) {
+    serverProcess.kill();
+    serverProcess = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Window
+// ---------------------------------------------------------------------------
+
+function createWindow() {
+  const state = loadWindowState();
+
+  mainWindow = new BrowserWindow({
+    width: state.width,
+    height: state.height,
+    x: state.x,
+    y: state.y,
+    minWidth: 720,
+    minHeight: 560,
+    // Matches the app's dark canvas so there is no white flash while loading.
+    backgroundColor: "#08090b",
+    show: false,
+    title: "Command Center",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  if (state.maximized) mainWindow.maximize();
+
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+
+  // Persist geometry, throttled so a drag does not write on every frame.
+  let saveTimer = null;
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveWindowState(mainWindow), 400);
+  };
+  mainWindow.on("resize", scheduleSave);
+  mainWindow.on("move", scheduleSave);
+  mainWindow.on("close", () => saveWindowState(mainWindow));
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
+  // "Open GitHub", "Open Project" and every other outbound link belongs in the
+  // user's real browser, with their sessions and extensions — not in a bare
+  // Electron window with no chrome.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  // Same for a plain in-window navigation to an external origin.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!url.startsWith(baseUrl)) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
+  });
+
+  mainWindow.loadURL(baseUrl);
+}
+
+// ---------------------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------------------
+
+/** Sends the renderer to a route without a full page reload. */
+function go(route) {
+  mainWindow?.webContents.send("desktop:navigate", route);
+}
+
+function buildMenu() {
+  const isMac = process.platform === "darwin";
+
+  const template = [
+    ...(isMac ? [{ role: "appMenu" }] : []),
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Project",
+          accelerator: "CmdOrCtrl+N",
+          click: () => go("/projects/new"),
+        },
+        { type: "separator" },
+        {
+          label: "Open Data Folder",
+          click: () => shell.openPath(path.join(app.getPath("userData"), "data")),
+        },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit" },
+      ],
+    },
+    { role: "editMenu" },
+    {
+      label: "Go",
+      submenu: [
+        { label: "Dashboard", accelerator: "CmdOrCtrl+1", click: () => go("/") },
+        { label: "All Projects", accelerator: "CmdOrCtrl+2", click: () => go("/projects") },
+        { label: "GitHub", accelerator: "CmdOrCtrl+3", click: () => go("/github") },
+        { label: "Favorites", accelerator: "CmdOrCtrl+4", click: () => go("/favorites") },
+        { type: "separator" },
+        { label: "Settings", accelerator: "CmdOrCtrl+,", click: () => go("/settings") },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    { role: "windowMenu" },
+    {
+      role: "help",
+      submenu: [
+        {
+          label: "Project Repository",
+          click: () =>
+            shell.openExternal("https://github.com/rickydeleon49-ui/Ai-Dashboard"),
+        },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+app.setName("Command Center");
+
+// A second launch should focus the existing window, not open a second database.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
+    const paths = resolveUserPaths();
+
+    try {
+      if (isDev) {
+        // Development attaches to `next dev`, so edits hot-reload as usual.
+        baseUrl = process.env.DESKTOP_DEV_URL ?? "http://localhost:3000";
+        await waitForServer(baseUrl, 60_000);
+      } else {
+        baseUrl = await startServer({
+          DATABASE_PATH: paths.DATABASE_PATH,
+          UPLOADS_DIR: paths.UPLOADS_DIR,
+        });
+      }
+    } catch (error) {
+      dialog.showErrorBox(
+        "Command Center could not start",
+        `${error.message}\n\n${
+          isDev
+            ? "In development, run `npm run dev` first — the desktop shell attaches to it."
+            : ""
+        }`,
+      );
+      app.quit();
+      return;
+    }
+
+    buildMenu();
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+
+  app.on("before-quit", () => {
+    quitting = true;
+    stopServer();
+  });
+  app.on("will-quit", () => {
+    quitting = true;
+    stopServer();
+  });
+}

@@ -32,6 +32,8 @@ to replace.
 Dependencies point **downward only**. A layer never imports from the one above it.
 
 ```
+  desktop/      Electron main process and preload bridge (desktop target only).
+    ↓
   app/          Routes. Thin — fetch, compose, render.
     ↓
   components/   UI. ui/ primitives, then feature folders.
@@ -40,6 +42,9 @@ Dependencies point **downward only**. A layer never imports from the one above i
     ↓
   db/           Persistence: schema, client, repositories.
 ```
+
+The desktop shell sits above everything and knows nothing about the domain — it
+sets two environment variables and manages a window.
 
 ### `src/core/` — the domain
 
@@ -148,7 +153,71 @@ scoped. `resolveProvider()` probes the connection once and falls back to demo da
 on rejection, preserving GitHub's actual error message in `connection.detail`. A
 bad token degrades the hub instead of killing it.
 
-## 7. State and URLs
+## 7. Desktop shell
+
+The desktop build wraps the **same application** — it reimplements nothing.
+Server Components query SQLite directly, so the app needs a Node runtime; Electron
+starts the Next standalone server on a private localhost port and points a window
+at it.
+
+```
+Electron main process
+  ├─ sets DATABASE_PATH / UPLOADS_DIR → OS user-data directory
+  ├─ fork()s .next/standalone/server.js on a free port
+  └─ BrowserWindow → http://127.0.0.1:<port>
+```
+
+Three decisions carry it:
+
+- **Storage is environment-driven.** `src/db/path.ts` already read `DATABASE_PATH`
+  and `UPLOADS_DIR` (they exist so a Railway volume can be used). The desktop build
+  sets them to `app.getPath("userData")` before the server starts — zero code
+  changes for a completely different storage location.
+- **Standalone output is conditional.** `output: "standalone"` is enabled only when
+  `DESKTOP_BUILD=1`, because `next start` rejects standalone output. One codebase
+  still ships to both Railway and the desktop.
+- **asar is disabled.** `fork()` cannot execute a script from inside an asar
+  archive, and a native `.node` binary cannot be loaded from one either. Both need
+  real files on disk.
+
+### No native rebuild step
+
+Electron and Node use different V8 ABIs, so a native module normally has to be
+recompiled at packaging time — which means a full toolchain (Visual Studio Build
+Tools on Windows) on every machine that packages the app.
+
+better-sqlite3 v13 ships **Node-API** binaries instead, one per platform, inside
+the published package. Node-API is ABI-stable across both Node versions and
+Electron versions, so the same binary file is valid in every runtime this project
+uses. `npmRebuild` is therefore set to `false`: there is nothing to rebuild,
+packaging needs no compiler, and the web and desktop targets share one binary.
+
+This is worth preserving. Pinning to a native module that needs `node-gyp` would
+reintroduce a toolchain requirement on every developer machine and every CI
+runner.
+
+### Security posture
+
+The renderer is a web page and is treated as one: `contextIsolation: true`,
+`nodeIntegration: false`, `sandbox: true`. The preload bridge exposes exactly one
+capability — letting the application menu drive client-side navigation — and the
+route it accepts must start with `/`. Verified: `window.require` and
+`window.process` are both `undefined` in the renderer.
+
+Outbound links (Open GitHub, Open Project) are intercepted by
+`setWindowOpenHandler` and a `will-navigate` guard, and handed to
+`shell.openExternal`. They open in the real browser, with your sessions and
+extensions — never in a chrome-less Electron window.
+
+### Build-time data isolation
+
+`next build` evaluates the root layout, which opens the database and runs
+migrations. Left alone that writes into `./data`, and Next's file tracing would
+copy the **developer's real database into the shipped application**.
+`desktop/build.mjs` points `DATABASE_PATH` at a temporary directory for the
+duration of the build and strips any `data/` directory from the bundle afterwards.
+
+## 8. State and URLs
 
 Filter state lives in the **URL**, not React state. A filtered library view is
 shareable, bookmarkable and survives a refresh, and the Server Component re-queries
@@ -156,26 +225,56 @@ on every change. `ProjectFilters` writes search params; `buildQuery()` in
 `app/projects/page.tsx` translates them into a repository query, and every listing
 page reuses it so filters behave identically everywhere.
 
-## 8. Phases
+## 9. Phases
 
 **Phase 1 — Foundation (shipped).** Shell, sidebar, dashboard, unified library,
 project cards, detail page, search, filtering, manual CRUD, favorites, archive,
 tags, activity feed, command palette, dark/light themes, GitHub hub with a real
 client and demo fallback.
 
-**Phase 2 — GitHub OAuth.** Add `OAuthGitHubProvider`, the callback route and token
-storage in `settings`. The hub UI does not change.
+**Phase 2 — GitHub OAuth (shipped).** Connecting an account uses GitHub's device
+flow rather than the authorization-code flow. The redirect flow does not fit a
+desktop application: it needs a registered callback URL, but the bundled server
+listens on a different random port each launch, and it needs a client secret,
+which in a distributed installer is not secret. The device flow needs neither —
+only a public client id — and it grants classic scopes, avoiding the
+fine-grained repository/permission configuration that is easy to get wrong.
 
-**Phase 3 — Uploads.** `project_files` and the uploads directory resolver exist.
-Add a storage driver interface (local disk first), the upload route, ZIP handling
-and the file panel on the detail page.
+No new provider was required. The token it returns is stored under the same
+settings key a pasted token uses, so `resolveGitHubProvider` was unchanged apart
+from recording which route produced the credential.
 
-**Phase 4 — AI.** `prompts` is migrated. Build the workspace, prompt library and
-workflows on the same repository pattern.
+**Phase 3 — Uploads (shipped).** A `StorageDriver` interface behind a local-disk
+implementation, upload and download routes, a file panel on the project detail
+page, and an upload-first flow for projects that do not live on GitHub. Uploaded
+filenames are display data only — files on disk are named by generated id, so a
+filename can never become a path.
 
-**Phase 5 — Automation.** Scheduled workflows, monitoring, notifications.
+**Phase 4 — AI (shipped).** A prompt library with full CRUD, search across
+titles *and* bodies, categories and favourites; and an AI workspace collecting
+prompts, AI-typed projects and one-click links to the tools you actually use.
 
-## 9. Adding things — quick reference
+Workflows deliberately stayed scaffolded. A workflow that cannot be executed is
+only a list, and what executes it — a scheduler, run history, somewhere for
+results to land — is Phase 5. Building the UI first would have produced
+something that looked finished and did nothing.
+
+**Phase 5 — Automation (shipped).** A task catalogue in code, schedules in the
+database, an in-process scheduler, and a notification inbox.
+
+The scheduling model is shaped by what a desktop app actually is. There is no
+always-on server, so this is not cron: the scheduler ticks while the app is open,
+and because due-ness is computed from `lastRunAt` rather than a live timer,
+anything that fell due while the app was closed runs shortly after it reopens.
+That is the honest behaviour for a dashboard you open regularly, and the
+Automations page says so rather than implying background execution.
+
+Adding an automation is one entry in `core/automation/tasks.ts` — the scheduler,
+the settings UI and the run history all read from that list. Rows are created on
+read rather than by migration, so a task added in a later version needs no
+schema change.
+
+## 10. Adding things — quick reference
 
 | To add… | Do this |
 | --- | --- |
@@ -184,5 +283,6 @@ workflows on the same repository pattern.
 | An experimental field | Put it in `metadata`; no migration |
 | A project status or type | Add to the const array in `types.ts` + an entry in `labels.ts` |
 | A quick action | One entry in `config/quick-actions.ts` |
+| A scheduled automation | One entry in `core/automation/tasks.ts`; the row is created on read |
 | An integration | Define a provider interface in `core/<name>/`, resolve it in one place |
 | A different database | New `ProjectRepository` implementation + one line in `db/repositories/index.ts` |
