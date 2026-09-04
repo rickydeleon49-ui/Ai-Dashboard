@@ -140,6 +140,32 @@ export async function newPage(): Promise<Page> {
 
 const errorsByPage = new WeakMap<Page, string[]>();
 
+/**
+ * Runs a check in a brand-new browser context, then disposes of it.
+ *
+ * Some failures only appear on a cold cache: with chunks already cached the
+ * page loads in a different order and the problem does not occur. Reusing one
+ * page across a suite therefore hides them, so anything sensitive to a first
+ * visit has to opt into a fresh context.
+ */
+export async function withFreshPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
+  if (!browser) throw new Error("start() must run first");
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 1280, height: 900 },
+  });
+  const page = await context.newPage();
+  const collected: string[] = [];
+  errorsByPage.set(page, collected);
+  page.on("pageerror", (error) => collected.push(error.message));
+
+  try {
+    return await fn(page);
+  } finally {
+    await context.close();
+  }
+}
+
 /** Uncaught errors seen on this page so far. */
 export function pageErrors(page: Page): string[] {
   return errorsByPage.get(page) ?? [];

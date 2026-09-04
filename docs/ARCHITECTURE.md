@@ -296,6 +296,44 @@ yields a path, not the API. Using `safeStorage` means:
 Point 4 is the reason this is deferred rather than done in passing: it is a
 design decision about the settings layer, not a patch to it.
 
+## 7c. A hydration bug worth remembering
+
+`/settings` intermittently failed hydration (React #418) in roughly forty
+percent of visits. The cause was not in the component that appeared to be at
+fault, and the first two explanations were wrong, so the shape of it is worth
+recording.
+
+**The cause.** The root layout is a server component and imported `themeScript`
+— a plain string — from `theme-toggle.tsx`, which carries `"use client"`.
+Importing a value out of a client module pulls that module into the server graph
+as well, and the same module was *also* rendered as a client component in two
+different segments: the layout's sidebar and the Settings page's Appearance
+card. `/settings` was the only route that did both, and the only route that
+failed. Moving `themeScript` and `STORAGE_KEY` into their own plain module fixed
+it: 0 failures in 50 attempts, against 17 in 40 before.
+
+**Two wrong answers first.** It correlated with the automation scheduler's first
+tick, which was a coincidence of sample size — measured properly, the failure
+rate is the same with the scheduler off. It then looked like the component's own
+`useSyncExternalStore` mount gate, but replacing that with an effect, and
+removing the `localStorage` read from the initial render, changed nothing. What
+settled it was deleting the component from the page (0/40) and then rendering an
+identical copy from a *separate module* (0/20) — same code, no failure, which
+pointed at the module rather than the logic.
+
+**Why the tests missed it.** Two conditions are needed and neither is what a
+test does by default. `<Link>` prefetching is production-only, so the route has
+to be reached from a page that links to it rather than loaded directly. And it
+only appears on a cold cache, so a suite reusing one browser page never sees it.
+`tests/e2e/helpers.ts` gained `withFreshPage` for exactly this, and the route
+suite now walks every route from another page in a fresh context, several times
+each, because a single clean pass proves nothing against a forty-percent
+failure.
+
+The general rule: **do not import values out of `"use client"` modules from
+server components.** Put shared constants and strings in a plain module that
+both can import.
+
 ## 8. State and URLs
 
 Filter state lives in the **URL**, not React state. A filtered library view is

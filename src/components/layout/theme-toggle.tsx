@@ -3,10 +3,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { STORAGE_KEY } from "./theme-script";
 
 type Theme = "dark" | "light" | "system";
-
-const STORAGE_KEY = "dashboard-theme";
 
 /** Applies a theme choice to <html> and persists it. */
 export function applyTheme(theme: Theme): void {
@@ -94,17 +93,3 @@ export function ThemeToggle() {
   );
 }
 
-/**
- * Inlined in <head> so the stored theme is applied before first paint.
- * Without this, a light-mode user sees a dark flash on every navigation.
- */
-export const themeScript = `
-(function(){
-  try {
-    var stored = localStorage.getItem('${STORAGE_KEY}') || 'dark';
-    var light = stored === 'light' ||
-      (stored === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
-    if (light) document.documentElement.classList.add('light');
-  } catch (e) {}
-})();
-`;

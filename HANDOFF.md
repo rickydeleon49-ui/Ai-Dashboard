@@ -95,6 +95,15 @@ reasoning is not lost.
    Verified against the same `makensis` binary electron-builder uses, with the old
    PNG as a failing control.
 
+### Do not import values out of `"use client"` modules from server components
+
+The root layout imported `themeScript`, a plain string, from the client module
+that also defines `ThemeToggle`. That put one module in both graphs while it was
+rendered as a client component in two segments, and `/settings` — the only route
+doing both — failed hydration about forty percent of the time. Shared constants
+belong in a plain module both sides import. Written up in full in
+`docs/ARCHITECTURE.md` §7c, including the two explanations that were wrong first.
+
 ### Environment problems that were not code
 
 - The user's first attempt ran in `C:\Program Files\Git` (Git Bash's `/` is the

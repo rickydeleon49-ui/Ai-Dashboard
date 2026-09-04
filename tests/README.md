@@ -37,6 +37,16 @@ because `app.isPackaged` is false for anything run from a checkout — without i
 the shell would take the development path, wait for a `next dev` that is not
 running, and then block on an error dialog.
 
+## Cold-cache and cross-page failures
+
+`withFreshPage` runs a check in a new browser context. Some failures only appear
+on a first visit with an empty cache, and only when a route is reached from
+another page rather than loaded directly — `<Link>` prefetching is
+production-only. A hydration bug on `/settings` that reproduced about forty
+percent of the time was invisible to the ordinary route checks for both reasons.
+Anything sensitive to a first visit belongs in `withFreshPage`, repeated several
+times: one clean pass proves nothing against an intermittent failure.
+
 ## Two things worth knowing
 
 **No test runner was added.** These use Node's built-in `node:test` with the

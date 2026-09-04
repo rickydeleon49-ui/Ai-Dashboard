@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { Page } from "playwright";
-import { newPage, start, stop } from "./helpers";
+import { newPage, pageErrors, start, stop, withFreshPage } from "./helpers";
 
 let page: Page;
 
@@ -51,6 +51,37 @@ describe("routes", () => {
       assert.ok(heading && heading.length > 0, `${route} rendered no heading`);
     });
   }
+
+  /*
+   * Arriving at a route from another one, rather than loading it directly.
+   *
+   * This is the shape that caught a hydration failure the direct loads above
+   * miss entirely: `<Link>` prefetching is production-only, so the page has to
+   * be reached from a page that links to it. The failure was intermittent at
+   * roughly forty percent, so each route is visited several times — one clean
+   * pass proves nothing.
+   */
+  it("hydrates cleanly when reached from another page", async () => {
+    const failures: string[] = [];
+
+    for (const [route] of ROUTES) {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const error = await withFreshPage(async (fresh) => {
+          await fresh.goto("/projects", { waitUntil: "networkidle" });
+          await fresh.goto(route, { waitUntil: "networkidle" });
+          await fresh.waitForTimeout(400);
+          return pageErrors(fresh)[0];
+        });
+
+        if (error) {
+          failures.push(`${route}: ${error}`);
+          break;
+        }
+      }
+    }
+
+    assert.deepEqual(failures, [], "pages must hydrate without errors");
+  });
 
   it("returns 404 for a route that does not exist", async () => {
     const response = await page.goto("/definitely-not-a-route", {
