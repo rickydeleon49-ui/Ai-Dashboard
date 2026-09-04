@@ -24,7 +24,8 @@
     "desktop:icon": "node desktop/make-icon.mjs",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "tsx --conditions=react-server --test tests/unit/*.test.ts",
-    "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/*.test.ts"
+    "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts",
+    "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

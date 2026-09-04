@@ -75,6 +75,47 @@ function setupRequired(): NextResponse {
   });
 }
 
+/** Methods that can change something and therefore need CSRF protection. */
+const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Rejects state-changing requests that a browser tells us came from elsewhere.
+ *
+ * Basic auth credentials are *ambient*: once the browser has them it attaches
+ * them automatically, including to requests another site causes. A form on an
+ * attacker's page posting to /api/projects would therefore arrive fully
+ * authenticated. A JSON content-type would normally force a preflight and be
+ * blocked, but a form with `enctype="text/plain"` is a simple request that
+ * sends no preflight, and `request.json()` parses the body regardless of its
+ * content type — so the JSON API is reachable that way.
+ *
+ * Only positively cross-site requests are rejected. A client with no Origin and
+ * no Sec-Fetch-Site is not a browser, so it had to supply the password itself
+ * and is not what CSRF describes; refusing those would break scripts for no
+ * security gain.
+ */
+function isCrossSite(request: NextRequest): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site) return site === "cross-site" || site === "same-site";
+
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+
+  try {
+    return new URL(origin).host !== request.headers.get("host");
+  } catch {
+    // An unparseable Origin is not something to trust.
+    return true;
+  }
+}
+
+function forbidden(): NextResponse {
+  return new NextResponse("Cross-site requests are not allowed.", {
+    status: 403,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
 export function middleware(request: NextRequest) {
   // The desktop shell sets this when it forks the bundled server. That server
   // listens on 127.0.0.1 only, so nothing off the machine can reach it.
@@ -100,6 +141,10 @@ export function middleware(request: NextRequest) {
   // username field, and inventing a second credential adds nothing here.
   const supplied = decoded.slice(decoded.indexOf(":") + 1);
   if (!safeEqual(supplied, password)) return unauthorized();
+
+  // Checked after authentication so an unauthenticated caller learns nothing
+  // about which requests would otherwise have been accepted.
+  if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
 
   return NextResponse.next();
 }

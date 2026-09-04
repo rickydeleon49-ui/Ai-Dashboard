@@ -21,6 +21,22 @@ throwaway database and drives it with Chromium: every navigation destination,
 project create/edit/archive/restore/delete, uploads, the GitHub fallback, and
 prompt CRUD.
 
+**Desktop** (`tests/e2e/desktop.test.ts`) launches the real Electron main
+process against the real bundled server and checks the window renders, the
+renderer has no `require`/`process`/`module`, and the preload bridge exposes
+exactly three keys. It needs a standalone build and a display:
+
+```bash
+npm run desktop:build
+xvfb-run -a npm run test:desktop   # or just `npm run test:desktop` with a display
+```
+
+It skips itself when `.next/standalone/server.js` is absent, so the ordinary
+suite does not require a desktop build first. It sets `DESKTOP_BUNDLED=1`,
+because `app.isPackaged` is false for anything run from a checkout — without it
+the shell would take the development path, wait for a `next dev` that is not
+running, and then block on an error dialog.
+
 ## Two things worth knowing
 
 **No test runner was added.** These use Node's built-in `node:test` with the

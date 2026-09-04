@@ -228,6 +228,74 @@ copy the **developer's real database into the shipped application**.
 `desktop/build.mjs` points `DATABASE_PATH` at a temporary directory for the
 duration of the build and strips any `data/` directory from the bundle afterwards.
 
+## 7b. Security posture
+
+Two deployments with different threat models share one codebase, and the
+middleware is where they diverge.
+
+**Desktop.** The bundled server binds `127.0.0.1` on a random port and is
+unreachable from another machine, so `DASHBOARD_LOCAL=1` lets it through
+unauthenticated. Asking for a password there would be friction with nothing
+behind it.
+
+**Hosted.** A deployment reachable by URL requires `DASHBOARD_PASSWORD`. The
+default is fail-safe: production with no password set serves a setup notice
+rather than the dashboard, so forgetting cannot silently publish the library.
+
+### Why hosted mode also needs a same-origin check
+
+HTTP Basic credentials are *ambient* — once the browser holds them it attaches
+them to requests other sites cause. A form on an attacker's page posting to
+`/api/projects` would arrive fully authenticated. A JSON content type would
+normally force a preflight and be blocked, but a form with
+`enctype="text/plain"` is a simple request that sends no preflight, and
+`request.json()` parses a body regardless of its content type — so the JSON API
+is reachable that way.
+
+State-changing methods are therefore rejected when the browser reports the
+request as cross-site, by `Sec-Fetch-Site` or by an `Origin` that does not match
+the host. Only positively cross-site requests are refused: a client sending
+neither header is not a browser, so it supplied the password itself and is not
+what CSRF describes. Refusing those would break scripts for no security gain.
+
+### Renderer isolation
+
+The renderer runs with `contextIsolation` and `sandbox` on and `nodeIntegration`
+off. The preload bridge exposes one capability — menu-driven navigation — and
+the desktop test asserts that `require`, `process` and `module` are all
+`undefined` in the renderer, so a regression here fails the suite rather than
+shipping.
+
+Navigation guards compare parsed origins rather than string prefixes.
+`url.startsWith(baseUrl)` admits `http://127.0.0.1:PORT@example.com/`, where
+everything before the `@` is credentials, and a bare `route.startsWith("/")`
+admits the protocol-relative `//example.com`.
+
+### Token storage — known gap
+
+The GitHub token is stored as plaintext in the `settings` table. It sits in the
+OS user-data directory with user-only permissions, and it is a scoped GitHub
+credential rather than a password, so the exposure is bounded — but it is not
+encrypted at rest, and anything able to read the user's files can read it.
+
+Electron's `safeStorage` is the right answer and is **not a small change**. The
+Next server does not run in the Electron main process: it is `fork()`ed with
+`ELECTRON_RUN_AS_NODE=1`, so it is plain Node and `require("electron")` there
+yields a path, not the API. Using `safeStorage` means:
+
+1. A request/response protocol over the existing `fork()` IPC channel, since
+   only the main process can encrypt or decrypt.
+2. A fallback for hosted mode, which has no Electron parent and no keychain.
+3. Migration of existing plaintext values, and a stored prefix (`enc:v1:`) so
+   both forms can coexist while that happens.
+4. Either making `getSetting` async — which ripples into provider resolution,
+   the device flow and the updates service, all of which call it synchronously —
+   or decrypting once at boot into an in-memory cache and accepting that
+   requests arriving before that completes must wait.
+
+Point 4 is the reason this is deferred rather than done in passing: it is a
+design decision about the settings layer, not a patch to it.
+
 ## 8. State and URLs
 
 Filter state lives in the **URL**, not React state. A filtered library view is

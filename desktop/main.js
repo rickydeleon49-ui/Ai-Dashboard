@@ -15,7 +15,15 @@ const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
 
-const isDev = !app.isPackaged;
+/*
+ * Development attaches to `next dev`; a packaged app starts the bundled server.
+ *
+ * `app.isPackaged` is false for anything run from a checkout, tests included,
+ * so DESKTOP_BUNDLED forces the path packaging actually ships. Without it a
+ * test of the desktop shell would silently exercise the dev path instead and
+ * then block on an error dialog when no dev server answers.
+ */
+const isDev = process.env.DESKTOP_BUNDLED === "1" ? false : !app.isPackaged;
 
 /**
  * Where the packaged Next standalone server lives.
