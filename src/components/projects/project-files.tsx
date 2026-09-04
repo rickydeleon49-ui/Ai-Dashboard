@@ -54,12 +54,26 @@ export function ProjectFiles({
         method: "POST",
         body: form,
       });
-      const body = (await response.json()) as { error?: string };
-      if (!response.ok) {
+      const body = (await response.json()) as {
+        error?: string;
+        failed?: Array<{ filename: string; error: string }>;
+      };
+
+      // A batch can partly succeed. Naming the files that did not land is the
+      // difference between a usable message and "Upload failed" next to a list
+      // that visibly grew.
+      if (body.failed && body.failed.length > 0) {
+        setError(
+          body.failed
+            .map((failure) => `${failure.filename}: ${failure.error}`)
+            .join(" · "),
+        );
+      } else if (!response.ok) {
         setError(body.error ?? "Upload failed");
-        return;
       }
-      router.refresh();
+
+      // Refresh whenever anything stored, including a partial batch.
+      if (response.ok) router.refresh();
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -70,9 +84,21 @@ export function ProjectFiles({
 
   async function remove(id: string) {
     setBusy(true);
+    setError(null);
     try {
-      await fetch(`/api/files/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/files/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        // Previously swallowed: a failed delete left the row on screen with no
+        // explanation, which reads as the button being broken.
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setError(body.error ?? "Could not delete that file.");
+        return;
+      }
       router.refresh();
+    } catch {
+      setError("Could not reach the server.");
     } finally {
       setBusy(false);
     }

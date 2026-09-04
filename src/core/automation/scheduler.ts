@@ -23,6 +23,14 @@ const globalForScheduler = globalThis as unknown as {
 };
 
 export function startScheduler(): void {
+  /*
+   * An explicit off switch, for tests and for any deployment that wants the
+   * dashboard without background work. Without it a run is non-deterministic:
+   * automations fire partway through, changing data underneath a page that has
+   * already been rendered.
+   */
+  if (process.env.DASHBOARD_DISABLE_SCHEDULER === "1") return;
+
   // Module reloading in development would otherwise stack timers.
   if (globalForScheduler.__automationTimer) return;
 

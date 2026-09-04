@@ -25,6 +25,14 @@ export const PROJECT_STATUSES = [
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+/** Narrows an unknown value — e.g. one read back out of JSON metadata. */
+export function isProjectStatus(value: unknown): value is ProjectStatus {
+  return (
+    typeof value === "string" &&
+    (PROJECT_STATUSES as readonly string[]).includes(value)
+  );
+}
+
 /** What kind of thing the project is. Extend freely — it is a plain string union. */
 export const PROJECT_TYPES = [
   "software",

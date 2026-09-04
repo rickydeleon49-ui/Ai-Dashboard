@@ -15,6 +15,13 @@
       "when": 1788152372574,
       "tag": "0001_large_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788546954357,
+      "tag": "0002_complete_red_shift",
+      "breakpoints": true
     }
   ]
 }

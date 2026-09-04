@@ -295,13 +295,31 @@ function createWindow() {
 
   // Same for a plain in-window navigation to an external origin.
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith(baseUrl)) {
+    if (!isInternalUrl(url)) {
       event.preventDefault();
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     }
   });
 
   mainWindow.loadURL(baseUrl);
+}
+
+/**
+ * Whether a URL belongs to the bundled server.
+ *
+ * Compared by parsed origin, not by string prefix. `url.startsWith(baseUrl)`
+ * looks equivalent and is not: with baseUrl "http://127.0.0.1:41234", the URL
+ * "http://127.0.0.1:41234@example.com/" starts with it while actually pointing
+ * at example.com — everything before the "@" is credentials. Parsing decides on
+ * the real origin instead of on how the string happens to begin.
+ */
+function isInternalUrl(url) {
+  try {
+    return new URL(url).origin === new URL(baseUrl).origin;
+  } catch {
+    // Unparseable is not internal.
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

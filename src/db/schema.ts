@@ -153,6 +153,15 @@ export const githubRepositories = sqliteTable(
     linkedProjectId: text("linked_project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
+    /**
+     * True for sample rows written by the demo provider.
+     *
+     * Demo and real repositories share this table, so without a flag there is
+     * no way to tell them apart after the fact — and a sync that cannot tell
+     * them apart is a sync that can delete real cached repositories when a
+     * token stops working. Cleanup uses this to only ever remove its own kind.
+     */
+    isDemo: integer("is_demo", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [uniqueIndex("github_repos_external_idx").on(t.externalId)],
 );

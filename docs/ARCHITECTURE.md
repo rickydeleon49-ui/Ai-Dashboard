@@ -186,11 +186,22 @@ Electron and Node use different V8 ABIs, so a native module normally has to be
 recompiled at packaging time — which means a full toolchain (Visual Studio Build
 Tools on Windows) on every machine that packages the app.
 
-better-sqlite3 v13 ships **Node-API** binaries instead, one per platform, inside
-the published package. Node-API is ABI-stable across both Node versions and
-Electron versions, so the same binary file is valid in every runtime this project
-uses. `npmRebuild` is therefore set to `false`: there is nothing to rebuild,
-packaging needs no compiler, and the web and desktop targets share one binary.
+better-sqlite3 v13 ships **Node-API** binaries instead, inside the published
+package. Node-API is ABI-stable across both Node versions and Electron versions,
+so the same binary file is valid in every runtime this project uses. `npmRebuild`
+is therefore set to `false`, and the web and desktop targets share one binary.
+
+The prebuilt binaries cover eight targets: darwin x64/arm64, linux x64/arm64,
+linux-musl x64/arm64, and win32 x64/arm64. On those, installing and packaging
+genuinely need no compiler. **Anything else falls back to a source build** and
+does need a toolchain — node-gyp, Python, and Visual Studio Build Tools on
+Windows. That covers, among others, 32-bit Windows, linux armv7 (a Raspberry Pi
+before the 64-bit images) and FreeBSD. It is also what happens on a supported
+platform if the package is installed with prebuild downloads disabled or from a
+partially-written `node_modules`.
+
+better-sqlite3 v13 requires **Node 22 or newer**, which is what `engines.node`
+declares. Node 20 satisfied the old `>=20` range and then failed at install.
 
 This is worth preserving. Pinning to a native module that needs `node-gyp` would
 reintroduce a toolchain requirement on every developer machine and every CI
