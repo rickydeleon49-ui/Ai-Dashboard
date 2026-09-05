@@ -70,11 +70,27 @@ export function UploadProjectForm() {
           body: upload,
         });
 
-        if (!response.ok) {
-          const failure = (await response.json()) as { error?: string };
-          // The project exists; say so rather than implying nothing happened.
+        const result = (await response.json()) as {
+          error?: string;
+          failed?: Array<{ filename: string; error: string }>;
+        };
+
+        // A batch can partly succeed, so report on the files rather than on the
+        // request. Either way the project exists — say so, rather than leaving
+        // the user thinking nothing happened.
+        if (result.failed && result.failed.length > 0) {
           setError(
-            `${failure.error ?? "Upload failed"} — the project was created, so you can add files from its page.`,
+            `${result.failed
+              .map((failure) => `${failure.filename}: ${failure.error}`)
+              .join(" · ")} — the project was created, so you can add files from its page.`,
+          );
+          setBusy(false);
+          return;
+        }
+
+        if (!response.ok) {
+          setError(
+            `${result.error ?? "Upload failed"} — the project was created, so you can add files from its page.`,
           );
           setBusy(false);
           return;

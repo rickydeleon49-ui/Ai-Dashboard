@@ -1,11 +1,11 @@
 {
   "name": "ai-dashboard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Personal AI Dashboard / Command Center — web and desktop",
   "author": "rickydeleon49-ui",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev",
@@ -21,7 +21,11 @@
     "desktop:build": "node desktop/build.mjs",
     "desktop:package": "npm run desktop:build && electron-builder --publish never",
     "desktop:package:all": "npm run desktop:build && electron-builder -mwl --publish never",
-    "desktop:icon": "node desktop/make-icon.mjs"
+    "desktop:icon": "node desktop/make-icon.mjs",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "tsx --conditions=react-server --test tests/unit/*.test.ts",
+    "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts",
+    "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectRepository } from "@/db/repositories";
-import { addProjectFile, listProjectFiles } from "@/core/files/service";
+import { addProjectFiles, listProjectFiles } from "@/core/files/service";
 
 export const dynamic = "force-dynamic";
 
@@ -38,21 +38,29 @@ export async function POST(request: Request, { params }: Context) {
     return NextResponse.json({ error: "No files were included" }, { status: 422 });
   }
 
-  const saved = [];
-  for (const upload of uploads) {
-    try {
-      saved.push(await addProjectFile(id, upload));
-    } catch (error) {
-      // Report the first rejection rather than silently storing a partial set.
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Upload failed" },
-        { status: 422 },
-      );
-    }
+  const outcomes = await addProjectFiles(id, uploads);
+  const saved = outcomes.filter((o) => o.ok).map((o) => o.file);
+  const failed = outcomes
+    .filter((o) => !o.ok)
+    .map(({ filename, error }) => ({ filename, error }));
+
+  // Only touch the project's timestamp if something was actually attached.
+  if (saved.length > 0) await projectRepository.update(id, {});
+
+  /*
+   * A partly-successful batch is reported as success with the failures listed,
+   * not as an error. The stored files are real and are already visible on the
+   * page — returning a bare 4xx would tell the user nothing happened while the
+   * list in front of them says otherwise.
+   *
+   * Nothing stored at all is a genuine failure, so that keeps the 422.
+   */
+  if (saved.length === 0) {
+    return NextResponse.json(
+      { error: failed[0]?.error ?? "Upload failed", files: [], failed },
+      { status: 422 },
+    );
   }
 
-  // Attaching files is a change to the project, so its timestamp should move.
-  await projectRepository.update(id, {});
-
-  return NextResponse.json({ files: saved }, { status: 201 });
+  return NextResponse.json({ files: saved, failed }, { status: 201 });
 }

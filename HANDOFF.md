@@ -95,15 +95,27 @@ reasoning is not lost.
    Verified against the same `makensis` binary electron-builder uses, with the old
    PNG as a failing control.
 
+### Do not import values out of `"use client"` modules from server components
+
+The root layout imported `themeScript`, a plain string, from the client module
+that also defines `ThemeToggle`. That put one module in both graphs while it was
+rendered as a client component in two segments, and `/settings` — the only route
+doing both — failed hydration about forty percent of the time. Shared constants
+belong in a plain module both sides import. Written up in full in
+`docs/ARCHITECTURE.md` §7c, including the two explanations that were wrong first.
+
 ### Environment problems that were not code
 
 - The user's first attempt ran in `C:\Program Files\Git` (Git Bash's `/` is the
   Git install root). The clone failed on permissions, `cd` then failed, and
   `npm install` ran in a protected directory. The half-written tree it left
   behind is what later made npm try to compile `better-sqlite3` from source and
-  fail for lack of Visual Studio. **A clean `npm install` needs no compiler** —
-  better-sqlite3 v13 ships Node-API binaries. If a native build is ever attempted,
-  something is wrong with the tree, not the config. The recovery was:
+  fail for lack of Visual Studio. better-sqlite3 v13 ships Node-API binaries for
+  darwin, linux, linux-musl and win32 on x64 and arm64, so **on those platforms
+  a clean `npm install` needs no compiler**. A target outside that list genuinely
+  does build from source and genuinely does need a toolchain. On a supported
+  platform, then, an attempted native build means something is wrong with the
+  tree rather than with the configuration. The recovery was:
   ```bash
   npm cache clean --force
   rm -rf node_modules package-lock.json

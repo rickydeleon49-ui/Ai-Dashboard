@@ -47,11 +47,11 @@ export function ArchiveButton({ project }: { project: Project }) {
     await fetch(`/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        archived: !project.archived,
-        // Archiving also moves the status, so the library reads consistently.
-        ...(project.archived ? {} : { status: "archived" }),
-      }),
+      // Only the flag is sent. The repository moves `status` to match — to
+      // "archived" on the way in, and back to whatever it was on the way out —
+      // so the rule lives in one place rather than in every caller that
+      // archives something.
+      body: JSON.stringify({ archived: !project.archived }),
     });
     setBusy(false);
     router.refresh();

@@ -1,0 +1,1 @@
+ALTER TABLE `github_repositories` ADD `is_demo` integer DEFAULT false NOT NULL;

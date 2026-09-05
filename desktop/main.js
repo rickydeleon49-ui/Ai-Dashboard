@@ -15,7 +15,15 @@ const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
 
-const isDev = !app.isPackaged;
+/*
+ * Development attaches to `next dev`; a packaged app starts the bundled server.
+ *
+ * `app.isPackaged` is false for anything run from a checkout, tests included,
+ * so DESKTOP_BUNDLED forces the path packaging actually ships. Without it a
+ * test of the desktop shell would silently exercise the dev path instead and
+ * then block on an error dialog when no dev server answers.
+ */
+const isDev = process.env.DESKTOP_BUNDLED === "1" ? false : !app.isPackaged;
 
 /**
  * Where the packaged Next standalone server lives.
@@ -295,13 +303,31 @@ function createWindow() {
 
   // Same for a plain in-window navigation to an external origin.
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith(baseUrl)) {
+    if (!isInternalUrl(url)) {
       event.preventDefault();
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     }
   });
 
   mainWindow.loadURL(baseUrl);
+}
+
+/**
+ * Whether a URL belongs to the bundled server.
+ *
+ * Compared by parsed origin, not by string prefix. `url.startsWith(baseUrl)`
+ * looks equivalent and is not: with baseUrl "http://127.0.0.1:41234", the URL
+ * "http://127.0.0.1:41234@example.com/" starts with it while actually pointing
+ * at example.com — everything before the "@" is credentials. Parsing decides on
+ * the real origin instead of on how the string happens to begin.
+ */
+function isInternalUrl(url) {
+  try {
+    return new URL(url).origin === new URL(baseUrl).origin;
+  } catch {
+    // Unparseable is not internal.
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,10 @@
 import "server-only";
 
+import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import path from "node:path";
 import { resolveUploadsDir } from "@/db/path";
 import { createId } from "@/lib/ids";
@@ -35,21 +39,58 @@ export class LocalStorageDriver implements StorageDriver {
     return full;
   }
 
+  /** Reserves a fresh on-disk location for one upload. */
+  private async allocate(projectId: string, filename: string): Promise<string> {
+    await mkdir(this.projectDir(projectId), { recursive: true });
+    // Keep the extension for content sniffing and nicer downloads; discard the
+    // rest of the supplied name.
+    const extension = path.extname(filename).slice(0, 16);
+    return path.join(path.basename(projectId), `${createId("f")}${extension}`);
+  }
+
   async write(
     projectId: string,
     filename: string,
     data: Buffer,
   ): Promise<StoredFile> {
-    const dir = this.projectDir(projectId);
-    await mkdir(dir, { recursive: true });
-
-    // Keep the extension for content sniffing and nicer downloads; discard the
-    // rest of the supplied name.
-    const extension = path.extname(filename).slice(0, 16);
-    const key = path.join(path.basename(projectId), `${createId("f")}${extension}`);
-
+    const key = await this.allocate(projectId, filename);
     await writeFile(this.resolveKey(key), data);
     return { key, size: data.byteLength };
+  }
+
+  async writeStream(
+    projectId: string,
+    filename: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<StoredFile> {
+    const key = await this.allocate(projectId, filename);
+    const destination = this.resolveKey(key);
+
+    let size = 0;
+    const counted = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        size += chunk.byteLength;
+        callback(null, chunk);
+      },
+    });
+
+    try {
+      // `File.stream()` is typed as the DOM ReadableStream while
+      // `Readable.fromWeb` wants the structurally identical one from
+      // node:stream/web. The cast bridges the two declarations only.
+      await pipeline(
+        Readable.fromWeb(data as unknown as NodeReadableStream<Uint8Array>),
+        counted,
+        createWriteStream(destination),
+      );
+    } catch (error) {
+      // A half-written file is worse than none: the row would point at
+      // truncated bytes. Clear it before letting the error surface.
+      await rm(destination, { force: true }).catch(() => undefined);
+      throw error;
+    }
+
+    return { key, size };
   }
 
   async read(key: string): Promise<Buffer> {

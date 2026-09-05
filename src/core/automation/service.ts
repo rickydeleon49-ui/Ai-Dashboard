@@ -189,6 +189,16 @@ export async function runDueAutomations(): Promise<number> {
 
   for (const row of due) {
     await runAutomation(row.id);
+
+    /*
+     * Hand the event loop back between automations.
+     *
+     * better-sqlite3 is synchronous, so a task's queries block the single
+     * thread that is also serving requests. Running several back to back
+     * monopolises it for as long as they all take, which stalls responses that
+     * are mid-flight. Yielding bounds that to one automation at a time.
+     */
+    await new Promise((resolve) => setImmediate(resolve));
   }
 
   return due.length;

@@ -186,11 +186,22 @@ Electron and Node use different V8 ABIs, so a native module normally has to be
 recompiled at packaging time — which means a full toolchain (Visual Studio Build
 Tools on Windows) on every machine that packages the app.
 
-better-sqlite3 v13 ships **Node-API** binaries instead, one per platform, inside
-the published package. Node-API is ABI-stable across both Node versions and
-Electron versions, so the same binary file is valid in every runtime this project
-uses. `npmRebuild` is therefore set to `false`: there is nothing to rebuild,
-packaging needs no compiler, and the web and desktop targets share one binary.
+better-sqlite3 v13 ships **Node-API** binaries instead, inside the published
+package. Node-API is ABI-stable across both Node versions and Electron versions,
+so the same binary file is valid in every runtime this project uses. `npmRebuild`
+is therefore set to `false`, and the web and desktop targets share one binary.
+
+The prebuilt binaries cover eight targets: darwin x64/arm64, linux x64/arm64,
+linux-musl x64/arm64, and win32 x64/arm64. On those, installing and packaging
+genuinely need no compiler. **Anything else falls back to a source build** and
+does need a toolchain — node-gyp, Python, and Visual Studio Build Tools on
+Windows. That covers, among others, 32-bit Windows, linux armv7 (a Raspberry Pi
+before the 64-bit images) and FreeBSD. It is also what happens on a supported
+platform if the package is installed with prebuild downloads disabled or from a
+partially-written `node_modules`.
+
+better-sqlite3 v13 requires **Node 22 or newer**, which is what `engines.node`
+declares. Node 20 satisfied the old `>=20` range and then failed at install.
 
 This is worth preserving. Pinning to a native module that needs `node-gyp` would
 reintroduce a toolchain requirement on every developer machine and every CI
@@ -216,6 +227,112 @@ migrations. Left alone that writes into `./data`, and Next's file tracing would
 copy the **developer's real database into the shipped application**.
 `desktop/build.mjs` points `DATABASE_PATH` at a temporary directory for the
 duration of the build and strips any `data/` directory from the bundle afterwards.
+
+## 7b. Security posture
+
+Two deployments with different threat models share one codebase, and the
+middleware is where they diverge.
+
+**Desktop.** The bundled server binds `127.0.0.1` on a random port and is
+unreachable from another machine, so `DASHBOARD_LOCAL=1` lets it through
+unauthenticated. Asking for a password there would be friction with nothing
+behind it.
+
+**Hosted.** A deployment reachable by URL requires `DASHBOARD_PASSWORD`. The
+default is fail-safe: production with no password set serves a setup notice
+rather than the dashboard, so forgetting cannot silently publish the library.
+
+### Why hosted mode also needs a same-origin check
+
+HTTP Basic credentials are *ambient* — once the browser holds them it attaches
+them to requests other sites cause. A form on an attacker's page posting to
+`/api/projects` would arrive fully authenticated. A JSON content type would
+normally force a preflight and be blocked, but a form with
+`enctype="text/plain"` is a simple request that sends no preflight, and
+`request.json()` parses a body regardless of its content type — so the JSON API
+is reachable that way.
+
+State-changing methods are therefore rejected when the browser reports the
+request as cross-site, by `Sec-Fetch-Site` or by an `Origin` that does not match
+the host. Only positively cross-site requests are refused: a client sending
+neither header is not a browser, so it supplied the password itself and is not
+what CSRF describes. Refusing those would break scripts for no security gain.
+
+### Renderer isolation
+
+The renderer runs with `contextIsolation` and `sandbox` on and `nodeIntegration`
+off. The preload bridge exposes one capability — menu-driven navigation — and
+the desktop test asserts that `require`, `process` and `module` are all
+`undefined` in the renderer, so a regression here fails the suite rather than
+shipping.
+
+Navigation guards compare parsed origins rather than string prefixes.
+`url.startsWith(baseUrl)` admits `http://127.0.0.1:PORT@example.com/`, where
+everything before the `@` is credentials, and a bare `route.startsWith("/")`
+admits the protocol-relative `//example.com`.
+
+### Token storage — known gap
+
+The GitHub token is stored as plaintext in the `settings` table. It sits in the
+OS user-data directory with user-only permissions, and it is a scoped GitHub
+credential rather than a password, so the exposure is bounded — but it is not
+encrypted at rest, and anything able to read the user's files can read it.
+
+Electron's `safeStorage` is the right answer and is **not a small change**. The
+Next server does not run in the Electron main process: it is `fork()`ed with
+`ELECTRON_RUN_AS_NODE=1`, so it is plain Node and `require("electron")` there
+yields a path, not the API. Using `safeStorage` means:
+
+1. A request/response protocol over the existing `fork()` IPC channel, since
+   only the main process can encrypt or decrypt.
+2. A fallback for hosted mode, which has no Electron parent and no keychain.
+3. Migration of existing plaintext values, and a stored prefix (`enc:v1:`) so
+   both forms can coexist while that happens.
+4. Either making `getSetting` async — which ripples into provider resolution,
+   the device flow and the updates service, all of which call it synchronously —
+   or decrypting once at boot into an in-memory cache and accepting that
+   requests arriving before that completes must wait.
+
+Point 4 is the reason this is deferred rather than done in passing: it is a
+design decision about the settings layer, not a patch to it.
+
+## 7c. A hydration bug worth remembering
+
+`/settings` intermittently failed hydration (React #418) in roughly forty
+percent of visits. The cause was not in the component that appeared to be at
+fault, and the first two explanations were wrong, so the shape of it is worth
+recording.
+
+**The cause.** The root layout is a server component and imported `themeScript`
+— a plain string — from `theme-toggle.tsx`, which carries `"use client"`.
+Importing a value out of a client module pulls that module into the server graph
+as well, and the same module was *also* rendered as a client component in two
+different segments: the layout's sidebar and the Settings page's Appearance
+card. `/settings` was the only route that did both, and the only route that
+failed. Moving `themeScript` and `STORAGE_KEY` into their own plain module fixed
+it: 0 failures in 50 attempts, against 17 in 40 before.
+
+**Two wrong answers first.** It correlated with the automation scheduler's first
+tick, which was a coincidence of sample size — measured properly, the failure
+rate is the same with the scheduler off. It then looked like the component's own
+`useSyncExternalStore` mount gate, but replacing that with an effect, and
+removing the `localStorage` read from the initial render, changed nothing. What
+settled it was deleting the component from the page (0/40) and then rendering an
+identical copy from a *separate module* (0/20) — same code, no failure, which
+pointed at the module rather than the logic.
+
+**Why the tests missed it.** Two conditions are needed and neither is what a
+test does by default. `<Link>` prefetching is production-only, so the route has
+to be reached from a page that links to it rather than loaded directly. And it
+only appears on a cold cache, so a suite reusing one browser page never sees it.
+`tests/e2e/helpers.ts` gained `withFreshPage` for exactly this, and the route
+suite now walks every route from another page in a fresh context, several times
+each, because a single clean pass proves nothing against a forty-percent
+failure.
+
+The general rule: **do not import values out of `"use client"` modules from
+server components.** Put shared constants and strings in a plain module that
+both can import.
 
 ## 8. State and URLs
 

@@ -17,7 +17,7 @@ import type {
   ProjectType,
   ProjectUpdateInput,
 } from "@/core/projects/types";
-import { PROJECT_STATUSES } from "@/core/projects/types";
+import { isProjectStatus, PROJECT_STATUSES } from "@/core/projects/types";
 import { createId } from "@/lib/ids";
 
 function nowIso(): string {
@@ -318,11 +318,48 @@ export class DrizzleProjectRepository implements ProjectRepository {
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.favorite !== undefined) patch.favorite = input.favorite;
     if (input.archived !== undefined) patch.archived = input.archived;
+
+    /*
+     * Archiving and restoring have to keep `archived` and `status` agreeing.
+     *
+     * Archiving sets status to "archived" so the badge and filters match the
+     * flag. Restoring therefore has to put a real status back, or the project
+     * returns to the library still reading "Archived" — visible in the badge,
+     * in the status filter, and in the dashboard's per-status counts, while the
+     * archive itself is empty.
+     *
+     * The status held before archiving is remembered on the row so restoring
+     * returns the project to where it actually was. "active" is the fallback
+     * for anything archived before this was recorded.
+     */
+    const archiveMetadata = parseJson<Record<string, unknown>>(existing.metadata, {});
+
+    if (input.archived === true && !existing.archived) {
+      if (existing.status !== "archived") {
+        archiveMetadata.statusBeforeArchive = existing.status;
+      }
+      if (input.status === undefined) patch.status = "archived";
+      patch.metadata = JSON.stringify(archiveMetadata);
+    } else if (input.archived === false && existing.archived) {
+      if (input.status === undefined) {
+        const remembered = archiveMetadata.statusBeforeArchive;
+        patch.status = isProjectStatus(remembered) ? remembered : "active";
+      }
+      delete archiveMetadata.statusBeforeArchive;
+      patch.metadata = JSON.stringify(archiveMetadata);
+    }
+
     if (input.lastOpenedAt !== undefined) patch.lastOpenedAt = input.lastOpenedAt;
     if (input.externalId !== undefined) patch.externalId = input.externalId;
     if (input.syncedAt !== undefined) patch.syncedAt = input.syncedAt;
     if (input.metadata !== undefined) {
-      patch.metadata = JSON.stringify(input.metadata);
+      // An explicit metadata patch wins, but must not drop the archive
+      // bookkeeping written above — that is what restore reads.
+      const explicit: Record<string, unknown> = { ...input.metadata };
+      if (archiveMetadata.statusBeforeArchive !== undefined) {
+        explicit.statusBeforeArchive = archiveMetadata.statusBeforeArchive;
+      }
+      patch.metadata = JSON.stringify(explicit);
     }
 
     db.update(projects).set(patch).where(eq(projects.id, id)).run();

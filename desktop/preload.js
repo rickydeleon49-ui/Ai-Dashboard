@@ -8,6 +8,23 @@
  */
 const { contextBridge, ipcRenderer } = require("electron");
 
+/**
+ * Whether a value is an in-app route and nothing more.
+ *
+ * A bare `startsWith("/")` is not enough: "//example.com/x" also starts with a
+ * slash and is a protocol-relative URL, so a router would navigate off-origin.
+ * Requiring a second character that is not a slash or backslash keeps this to
+ * real paths. Backslash is included because browsers normalise it to a slash.
+ */
+function isSafeRoute(route) {
+  return (
+    typeof route === "string" &&
+    route.startsWith("/") &&
+    !route.startsWith("//") &&
+    !route.startsWith("/\\")
+  );
+}
+
 contextBridge.exposeInMainWorld("desktop", {
   /** True only inside the desktop shell, so the web build can branch on it. */
   isDesktop: true,
@@ -19,7 +36,7 @@ contextBridge.exposeInMainWorld("desktop", {
    */
   onNavigate(callback) {
     const handler = (_event, route) => {
-      if (typeof route === "string" && route.startsWith("/")) callback(route);
+      if (isSafeRoute(route)) callback(route);
     };
     ipcRenderer.on("desktop:navigate", handler);
     return () => ipcRenderer.off("desktop:navigate", handler);

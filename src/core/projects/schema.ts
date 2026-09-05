@@ -32,36 +32,75 @@ const optionalUrl = z
     { message: "Must be a valid http(s) URL" },
   );
 
-export const tagsSchema = z
-  .union([z.string(), z.array(z.string())])
-  .optional()
-  .transform((value) => {
-    if (value === undefined) return [] as string[];
-    const raw = Array.isArray(value) ? value : value.split(",");
-    const cleaned = raw
-      .map((t) => t.trim().toLowerCase())
-      .filter((t) => t.length > 0 && t.length <= 32);
-    return Array.from(new Set(cleaned)).slice(0, 24);
-  });
+/** Accepts a comma-separated string or an array; normalises, dedupes, caps. */
+function cleanTags(value: string | string[]): string[] {
+  const raw = Array.isArray(value) ? value : value.split(",");
+  const cleaned = raw
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0 && t.length <= 32);
+  return Array.from(new Set(cleaned)).slice(0, 24);
+}
 
-export const projectCreateSchema = z.object({
+const tagsInput = z.union([z.string(), z.array(z.string())]);
+
+/** Create: absent tags mean "none". */
+export const tagsSchema = tagsInput
+  .optional()
+  .transform((value) => (value === undefined ? [] : cleanTags(value)));
+
+/** Update: absent tags mean "leave them alone", which is not the same thing. */
+const tagsPatchSchema = tagsInput
+  .optional()
+  .transform((value) => (value === undefined ? undefined : cleanTags(value)));
+
+/*
+ * The field definitions, without defaults.
+ *
+ * Defaults belong to creation only. Applying them on update was a real bug:
+ * `projectCreateSchema.partial()` keeps each field's `.default()`, so a PATCH
+ * carrying one key still produced a full object with every other field at its
+ * default — and the repository, seeing them as present, wrote them. Favouriting
+ * a GitHub project therefore reset it to source "manual", type "software",
+ * status "idea", and emptied the metadata holding its GitHub linkage.
+ *
+ * Keeping one field list and adding defaults only to the create schema means
+ * the two can never drift apart again.
+ */
+const projectFields = {
   name: z.string().trim().min(1, "Name is required").max(160),
   description: optionalText,
-  source: z.enum(PROJECT_SOURCES).default("manual"),
-  type: z.enum(PROJECT_TYPES).default("software"),
-  status: z.enum(PROJECT_STATUSES).default("idea"),
-  tags: tagsSchema,
+  source: z.enum(PROJECT_SOURCES),
+  type: z.enum(PROJECT_TYPES),
+  status: z.enum(PROJECT_STATUSES),
   repositoryUrl: optionalUrl,
   projectUrl: optionalUrl,
   localPath: optionalText,
   notes: z.string().trim().max(20000).nullable().optional(),
-  favorite: z.coerce.boolean().default(false),
-  archived: z.coerce.boolean().default(false),
+  favorite: z.coerce.boolean(),
+  archived: z.coerce.boolean(),
   externalId: optionalText,
-  metadata: z.record(z.string(), z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()),
+};
+
+export const projectCreateSchema = z.object({
+  ...projectFields,
+  source: projectFields.source.default("manual"),
+  type: projectFields.type.default("software"),
+  status: projectFields.status.default("idea"),
+  favorite: projectFields.favorite.default(false),
+  archived: projectFields.archived.default(false),
+  metadata: projectFields.metadata.default({}),
+  tags: tagsSchema,
 });
 
-export const projectUpdateSchema = projectCreateSchema.partial();
+/**
+ * Update accepts any subset, and a key that was not sent stays unset — so the
+ * repository only ever writes what the caller actually asked to change.
+ */
+export const projectUpdateSchema = z
+  .object(projectFields)
+  .partial()
+  .extend({ tags: tagsPatchSchema });
 
 export const projectQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
