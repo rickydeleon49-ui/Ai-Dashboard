@@ -16,6 +16,10 @@ declare global {
       isDesktop: boolean;
       platform: string;
       onNavigate: (callback: (route: string) => void) => () => void;
+      openLocal: (
+        projectId: string,
+        action: "folder" | "reveal" | "editor" | "terminal",
+      ) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
   }
 }

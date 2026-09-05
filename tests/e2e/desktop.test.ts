@@ -85,7 +85,7 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
     });
   });
 
-  it("exposes exactly the one bridge the menu needs", async () => {
+  it("exposes exactly the bridge surface it means to, and no more", async () => {
     const bridge = await window.evaluate(() => {
       const desktop = (globalThis as unknown as { desktop?: Record<string, unknown> })
         .desktop;
@@ -96,7 +96,36 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
 
     assert.ok(bridge, "the preload bridge should be present");
     assert.equal(bridge.isDesktop, true);
-    assert.deepEqual(bridge.keys, ["isDesktop", "onNavigate", "platform"]);
+    assert.deepEqual(bridge.keys, ["isDesktop", "onNavigate", "openLocal", "platform"]);
+  });
+
+  /*
+   * `openLocal` takes a project id, never a path. These check that it refuses
+   * anything else — the guarantee the whole design rests on is that no argument
+   * a page can supply makes it open somewhere unintended.
+   */
+  it("refuses a malformed request to open a local folder", async () => {
+    const results = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { desktop: {
+        openLocal: (id: unknown, action: unknown) => Promise<{ ok: boolean; error?: string }>;
+      } }).desktop;
+
+      return {
+        traversal: await bridge.openLocal("../../etc", "folder"),
+        absolute: await bridge.openLocal("/etc/passwd", "folder"),
+        badAction: await bridge.openLocal("prj_abc123", "rm -rf /"),
+        notAString: await bridge.openLocal(42, "folder"),
+        unknownId: await bridge.openLocal("prj_doesnotexist", "folder"),
+      };
+    });
+
+    for (const [name, result] of Object.entries(results)) {
+      assert.equal(result.ok, false, `${name} should have been refused`);
+      assert.ok(result.error, `${name} should explain itself`);
+    }
+
+    assert.match(results.badAction.error!, /Unsupported action/);
+    assert.match(results.traversal.error!, /Unknown project/);
   });
 
   it("can navigate within the app", async () => {

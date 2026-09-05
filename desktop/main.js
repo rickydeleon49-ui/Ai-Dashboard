@@ -9,10 +9,11 @@
  *   1. Storage lives in the OS user-data directory, not the working directory.
  *   2. Outbound links (Open GitHub, Open Project) go to the real browser.
  */
-const { app, BrowserWindow, Menu, shell, dialog } = require("electron");
-const { fork } = require("node:child_process");
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
+const { fork, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 
 /*
@@ -403,6 +404,162 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+
+// ---------------------------------------------------------------------------
+// Local project actions
+// ---------------------------------------------------------------------------
+
+/**
+ * Opening a project's folder, editor or terminal.
+ *
+ * This is the one place the application reaches outside itself, so the rules
+ * are strict:
+ *
+ *   The renderer never supplies a path. It sends a project id and the name of
+ *   an action; the path is looked up here, from the project the bundled server
+ *   already holds. A compromised or buggy page therefore cannot ask for an
+ *   arbitrary location — only for a project that exists.
+ *
+ *   Nothing is passed through a shell. Every launch uses an argv array, and the
+ *   directory is handed over as the child's working directory rather than
+ *   interpolated into a command string, so a path containing quotes, spaces or
+ *   semicolons is data and never syntax.
+ */
+
+const ACTIONS = new Set(["folder", "reveal", "editor", "terminal"]);
+
+/** Editors to try, in order, per platform. First one that launches wins. */
+const EDITORS = {
+  win32: ["code.cmd", "code"],
+  darwin: ["code", "cursor"],
+  linux: ["code", "cursor", "codium"],
+};
+
+/** Terminals to try, in order. The directory is always passed as cwd. */
+const TERMINALS = {
+  win32: [
+    { command: "wt.exe", args: [] },
+    { command: "powershell.exe", args: ["-NoExit"] },
+    { command: "cmd.exe", args: [] },
+  ],
+  darwin: [{ command: "open", args: ["-a", "Terminal", "."] }],
+  linux: [
+    { command: "x-terminal-emulator", args: [] },
+    { command: "gnome-terminal", args: [] },
+    { command: "konsole", args: [] },
+    { command: "xterm", args: [] },
+  ],
+};
+
+/** Asks the bundled server for a project. Returns null when there is none. */
+async function fetchProject(id) {
+  const response = await fetch(`${baseUrl}/api/projects/${encodeURIComponent(id)}`);
+  if (!response.ok) return null;
+  const body = await response.json();
+  return body.project ?? null;
+}
+
+/** Expands a leading ~ and resolves to an absolute path. */
+function resolveLocalPath(localPath) {
+  const expanded = localPath.startsWith("~")
+    ? path.join(os.homedir(), localPath.slice(1))
+    : localPath;
+  return path.resolve(expanded);
+}
+
+/**
+ * Launches the first candidate that starts, detached from this process.
+ *
+ * `spawn` with an argv array and `shell: false` — the default — means nothing
+ * is interpreted. A candidate that is not installed fails immediately with
+ * ENOENT, so the list is a preference order rather than a configuration burden.
+ */
+function launchFirst(candidates, cwd) {
+  for (const candidate of candidates) {
+    const { command, args } =
+      typeof candidate === "string" ? { command: candidate, args: [] } : candidate;
+    try {
+      const child = spawn(command, args, {
+        cwd,
+        detached: true,
+        stdio: "ignore",
+        // Windows resolves .cmd shims only through a shell; the argv array is
+        // still passed as arguments, so nothing here is interpreted as syntax.
+        shell: process.platform === "win32" && command.endsWith(".cmd"),
+      });
+      child.unref();
+      return command;
+    } catch {
+      // Not installed, or not permitted. Try the next one.
+    }
+  }
+  return null;
+}
+
+function registerLocalActions() {
+  ipcMain.handle("desktop:open-local", async (_event, payload) => {
+    const id = payload?.projectId;
+    const action = payload?.action;
+
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+      return { ok: false, error: "Unknown project." };
+    }
+    if (!ACTIONS.has(action)) {
+      return { ok: false, error: "Unsupported action." };
+    }
+
+    let project;
+    try {
+      project = await fetchProject(id);
+    } catch {
+      return { ok: false, error: "Could not reach the dashboard server." };
+    }
+    if (!project) return { ok: false, error: "Unknown project." };
+
+    if (!project.localPath) {
+      return { ok: false, error: "This project has no local folder set." };
+    }
+
+    const target = resolveLocalPath(project.localPath);
+    if (!fs.existsSync(target)) {
+      return { ok: false, error: `That folder no longer exists:\n${target}` };
+    }
+
+    if (action === "folder") {
+      // Returns an empty string on success, or a message describing why not.
+      const failure = await shell.openPath(target);
+      return failure ? { ok: false, error: failure } : { ok: true };
+    }
+
+    if (action === "reveal") {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    }
+
+    const isDirectory = fs.statSync(target).isDirectory();
+    const cwd = isDirectory ? target : path.dirname(target);
+
+    if (action === "editor") {
+      const editors = EDITORS[process.platform] ?? EDITORS.linux;
+      // The directory is an argument here, not the cwd: an editor opens what it
+      // is given, and passing "." would depend on how it resolves relative paths.
+      const launched = launchFirst(
+        editors.map((command) => ({ command, args: [target] })),
+        cwd,
+      );
+      return launched
+        ? { ok: true }
+        : { ok: false, error: "No supported editor was found on this machine." };
+    }
+
+    const terminals = TERMINALS[process.platform] ?? TERMINALS.linux;
+    const launched = launchFirst(terminals, cwd);
+    return launched
+      ? { ok: true }
+      : { ok: false, error: "No terminal application was found on this machine." };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -448,6 +605,7 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     buildMenu();
+    registerLocalActions();
     createWindow();
 
     app.on("activate", () => {
