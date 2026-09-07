@@ -97,8 +97,8 @@ better expressed as signals inside Focus, the page can go.
   Windows and Linux using the token the user already stores. macOS needs an
   Apple Developer account for signing and notarisation — a hard requirement.
   Also needs `latest.yml` published, which CI does not currently emit.
-- **The GitHub token is stored unencrypted.** Rationale and the cost of moving it
-  to the OS keychain are in `docs/ARCHITECTURE.md` §7b.
+- **The GitHub token is stored unencrypted.** Desktop storage should move to
+  Electron `safeStorage`; hosted mode retains the documented database fallback.
 - **Prompts, notifications, automations, activity and the GitHub cache still talk
   to the database directly**, rather than through repositories the way projects
   do. Deliberate: wide refactor, no correctness win. Revisit only if a second
