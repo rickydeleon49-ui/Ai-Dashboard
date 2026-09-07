@@ -24,7 +24,7 @@ to preserve. The stack was chosen against the requirements rather than inherited
 | **Zod** | One validation schema shared by forms, API routes and integration payloads. |
 | **`lucide-react`** | Consistent, light icon set. |
 
-Total runtime dependencies: nine. Nothing here is load-bearing enough to be hard
+Total runtime dependencies: ten. Nothing here is load-bearing enough to be hard
 to replace.
 
 ## 3. Layers
@@ -210,9 +210,8 @@ runner.
 ### Security posture
 
 The renderer is a web page and is treated as one: `contextIsolation: true`,
-`nodeIntegration: false`, `sandbox: true`. The preload bridge exposes exactly one
-capability — letting the application menu drive client-side navigation — and the
-route it accepts must start with `/`. Verified: `window.require` and
+`nodeIntegration: false`, `sandbox: true`. The preload bridge exposes two narrow capabilities: menu-driven navigation and
+project-id-based local actions. The renderer never supplies a filesystem path. Verified: `window.require` and
 `window.process` are both `undefined` in the renderer.
 
 Outbound links (Open GitHub, Open Project) are intercepted by
@@ -261,7 +260,7 @@ what CSRF describes. Refusing those would break scripts for no security gain.
 ### Renderer isolation
 
 The renderer runs with `contextIsolation` and `sandbox` on and `nodeIntegration`
-off. The preload bridge exposes one capability — menu-driven navigation — and
+off. The preload bridge exposes only menu navigation and project-id-based local actions, and
 the desktop test asserts that `require`, `process` and `module` are all
 `undefined` in the renderer, so a regression here fails the suite rather than
 shipping.
@@ -273,10 +272,9 @@ admits the protocol-relative `//example.com`.
 
 ### Token storage — known gap
 
-The GitHub token is stored as plaintext in the `settings` table. It sits in the
-OS user-data directory with user-only permissions, and it is a scoped GitHub
-credential rather than a password, so the exposure is bounded — but it is not
-encrypted at rest, and anything able to read the user's files can read it.
+The GitHub token is stored as plaintext in the `settings` table. It sits in the application's per-user data directory, but the application does
+not encrypt it or explicitly enforce file permissions. Anything able to read the
+database can read it.
 
 Electron's `safeStorage` is the right answer and is **not a small change**. The
 Next server does not run in the Electron main process: it is `fork()`ed with
