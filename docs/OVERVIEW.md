@@ -28,8 +28,8 @@ One codebase ships to two targets:
 | **Desktop** (primary) | Electron window wrapping the bundled Next.js server on `127.0.0.1:<random>` | OS user-data directory | none — not network reachable |
 | **Web** (optional) | The same app served by `next start`, e.g. on Railway | `./data`, or a mounted volume | HTTP Basic via `DASHBOARD_PASSWORD` |
 
-Roughly 11.6k lines of TypeScript/JavaScript across `src/` and `desktop/`, with
-nine runtime dependencies.
+The application is primarily TypeScript/JavaScript across `src/` and `desktop/`, with
+ten runtime dependencies.
 
 ---
 
@@ -273,8 +273,8 @@ regression fails the suite rather than shipping.
 named by generated id, so a filename can never become a path.
 
 **Known gap.** The GitHub token is stored as plaintext in the `settings` table.
-It sits in the OS user-data directory with user-only permissions and is a scoped
-credential rather than a password, but it is not encrypted at rest. Electron's
+It sits in the application's per-user data directory, but the application does
+not encrypt it or explicitly enforce file permissions. Electron's
 `safeStorage` is the right answer and is not a small change — the Next server is
 `fork()`ed as plain Node, so encryption would need an IPC protocol, a hosted
 fallback and a migration path. ARCHITECTURE.md §7b has the full analysis.
@@ -344,7 +344,8 @@ because better-sqlite3 downloads a prebuilt binary for the *building* machine.
 
 ## 10. Configuration
 
-All optional — see `.env.example`.
+See `.env.example`. Most settings are optional; hosted production requires
+`DASHBOARD_PASSWORD`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -369,12 +370,6 @@ everything.
 
 Honest inventory of what is not finished:
 
-- **`/uploads` is linked but has no route.** The sidebar, the dashboard, quick
-  actions and the Integrations page all point at `/uploads`, and no page file
-  exists under `src/app/uploads/` — the link resolves to the not-found page.
-  `tests/e2e/routes.test.ts` asserts a 200 for it, so the end-to-end suite should
-  be failing on that route. Uploading itself works: the API, the storage driver
-  and the project file panel are all in place; only the listing page is missing.
 - **Workflows are automations.** `/ai/workflows` is the automations screen; there
   is no user-defined workflow builder, and the task catalogue is code, not data.
 - **`/notes` and `/tools` exist but are unadvertised.** They are placeholder
