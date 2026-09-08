@@ -54,3 +54,15 @@ jobs:
       # Builds the application first, so this also proves the production build.
       - name: End-to-end tests
         run: npm run test:e2e
+
+      # The desktop suite self-skips ("no standalone build") unless the bundle
+      # the Electron app ships has been built, so building it is what makes
+      # those tests run at all rather than pass vacuously. It also covers the
+      # packaging steps — symlink materialisation, the migrations copy, the
+      # stray-database removal — that broke Windows builds twice before.
+      - name: Build the desktop bundle
+        run: npm run desktop:build
+
+      # Electron needs a display even headless.
+      - name: Desktop shell tests
+        run: xvfb-run -a npm run test:desktop

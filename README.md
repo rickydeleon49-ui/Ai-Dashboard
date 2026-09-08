@@ -221,9 +221,13 @@ on ephemeral container disk.
 
 ## Architecture
 
-See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the layer model, the data
-model, the GitHub provider seam, the phase plan, and a quick reference for adding
-new sections, fields and integrations.
+Start with **[docs/OVERVIEW.md](docs/OVERVIEW.md)** — what the app does, the
+stack, the layer map, how a request flows, the data model, the security model
+and the current rough edges, in one file.
+
+Then **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the reasoning behind
+each decision: the provider seam, the phase plan, and a quick reference for
+adding new sections, fields and integrations.
 
 The short version:
 

@@ -11,6 +11,7 @@
  */
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
 const { fork, spawn } = require("node:child_process");
+const { editorCandidates, terminalCandidates, launchFirst } = require("./launch");
 const { createOllamaSupervisor } = require("./ollama");
 const fs = require("node:fs");
 const net = require("node:net");
@@ -528,74 +529,6 @@ function registerLocalAi() {
 
 const ACTIONS = new Set(["folder", "reveal", "editor", "terminal"]);
 
-/** Editors to try, in order, per platform. First one that launches wins. */
-const EDITORS = {
-  win32: ["code.cmd", "code"],
-  darwin: ["code", "cursor"],
-  linux: ["code", "cursor", "codium"],
-};
-
-/** Terminals to try, in order. The directory is always passed as cwd. */
-const TERMINALS = {
-  win32: [
-    { command: "wt.exe", args: [] },
-    { command: "powershell.exe", args: ["-NoExit"] },
-    { command: "cmd.exe", args: [] },
-  ],
-  darwin: [{ command: "open", args: ["-a", "Terminal", "."] }],
-  linux: [
-    { command: "x-terminal-emulator", args: [] },
-    { command: "gnome-terminal", args: [] },
-    { command: "konsole", args: [] },
-    { command: "xterm", args: [] },
-  ],
-};
-
-/** Asks the bundled server for a project. Returns null when there is none. */
-async function fetchProject(id) {
-  const response = await fetch(`${baseUrl}/api/projects/${encodeURIComponent(id)}`);
-  if (!response.ok) return null;
-  const body = await response.json();
-  return body.project ?? null;
-}
-
-/** Expands a leading ~ and resolves to an absolute path. */
-function resolveLocalPath(localPath) {
-  const expanded = localPath.startsWith("~")
-    ? path.join(os.homedir(), localPath.slice(1))
-    : localPath;
-  return path.resolve(expanded);
-}
-
-/**
- * Launches the first candidate that starts, detached from this process.
- *
- * `spawn` with an argv array and `shell: false` — the default — means nothing
- * is interpreted. A candidate that is not installed fails immediately with
- * ENOENT, so the list is a preference order rather than a configuration burden.
- */
-function launchFirst(candidates, cwd) {
-  for (const candidate of candidates) {
-    const { command, args } =
-      typeof candidate === "string" ? { command: candidate, args: [] } : candidate;
-    try {
-      const child = spawn(command, args, {
-        cwd,
-        detached: true,
-        stdio: "ignore",
-        // Windows resolves .cmd shims only through a shell; the argv array is
-        // still passed as arguments, so nothing here is interpreted as syntax.
-        shell: process.platform === "win32" && command.endsWith(".cmd"),
-      });
-      child.unref();
-      return command;
-    } catch {
-      // Not installed, or not permitted. Try the next one.
-    }
-  }
-  return null;
-}
-
 function registerLocalActions() {
   ipcMain.handle("desktop:open-local", async (_event, payload) => {
     const id = payload?.projectId;
@@ -640,20 +573,21 @@ function registerLocalActions() {
     const cwd = isDirectory ? target : path.dirname(target);
 
     if (action === "editor") {
-      const editors = EDITORS[process.platform] ?? EDITORS.linux;
+      const editors = editorCandidates();
       // The directory is an argument here, not the cwd: an editor opens what it
       // is given, and passing "." would depend on how it resolves relative paths.
-      const launched = launchFirst(
+      const launched = await launchFirst(
         editors.map((command) => ({ command, args: [target] })),
         cwd,
+        spawn,
       );
       return launched
         ? { ok: true }
         : { ok: false, error: "No supported editor was found on this machine." };
     }
 
-    const terminals = TERMINALS[process.platform] ?? TERMINALS.linux;
-    const launched = launchFirst(terminals, cwd);
+    const terminals = terminalCandidates();
+    const launched = await launchFirst(terminals, cwd, spawn);
     return launched
       ? { ok: true }
       : { ok: false, error: "No terminal application was found on this machine." };
