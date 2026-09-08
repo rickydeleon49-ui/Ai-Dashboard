@@ -1,67 +1,49 @@
-import Link from "next/link";
 import { FileUp } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { buttonClasses } from "@/components/ui/button";
-import { ProjectFiles } from "@/components/projects/project-files";
+import { ProjectGrid } from "@/components/projects/project-card";
+import { UploadProjectForm } from "@/components/projects/upload-project-form";
 import { projectRepository } from "@/db/repositories";
-import { listProjectFiles } from "@/core/files/service";
+import { formatLimit, MAX_UPLOAD_BYTES } from "@/core/files/service";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Uploaded Files" };
+export const metadata = { title: "Uploaded" };
 
+/**
+ * Projects that came from files rather than from a repository.
+ *
+ * The page is the create form and the resulting library on one screen because
+ * that is the whole feature: everything needed to store an upload was already
+ * built — the storage driver, the routes, the per-project file panel — and the
+ * navigation, the dashboard tile and the command palette all pointed here. Only
+ * the destination was missing, so every one of those links returned a 404.
+ */
 export default async function UploadsPage() {
-  const projects = await projectRepository.list();
-  const entries = await Promise.all(
-    projects.map(async (project) => ({
-      project,
-      files: await listProjectFiles(project.id),
-    })),
-  );
+  const projects = await projectRepository.list({ source: "uploaded", sort: "updated" });
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Uploaded Files"
-        description="Attach archives, documents, scripts and assets to the project they belong to."
-        actions={
-          <Link href="/projects/new" className={buttonClasses("primary", "md")}>
-            New project
-          </Link>
-        }
+        title="Uploaded"
+        description={`Create a project from files on this machine. Up to ${formatLimit(
+          MAX_UPLOAD_BYTES,
+        )} per file.`}
       />
 
-      {entries.length === 0 ? (
-        <EmptyState
-          icon={FileUp}
-          title="Create a project before uploading"
-          description="Every uploaded file belongs to a project, so its context stays clear."
-          action={
-            <Link href="/projects/new" className={buttonClasses("primary", "lg")}>
-              New project
-            </Link>
-          }
-        />
-      ) : (
-        <div className="space-y-4">
-          {entries.map(({ project, files }) => (
-            <section key={project.id} className="rounded-xl border border-line bg-[var(--bg-elevated)] p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-medium text-fg">{project.name}</h2>
-                  <p className="mt-0.5 text-xs text-faint">
-                    {files.length} {files.length === 1 ? "file" : "files"}
-                  </p>
-                </div>
-                <Link href={`/projects/${project.id}`} className={buttonClasses("secondary", "sm")}>
-                  Open project
-                </Link>
-              </div>
-              <ProjectFiles projectId={project.id} files={files} />
-            </section>
-          ))}
-        </div>
-      )}
+      <UploadProjectForm />
+
+      <section className="space-y-3">
+        <h2 className="text-[13px] font-medium text-fg">Uploaded projects</h2>
+        {projects.length === 0 ? (
+          <EmptyState
+            icon={FileUp}
+            title="Nothing uploaded yet"
+            description="Create a project above, or attach files to any existing project from its page."
+          />
+        ) : (
+          <ProjectGrid projects={projects} />
+        )}
+      </section>
     </div>
   );
 }

@@ -1,0 +1,68 @@
+# Typecheck, lint and the test suite, on every change.
+#
+# The repository had a workflow for building installers and none for checking
+# the code, so "green" meant nothing on a pull request. These are the same
+# commands a contributor runs locally, in the same order, so a failure here is
+# reproducible with one command rather than by reading the log.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push supersedes the run in flight for the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The registry drops connections often enough to matter: a bare `npm ci`
+      # failed here with ECONNRESET twenty-three seconds in, before a single
+      # test had run, and the job cannot tell that from a real failure. npm's
+      # own retry is the fix; the defaults (2 retries, 10s cap) are too meagre
+      # for a hosted runner.
+      - name: Install dependencies
+        run: npm ci --fetch-retries 5 --fetch-retry-mintimeout 20000 --fetch-retry-maxtimeout 120000
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Only Chromium: the suite drives one browser, and installing the other
+      # two would triple the download for no extra coverage.
+      - name: Install the browser the end-to-end suite drives
+        run: npx playwright install --with-deps chromium
+
+      # Builds the application first, so this also proves the production build.
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      # The desktop suite self-skips ("no standalone build") unless the bundle
+      # the Electron app ships has been built, so building it is what makes
+      # those tests run at all rather than pass vacuously. It also covers the
+      # packaging steps — symlink materialisation, the migrations copy, the
+      # stray-database removal — that broke Windows builds twice before.
+      - name: Build the desktop bundle
+        run: npm run desktop:build
+
+      # Electron needs a display even headless.
+      - name: Desktop shell tests
+        run: xvfb-run -a npm run test:desktop

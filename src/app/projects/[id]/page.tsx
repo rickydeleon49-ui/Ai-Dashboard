@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   CircleDot,
+  Cpu,
   ExternalLink,
   GitBranch,
   GitFork,
@@ -157,6 +158,16 @@ export default async function ProjectDetailPage({
 
       {/* Primary actions */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3">
+        {/* The workspace reads the project from the URL, so this link is the
+            whole of "open in AI" — no hidden state to set first. */}
+        <Link
+          href={`/ai/chat?project=${encodeURIComponent(project.id)}`}
+          className={buttonClasses("secondary", "md")}
+        >
+          <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Open in AI Workspace
+        </Link>
+
         {project.projectUrl ? (
           <OpenProjectButton projectId={project.id} href={project.projectUrl}>
             <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />

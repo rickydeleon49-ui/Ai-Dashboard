@@ -210,9 +210,12 @@ runner.
 ### Security posture
 
 The renderer is a web page and is treated as one: `contextIsolation: true`,
-`nodeIntegration: false`, `sandbox: true`. The preload bridge exposes two narrow capabilities: menu-driven navigation and
-project-id-based local actions. The renderer never supplies a filesystem path. Verified: `window.require` and
-`window.process` are both `undefined` in the renderer.
+`nodeIntegration: false`, `sandbox: true`. The preload bridge exposes three narrow
+capabilities: menu-driven navigation, project-id-based local actions, and
+starting or querying Ollama. None of the three takes a path or a command from
+the renderer — a route must look like a route, a local action is an id plus a
+fixed action name, and the AI calls take no arguments at all. Verified:
+`window.require` and `window.process` are both `undefined` in the renderer.
 
 Outbound links (Open GitHub, Open Project) are intercepted by
 `setWindowOpenHandler` and a `will-navigate` guard, and handed to
@@ -260,10 +263,10 @@ what CSRF describes. Refusing those would break scripts for no security gain.
 ### Renderer isolation
 
 The renderer runs with `contextIsolation` and `sandbox` on and `nodeIntegration`
-off. The preload bridge exposes only menu navigation and project-id-based local actions, and
-the desktop test asserts that `require`, `process` and `module` are all
-`undefined` in the renderer, so a regression here fails the suite rather than
-shipping.
+off. The preload bridge exposes only menu navigation, project-id-based local
+actions and the argument-free Ollama calls, and the desktop test asserts both
+that surface and that `require`, `process` and `module` are all `undefined` in
+the renderer, so widening it fails the suite rather than shipping.
 
 Navigation guards compare parsed origins rather than string prefixes.
 `url.startsWith(baseUrl)` admits `http://127.0.0.1:PORT@example.com/`, where
@@ -389,11 +392,129 @@ the settings UI and the run history all read from that list. Rows are created on
 read rather than by migration, so a task added in a later version needs no
 schema change.
 
+**Phase 6 — Local AI (shipped).** Ollama running on the user's own machine,
+reached through a provider interface rather than by scattering `fetch` calls
+through components.
+
+### Where the work happens
+
+The desktop build is not a wrapper around a static page: it forks a real Next
+server (§7). That server is an ordinary Node process on the user's machine, so
+**all Ollama HTTP lives server-side** — `core/ai/` plus route handlers under
+`app/api/ai/` — and only *process launching* needs the Electron main process.
+The alternative, proxying every model call over IPC, would have doubled the
+surface of `preload.js` for no gain.
+
+```
+core/ai/types.ts          the vocabulary: states, errors, AIProvider
+core/ai/ndjson.ts         incremental NDJSON (Ollama streams one object a line)
+core/ai/ollama-client.ts  the HTTP boundary; fetch is injectable
+core/ai/local-provider.ts Ollama as an AIProvider
+core/ai/hermes-provider.ts   the agent seam — detects Hermes, runs nothing
+core/ai/approvals.ts      the action vocabulary *and* the approval decision
+core/ai/attachments.ts    resolving picked project files into prompt text
+core/ai/service.ts        which provider answers, and whether local AI applies
+core/ai/settings.ts       preferences on the existing key/value store
+core/ai/conversations.ts  transcripts, on the existing database
+desktop/ollama.js         process lifecycle, no Electron import, testable
+```
+
+### Ollama lifecycle
+
+`desktop/ollama.js` holds the whole contract, and the shell calls it once the
+bundled server is up (so the user's saved preferences can be read from the
+database rather than duplicated into the shell):
+
+1. **Probe first.** `GET /api/tags` decides whether anything is serving. Not a
+   TCP connect — something else could hold the port, and "the port is open" is
+   not "Ollama will answer".
+2. **Adopt, never duplicate.** A healthy instance is used as-is and marked *not
+   owned*.
+3. **Otherwise launch**, trying a fixed list of locations per platform with an
+   argv array and `shell: false`. ENOENT arrives as an asynchronous `error`
+   event, so a launch is only counted as ours once the API answers *and* the
+   child has not died.
+4. **Lose the race gracefully.** If our launch fails but the endpoint is healthy
+   a moment later — the tray app started at the same time — that is `adopted`,
+   not `started`, and not owned.
+5. **On quit, stop only what we started.** An Ollama that was already running
+   when Command Center opened is left exactly as it was found. This is why
+   ownership is tracked explicitly rather than inferred.
+
+Starting the *service* is cheap; loading a *model* is not. Nothing is pulled
+into VRAM at launch unless "Preload the default model" is on, so the ordinary
+path is: app starts → API healthy → **Ready** → first message loads the model.
+Unloading is Ollama's own `keep_alive`, derived from the idle-timeout setting,
+rather than a competing timer of ours.
+
+### Chat and Agent
+
+Two modes, two providers, one interface. Chat mode is Ollama and has no tools at
+all — that is the guarantee, not a policy. Agent mode is the Hermes seam: it
+detects the executable (by `stat`, never by running it, since the path is a
+user-writable setting and settings are writable through the HTTP API) and
+refuses to generate rather than faking agency with the chat model.
+
+`core/ai/approvals.ts` defines the action vocabulary *and* the decision.
+`evaluateAction` is the single function a would-be agent action goes through, so
+"what is allowed" has one answer that can be tested rather than a rule restated
+at each call site. Defaults are the strict end — read is automatic, writes and
+commands ask, push is blocked — and overrides live one row per action in the
+settings table (`ai.approval.run_command`), for the same reason the AI
+preferences do: a single JSON blob cannot be changed one field at a time without
+a read-modify-write race.
+
+Launching Hermes is itself running a command, so `run_command` is what gates the
+provider. The policy is consulted **before** the filesystem: with it blocked,
+`status()` reports the provider off and `chat()` refuses with the policy's own
+reason, without looking for the executable. That ordering is the point — an
+agent refused only at the moment of acting has already decided to act — and it
+means the execution, when it lands, is written against a policy that already
+exists rather than one retrofitted around whatever the execution turned out to
+do.
+
+### Project context
+
+Metadata only: name, kind, status, tags, path, repository and the checked-out
+branch, read from `.git/HEAD` rather than by spawning git (no PATH dependency,
+no process per render, no user-supplied directory next to a command line).
+Repository *contents* are never sent because a project is selected.
+
+The system prompt has always ended by telling the model to ask the user to
+attach specific files, and `core/ai/attachments.ts` is that mechanism. It keeps
+the property the prompt describes: files are sent because the user picked them
+for one message, never as a side effect of opening a page. Three limits, each
+protecting something different — a count so the picker stays honest, a per-file
+cap so one large file cannot consume the context window, and a total so a single
+request is bounded. Bytes containing NUL are refused rather than pasted in, the
+same test `git` uses.
+
+The load-bearing check is the project scope: ids arrive from the browser, so
+every file is verified to belong to the project the conversation is pointed at.
+Without it, a chat about one project could read every other project's uploads by
+naming their ids. Attachments are also resolved *before* the turn is written, so
+the transcript records what was actually sent rather than what was asked for, and
+what it records is a summary — id, name, size, whether it was truncated — not the
+bytes, which stay in the uploads directory where they can be re-read or deleted.
+File contents reach the model inside delimiters and under an instruction to treat
+them as material to read rather than instructions to follow: an uploaded file is
+untrusted text, and arriving in a system message should not make it more
+persuasive than the person typing.
+
+### Hosted mode
+
+A Railway deployment shares no machine with Ollama, so `detectRuntime()` reports
+`hosted` and the workspace says the feature needs the desktop app. Without that,
+the hosted copy would ask its own container about models and show a permanent
+"connecting…".
+
 ## 10. Adding things — quick reference
 
 | To add… | Do this |
 | --- | --- |
 | A sidebar section | One entry in `config/navigation.ts` + a route file |
+| An AI provider | Implement `AIProvider` in `core/ai/`, return it from `getProvider()` |
+| A local AI preference | `core/ai/config.ts` → a key in `core/settings/service.ts` → `core/ai/settings.ts` |
 | A project field | `core/projects/types.ts` → `db/schema.ts` → `core/projects/schema.ts` → `npm run db:generate` |
 | An experimental field | Put it in `metadata`; no migration |
 | A project status or type | Add to the const array in `types.ts` + an entry in `labels.ts` |

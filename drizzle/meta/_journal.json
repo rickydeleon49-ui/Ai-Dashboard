@@ -22,6 +22,20 @@
       "when": 1788546954357,
       "tag": "0002_complete_red_shift",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788887609289,
+      "tag": "0003_whole_molly_hayes",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788889815081,
+      "tag": "0004_hesitant_ironclad",
+      "breakpoints": true
     }
   ]
 }

@@ -1,15 +1,20 @@
+# Build output and local state, anchored to the repository root with a leading
+# slash. Without it a bare `uploads/` matches a directory of that name at *any*
+# depth — which is how `src/app/uploads/` came to be silently untracked, leaving
+# every link to /uploads pointing at a 404 while the page sat on disk. Anchor
+# anything here whose name a source directory could plausibly reuse.
 node_modules/
-.next/
-out/
-build/
-dist/
+/.next/
+/out/
+/build/
+/dist/
 
 # Desktop build output (electron-builder)
-release/
+/release/
 
 # Local data & uploads (SQLite lives on a Railway volume in production)
-data/
-uploads/
+/data/
+/uploads/
 *.db
 *.db-journal
 *.db-wal

@@ -29,6 +29,7 @@ const ROUTES = [
   ["/uploads", "Uploaded"],
   ["/notes", "Notes"],
   ["/ai", "AI"],
+  ["/ai/chat", "Local AI"],
   ["/ai/prompts", "Prompts"],
   ["/ai/prompts/new", "New prompt"],
   ["/ai/workflows", "Automations"],
