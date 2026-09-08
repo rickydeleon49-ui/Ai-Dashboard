@@ -68,4 +68,23 @@ contextBridge.exposeInMainWorld("desktop", {
     }
     return ipcRenderer.invoke("desktop:open-local", { projectId, action });
   },
+
+  /**
+   * The local AI service.
+   *
+   * Both calls take no arguments. `start()` cannot be pointed at an executable,
+   * a path or a command — the shell decides entirely on its own what to launch,
+   * from a fixed list — so the worst a compromised page can do here is start
+   * the Ollama the user already configured.
+   */
+  ai: {
+    /** Current state, plus a live reachability check. */
+    status() {
+      return ipcRenderer.invoke("desktop:ai-status");
+    },
+    /** Starts Ollama if it is not already running. Never starts a second one. */
+    start() {
+      return ipcRenderer.invoke("desktop:ai-start");
+    },
+  },
 });

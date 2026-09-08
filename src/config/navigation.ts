@@ -18,6 +18,7 @@ import {
   Bell,
   Bot,
   Boxes,
+  Cpu,
   FileUp,
   Github,
   LayoutDashboard,
@@ -65,6 +66,7 @@ export const NAVIGATION: NavGroup[] = [
     label: "AI",
     items: [
       { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
+      { label: "Local AI", href: "/ai/chat", icon: Cpu, phase: 1 },
       { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
       { label: "Automations", href: "/ai/workflows", icon: Workflow, phase: 1 },
     ],

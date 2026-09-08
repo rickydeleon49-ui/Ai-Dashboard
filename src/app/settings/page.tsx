@@ -1,4 +1,4 @@
-import { Boxes, Database, Github, Palette } from "lucide-react";
+import { Boxes, Cpu, Database, Github, Palette } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -16,16 +16,19 @@ import { UpdateCheck } from "@/components/settings/update-check";
 import { APP_VERSION } from "@/config/app";
 import { projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
+import { LocalAiSettings } from "@/components/settings/local-ai-settings";
+import { getAiOverview } from "@/core/ai/service";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [stats, github, tags, credentialSource] = await Promise.all([
+  const [stats, github, tags, credentialSource, ai] = await Promise.all([
     projectRepository.stats(),
     getConnection(),
     projectRepository.allTags(),
     getCredentialSource(),
+    getAiOverview(),
   ]);
 
   const tokenStatus = describeSecret(SETTING_KEYS.githubToken);
@@ -109,6 +112,20 @@ export default async function SettingsPage() {
                 </div>
               </details>
             ) : null}
+          </CardBody>
+        </Card>
+
+        {/* Spans both columns: it has more controls than anything else here,
+            and squeezing them into half the width would wrap every label. */}
+        <Card id="local-ai" className="lg:col-span-2 scroll-mt-4">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Cpu className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+              Local AI
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <LocalAiSettings overview={ai} />
           </CardBody>
         </Card>
 

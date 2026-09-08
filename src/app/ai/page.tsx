@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bot, ExternalLink, Sparkles, Workflow } from "lucide-react";
+import { Bot, Cpu, ExternalLink, Sparkles, Workflow } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonClasses } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { ProjectGrid } from "@/components/projects/project-card";
 import { PromptCard } from "@/components/prompts/prompt-card";
 import { projectRepository } from "@/db/repositories";
 import { listPrompts } from "@/core/prompts/service";
+import { getAiOverview } from "@/core/ai/service";
+import { StatusDot, stateLabel } from "@/components/ai/status-dot";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "AI Workspace" };
@@ -25,10 +27,11 @@ const AI_TOOLS = [
 ];
 
 export default async function AiWorkspacePage() {
-  const [aiProjects, recentPrompts, allPrompts] = await Promise.all([
+  const [aiProjects, recentPrompts, allPrompts, ai] = await Promise.all([
     projectRepository.list({ type: "ai", sort: "updated" }),
     listPrompts({ favorite: true }),
     listPrompts(),
+    getAiOverview(),
   ]);
 
   // Favourites lead; if there are none, the most recent still gives the page
@@ -46,6 +49,38 @@ export default async function AiWorkspacePage() {
           </Link>
         }
       />
+
+      {/* Local models first: it is the one thing here that runs on this
+          machine, and its state is the thing most worth knowing at a glance. */}
+      <Link
+        href="/ai/chat"
+        className="block rounded-xl border border-line bg-surface p-3.5 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-subtle)]"
+      >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
+            <Cpu className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+            Local AI
+          </span>
+          <span className="flex items-center gap-1.5">
+            <StatusDot state={ai.local.state} />
+            <span className="text-[12px] text-muted">{stateLabel(ai.local.state)}</span>
+          </span>
+          {ai.selectedModel ? (
+            <span className="text-[11.5px] text-muted">
+              <span className="text-faint">Model </span>
+              {ai.selectedModel}
+            </span>
+          ) : null}
+          {ai.models.length > 0 ? (
+            <span className="text-[11.5px] text-muted">
+              <span className="text-faint">Installed </span>
+              {ai.models.length}
+            </span>
+          ) : null}
+          <span className="ml-auto text-[12px] text-muted">Open workspace →</span>
+        </div>
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-faint">{ai.local.detail}</p>
+      </Link>
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <Link

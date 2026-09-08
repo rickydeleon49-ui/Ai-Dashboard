@@ -11,6 +11,7 @@
  */
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
 const { fork, spawn } = require("node:child_process");
+const { createOllamaSupervisor } = require("./ollama");
 const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
@@ -48,6 +49,11 @@ let quitting = false;
 let serverEnv = null;
 let restartAttempts = 0;
 const MAX_RESTART_ATTEMPTS = 3;
+
+/** The Ollama supervisor, created once the server can tell us its endpoint. */
+let ollama = null;
+/** Last known local AI state, so the renderer can ask without re-probing. */
+let ollamaState = { state: "unknown", owned: false, error: null };
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -370,6 +376,7 @@ function buildMenu() {
         { label: "All Projects", accelerator: "CmdOrCtrl+2", click: () => go("/projects") },
         { label: "GitHub", accelerator: "CmdOrCtrl+3", click: () => go("/github") },
         { label: "Favorites", accelerator: "CmdOrCtrl+4", click: () => go("/favorites") },
+        { label: "Local AI", accelerator: "CmdOrCtrl+5", click: () => go("/ai/chat") },
         { type: "separator" },
         { label: "Settings", accelerator: "CmdOrCtrl+,", click: () => go("/settings") },
       ],
@@ -404,6 +411,99 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+
+// ---------------------------------------------------------------------------
+// Local AI
+// ---------------------------------------------------------------------------
+
+/**
+ * Bringing the local AI service up with the application.
+ *
+ * The shell holds no settings of its own — it asks the bundled server, which
+ * owns the database, what the user configured. That keeps one copy of every
+ * preference and means a change in Settings takes effect on the next launch
+ * with no second place to update.
+ *
+ * Ollama is *started*, never *loaded*: bringing the API up costs nothing, while
+ * pulling a model into VRAM costs gigabytes. The model waits for the first
+ * message unless preloading was explicitly asked for.
+ */
+async function startupConfig() {
+  const response = await fetch(`${baseUrl}/api/ai/startup`);
+  if (!response.ok) throw new Error(`startup config returned ${response.status}`);
+  return response.json();
+}
+
+async function initialiseLocalAi() {
+  let config;
+  try {
+    config = await startupConfig();
+  } catch (error) {
+    console.error(`[ai] could not read local AI settings: ${error.message}`);
+    return;
+  }
+
+  if (!config.enabled) {
+    ollamaState = { state: "disabled", owned: false, error: null };
+    return;
+  }
+
+  ollama = createOllamaSupervisor({
+    endpoint: config.endpoint,
+    logger: (fields) => console.log(JSON.stringify({ scope: "ai", ...fields })),
+  });
+
+  if (!config.autoStart) {
+    const healthy = await ollama.probe();
+    ollamaState = { state: healthy ? "running" : "offline", owned: false, error: null };
+    return;
+  }
+
+  ollamaState = await ollama.ensureRunning();
+
+  // Preloading is a separate, opt-in step and never blocks the window: the user
+  // can be typing in the workspace while the weights are still being read.
+  if (config.preloadModel && config.model && ollamaState.state !== "failed") {
+    fetch(`${baseUrl}/api/ai/preload`, { method: "POST" }).catch((error) =>
+      console.error(`[ai] preload failed: ${error.message}`),
+    );
+  }
+}
+
+function registerLocalAi() {
+  ipcMain.handle("desktop:ai-status", async () => {
+    if (!ollama) return { ...ollamaState, reachable: false };
+    return { ...ollamaState, reachable: await ollama.probe() };
+  });
+
+  // Takes no arguments at all. There is nothing the renderer could pass that
+  // would change what gets executed.
+  ipcMain.handle("desktop:ai-start", async () => {
+    if (!ollama) {
+      try {
+        const config = await startupConfig();
+        if (!config.enabled) return { ok: false, error: "Local AI is turned off in Settings." };
+        ollama = createOllamaSupervisor({
+          endpoint: config.endpoint,
+          logger: (fields) => console.log(JSON.stringify({ scope: "ai", ...fields })),
+        });
+      } catch {
+        return { ok: false, error: "Could not read the local AI settings." };
+      }
+    }
+
+    ollamaState = await ollama.ensureRunning();
+    if (ollamaState.state === "failed") {
+      return {
+        ok: false,
+        error:
+          "Ollama could not be started. Check that it is installed and can run from a terminal.",
+        detail: ollamaState.error,
+      };
+    }
+    return { ok: true, state: ollamaState.state, owned: ollamaState.owned };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Local project actions
@@ -606,7 +706,12 @@ if (!app.requestSingleInstanceLock()) {
 
     buildMenu();
     registerLocalActions();
+    registerLocalAi();
     createWindow();
+
+    // After the window, not before: the AI service coming up is not something
+    // the user should wait behind a blank screen for.
+    void initialiseLocalAi();
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -620,9 +725,13 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     quitting = true;
     stopServer();
+    // Only ever stops an instance this application started. An Ollama that was
+    // already running when Command Center opened is left alone.
+    ollama?.stopIfOwned();
   });
   app.on("will-quit", () => {
     quitting = true;
     stopServer();
+    ollama?.stopIfOwned();
   });
 }

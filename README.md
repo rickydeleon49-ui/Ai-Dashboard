@@ -101,12 +101,54 @@ Phase 2 replaces the token with a full OAuth flow — the interface does not cha
 - **GitHub hub** — connection status, sync, repository cards, add to dashboard
 - **Manual projects** — full create/edit/archive/delete
 - **Favorites**, **tags**, **notes**, **activity tracking**
+- **Local AI** — your own models through Ollama, project-aware, with streaming,
+  cancellation and saved conversations
 - **Command palette** — `⌘K` / `Ctrl+K` over projects, actions and pages
 - **Dark, light and system themes**, responsive from phone to wide desktop
 
 Sections for Uploads, AI, Prompts, Workflows, Tools and Notes exist as routes with
 their database tables already migrated. They say plainly what is coming and what is
 already in place underneath rather than showing fake screens.
+
+## Local AI
+
+Command Center runs your own models, on your own machine, through
+[Ollama](https://ollama.com). Nothing leaves the computer.
+
+Install Ollama and pull a model:
+
+```bash
+ollama pull qwen3:8b
+```
+
+Then open **Local AI** in the sidebar. There is nothing else to configure — the
+model list is read from your Ollama installation, so whatever you have pulled is
+what you can pick.
+
+**Startup.** When the desktop app launches it checks whether Ollama is already
+answering on `http://127.0.0.1:11434`. If it is, that instance is used. If not,
+Command Center starts one. An Ollama that was already running is never stopped
+when you close the app; only one Command Center started itself is.
+
+**Models are loaded lazily.** Starting the service costs nothing; loading an 11 GB
+model costs 11 GB of VRAM. So the sequence is: app starts → status becomes
+**Ready** → your first message loads the model you selected. Turn on *Preload the
+default model* in Settings if you would rather pay that at launch. Idle unloading
+uses Ollama's own `keep_alive`, set from the idle-timeout preference.
+
+**Projects.** Any project has **Open in AI Workspace**, which points the
+conversation at it. The model is told the project's name, kind, status, tags,
+folder, repository and current git branch — never the contents of your files. If
+you want it to see code, paste it.
+
+**Chat and Agent.** Chat mode talks to your local model and has no ability to
+read files or run commands. Agent mode is the seam for Hermes Agent workflows:
+Command Center detects whether Hermes is installed and shows the approval rules
+an agent will run under, but it does not execute agent workflows yet — and it
+will not pretend to by answering with the chat model instead.
+
+Settings → **Local AI** has the connection diagnostics: status, API URL,
+installed models, what is currently in memory, a test button, and the last error.
 
 ## Commands
 

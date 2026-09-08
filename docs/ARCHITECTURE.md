@@ -391,11 +391,92 @@ the settings UI and the run history all read from that list. Rows are created on
 read rather than by migration, so a task added in a later version needs no
 schema change.
 
+**Phase 6 — Local AI (shipped).** Ollama running on the user's own machine,
+reached through a provider interface rather than by scattering `fetch` calls
+through components.
+
+### Where the work happens
+
+The desktop build is not a wrapper around a static page: it forks a real Next
+server (§7). That server is an ordinary Node process on the user's machine, so
+**all Ollama HTTP lives server-side** — `core/ai/` plus route handlers under
+`app/api/ai/` — and only *process launching* needs the Electron main process.
+The alternative, proxying every model call over IPC, would have doubled the
+surface of `preload.js` for no gain.
+
+```
+core/ai/types.ts          the vocabulary: states, errors, AIProvider
+core/ai/ndjson.ts         incremental NDJSON (Ollama streams one object a line)
+core/ai/ollama-client.ts  the HTTP boundary; fetch is injectable
+core/ai/local-provider.ts Ollama as an AIProvider
+core/ai/hermes-provider.ts   the agent seam — detects Hermes, runs nothing
+core/ai/service.ts        which provider answers, and whether local AI applies
+core/ai/settings.ts       preferences on the existing key/value store
+core/ai/conversations.ts  transcripts, on the existing database
+desktop/ollama.js         process lifecycle, no Electron import, testable
+```
+
+### Ollama lifecycle
+
+`desktop/ollama.js` holds the whole contract, and the shell calls it once the
+bundled server is up (so the user's saved preferences can be read from the
+database rather than duplicated into the shell):
+
+1. **Probe first.** `GET /api/tags` decides whether anything is serving. Not a
+   TCP connect — something else could hold the port, and "the port is open" is
+   not "Ollama will answer".
+2. **Adopt, never duplicate.** A healthy instance is used as-is and marked *not
+   owned*.
+3. **Otherwise launch**, trying a fixed list of locations per platform with an
+   argv array and `shell: false`. ENOENT arrives as an asynchronous `error`
+   event, so a launch is only counted as ours once the API answers *and* the
+   child has not died.
+4. **Lose the race gracefully.** If our launch fails but the endpoint is healthy
+   a moment later — the tray app started at the same time — that is `adopted`,
+   not `started`, and not owned.
+5. **On quit, stop only what we started.** An Ollama that was already running
+   when Command Center opened is left exactly as it was found. This is why
+   ownership is tracked explicitly rather than inferred.
+
+Starting the *service* is cheap; loading a *model* is not. Nothing is pulled
+into VRAM at launch unless "Preload the default model" is on, so the ordinary
+path is: app starts → API healthy → **Ready** → first message loads the model.
+Unloading is Ollama's own `keep_alive`, derived from the idle-timeout setting,
+rather than a competing timer of ours.
+
+### Chat and Agent
+
+Two modes, two providers, one interface. Chat mode is Ollama and has no tools at
+all — that is the guarantee, not a policy. Agent mode is the Hermes seam: it
+detects the executable (by `stat`, never by running it, since the path is a
+user-writable setting and settings are writable through the HTTP API) and
+refuses to generate rather than faking agency with the chat model.
+`core/ai/approvals.ts` defines the action vocabulary and the default policy —
+read is automatic, writes and commands ask, push is blocked — and the workspace
+displays it now, before anything can act on it.
+
+### Project context
+
+Metadata only: name, kind, status, tags, path, repository and the checked-out
+branch, read from `.git/HEAD` rather than by spawning git (no PATH dependency,
+no process per render, no user-supplied directory next to a command line).
+Repository *contents* are never sent — the system prompt says so explicitly, so
+the model asks for files instead of assuming it has them.
+
+### Hosted mode
+
+A Railway deployment shares no machine with Ollama, so `detectRuntime()` reports
+`hosted` and the workspace says the feature needs the desktop app. Without that,
+the hosted copy would ask its own container about models and show a permanent
+"connecting…".
+
 ## 10. Adding things — quick reference
 
 | To add… | Do this |
 | --- | --- |
 | A sidebar section | One entry in `config/navigation.ts` + a route file |
+| An AI provider | Implement `AIProvider` in `core/ai/`, return it from `getProvider()` |
+| A local AI preference | `core/ai/config.ts` → a key in `core/settings/service.ts` → `core/ai/settings.ts` |
 | A project field | `core/projects/types.ts` → `db/schema.ts` → `core/projects/schema.ts` → `npm run db:generate` |
 | An experimental field | Put it in `metadata`; no migration |
 | A project status or type | Add to the const array in `types.ts` + an entry in `labels.ts` |
