@@ -1,12 +1,21 @@
 import "server-only";
 
 import {
+  approvalKey,
   deleteSetting,
   getSetting,
   setSetting,
   SETTING_KEYS,
   type SettingKey,
 } from "@/core/settings/service";
+import {
+  AGENT_ACTIONS,
+  DEFAULT_APPROVAL_POLICIES,
+  isApprovalPolicy,
+  resolveApprovalPolicies,
+  type AgentAction,
+  type ApprovalPolicies,
+} from "./approvals";
 import {
   AI_DEFAULTS,
   aiSettingsSchema,
@@ -102,4 +111,35 @@ export function updateAiSettings(update: AiSettingsUpdate): AiSettings {
 export function rememberLastProject(projectId: string | null): void {
   if (projectId) setSetting(KEYS.lastProjectId, projectId);
   else deleteSetting(KEYS.lastProjectId);
+}
+
+/**
+ * The approval policies in force, defaults included.
+ *
+ * Read on every path that could act, so it must not throw: a row holding a
+ * policy this version does not recognise falls back to that action's default
+ * rather than taking the whole evaluation down. Falling back on the permissive
+ * side is not a risk here — the defaults are the strict end.
+ */
+export function getApprovalPolicies(): ApprovalPolicies {
+  const overrides: Partial<ApprovalPolicies> = {};
+  for (const action of AGENT_ACTIONS) {
+    const stored = getSetting(approvalKey(action));
+    if (stored && isApprovalPolicy(stored)) overrides[action] = stored;
+  }
+  return resolveApprovalPolicies(overrides);
+}
+
+/** Applies a partial change and returns the policies as they now are. */
+export function updateApprovalPolicies(
+  update: Partial<ApprovalPolicies>,
+): ApprovalPolicies {
+  for (const [action, policy] of Object.entries(update) as [AgentAction, unknown][]) {
+    if (typeof policy !== "string" || !isApprovalPolicy(policy)) continue;
+    // Storing the default as an explicit row buys nothing and makes a later
+    // change of default invisible to the user who never touched it.
+    if (policy === DEFAULT_APPROVAL_POLICIES[action]) deleteSetting(approvalKey(action));
+    else setSetting(approvalKey(action), policy);
+  }
+  return getApprovalPolicies();
 }

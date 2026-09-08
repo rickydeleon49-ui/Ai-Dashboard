@@ -36,6 +36,9 @@ export interface AiLogFields {
   completionTokens?: number | null;
   projectId?: string;
   hasRepository?: boolean;
+  /** Counts of files attached to a turn — never their names or contents. */
+  attachments?: number;
+  rejectedAttachments?: number;
   ok?: boolean;
   /** A short technical note. Callers must not put user content here. */
   detail?: string;

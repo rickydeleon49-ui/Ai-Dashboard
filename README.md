@@ -100,15 +100,18 @@ Phase 2 replaces the token with a full OAuth flow — the interface does not cha
   Open GitHub, Issues, Pull Requests, Projects and Copy URL
 - **GitHub hub** — connection status, sync, repository cards, add to dashboard
 - **Manual projects** — full create/edit/archive/delete
+- **Uploads** — create a project from files, or attach files to any project
 - **Favorites**, **tags**, **notes**, **activity tracking**
 - **Local AI** — your own models through Ollama, project-aware, with streaming,
   cancellation and saved conversations
 - **Command palette** — `⌘K` / `Ctrl+K` over projects, actions and pages
 - **Dark, light and system themes**, responsive from phone to wide desktop
 
-Sections for Uploads, AI, Prompts, Workflows, Tools and Notes exist as routes with
-their database tables already migrated. They say plainly what is coming and what is
-already in place underneath rather than showing fake screens.
+**Tools** and **Notes** exist as routes with their database tables already
+migrated, but they are not in the sidebar until they do something: a navigation
+full of entries that lead to a description of a future page costs a click to find
+that out every time. The routes still resolve, so links and bookmarks keep
+working.
 
 ## Local AI
 
@@ -138,14 +141,30 @@ uses Ollama's own `keep_alive`, set from the idle-timeout preference.
 
 **Projects.** Any project has **Open in AI Workspace**, which points the
 conversation at it. The model is told the project's name, kind, status, tags,
-folder, repository and current git branch — never the contents of your files. If
-you want it to see code, paste it.
+folder, repository and current git branch — never the contents of your files
+unless you attach them.
+
+**Attaching files.** With a project selected, the paperclip beside the composer
+lists that project's uploaded files. Tick the ones a question is about and they
+ride along with that one message: up to eight files, 96KB of each and 384KB in
+total, with anything that is not text refused rather than pasted in as noise. The
+selection clears once it has been sent, so a long conversation does not quietly
+re-send the same files every turn, and each message records what went with it so
+the transcript still reads correctly after a reload. A file can only be attached
+to a conversation pointed at the project that file belongs to.
 
 **Chat and Agent.** Chat mode talks to your local model and has no ability to
 read files or run commands. Agent mode is the seam for Hermes Agent workflows:
 Command Center detects whether Hermes is installed and shows the approval rules
 an agent will run under, but it does not execute agent workflows yet — and it
 will not pretend to by answering with the chat model instead.
+
+**Approval rules.** The rules in Agent mode are editable, and they are the policy
+the agent seam is evaluated against rather than a description of one. Reading is
+automatic, writing and running ask first, pushing is blocked. Setting **Run a
+command** to *Blocked* stops Agent mode from starting Hermes at all — the status
+line says so, and the request is refused before the executable is even looked
+for.
 
 Settings → **Local AI** has the connection diagnostics: status, API URL,
 installed models, what is currently in memory, a test button, and the last error.

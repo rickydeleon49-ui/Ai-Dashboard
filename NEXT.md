@@ -25,7 +25,51 @@ priorities, in the order they should be built:
    logs, retries, cancellation, permissions, secrets, schedules, notifications
    and failure recovery. That is a subsystem.
 
-## Done in this pass
+## Done in the latest pass
+
+**`/uploads` did not exist, and `.gitignore` is why.** The sidebar, the dashboard
+tile, the command palette (`U`) and the Integrations page all linked to it, the
+storage driver and both API routes were built and tested, and
+`UploadProjectForm` was written — but no page ever rendered it, so every one of
+those links returned a 404 and four end-to-end tests had been failing.
+
+The cause is worth remembering: `.gitignore` carried a bare `uploads/`, meant for
+the root-level upload directory. A pattern with no leading slash matches a
+directory of that name at *any* depth, so `src/app/uploads/` was silently
+untracked — the page existed on whichever machine wrote it and was never
+committed, with no error anywhere. Every build-output pattern is now anchored
+with a leading slash. Anchor anything added there whose name a source directory
+could plausibly reuse.
+
+The page itself is the create form and the resulting library on one screen.
+Nothing else had to be built.
+
+**Item 3, first half — attaching files to a conversation.** The project system
+prompt ended by telling the model to "ask the user to attach the specific files"
+and there was nothing to attach with. `core/ai/attachments.ts` is that mechanism:
+the paperclip lists the selected project's uploads, ticking files sends them with
+that one message, and the selection clears afterwards so a long conversation does
+not re-send them every turn. The scope check is the part to preserve — ids come
+from the browser, so each file is verified against the project the conversation
+is pointed at, or a chat about one project could read every other project's
+uploads. Limits are eight files, 96KB each, 384KB total, and anything containing
+a NUL byte is refused rather than pasted in. Each message stores a summary of
+what went with it (not the bytes), so a reload still reads correctly.
+
+**Approvals became a decision instead of a description.** `core/ai/approvals.ts`
+was a list of specs nothing consulted, rendered read-only. It now carries
+`evaluateAction`, the one function a would-be agent action goes through, plus
+per-action overrides stored one row each. Hermes is evaluated against it
+*before* the filesystem: blocking "Run a command" — which is what launching
+Hermes is — turns Agent mode off at the door and refuses with the policy's own
+reason, without even looking for the executable. Execution itself is still not
+connected, and still refuses honestly rather than answering with the chat model.
+
+**CI existed only for installers.** There was no workflow running typecheck,
+lint or tests, so a green pull request meant nothing. `.github/workflows/ci.yml`
+runs the same commands a contributor runs locally, in the same order.
+
+## Done in an earlier pass
 
 **Item 5 — navigation now only advertises what works.** `/notes` and `/tools`
 were pure `PhasePage` placeholders sitting in the sidebar; both are removed from
@@ -73,7 +117,11 @@ candidate fails with ENOENT and the next is tried, so nothing needs configuring.
   manual pass on the real machine before trusting the editor and terminal
   buttons.
 
-**Then item 4 (backup/export/import) before items 2 and 3.** It is self-contained,
+**Finish item 3.** File attachment landed; the rest of a context pack — notes,
+prompt templates and recent activity gathered into something exportable — has
+not.
+
+**Then item 4 (backup/export/import) before item 2.** It is self-contained,
 it is what makes the rest safe to iterate on, and both later features assume data
 worth protecting. A single JSON export of projects, notes, prompts, tags and
 settings, plus the uploads directory, with an import that merges rather than

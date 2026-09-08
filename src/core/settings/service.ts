@@ -43,7 +43,21 @@ export const SETTING_KEYS = {
   aiLastProjectId: "ai.last_project_id",
 } as const;
 
-export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
+/**
+ * Agent approval policies are one row per action (`ai.approval.run_command`),
+ * for the same reason as the preferences above: a single JSON blob cannot be
+ * updated one field at a time without a read-modify-write race, and it hides
+ * what is stored from anyone opening the database.
+ */
+export type ApprovalSettingKey = `ai.approval.${string}`;
+
+export function approvalKey(action: string): ApprovalSettingKey {
+  return `ai.approval.${action}`;
+}
+
+export type SettingKey =
+  | (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
+  | ApprovalSettingKey;
 
 export function getSetting(key: SettingKey): string | null {
   const row = db.select().from(settings).where(eq(settings.key, key)).get();
