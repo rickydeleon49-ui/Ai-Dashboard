@@ -16,6 +16,23 @@ declare global {
       isDesktop: boolean;
       platform: string;
       onNavigate: (callback: (route: string) => void) => () => void;
+      openLocal: (
+        projectId: string,
+        action: "folder" | "reveal" | "editor" | "terminal",
+      ) => Promise<{ ok: true } | { ok: false; error: string }>;
+      /** Local AI process control. Both calls take no arguments by design. */
+      ai?: {
+        status: () => Promise<{
+          state: string;
+          owned: boolean;
+          error: string | null;
+          reachable: boolean;
+        }>;
+        start: () => Promise<
+          | { ok: true; state: string; owned: boolean }
+          | { ok: false; error: string; detail?: string | null }
+        >;
+      };
     };
   }
 }

@@ -195,6 +195,67 @@ export const prompts = sqliteTable("prompts", {
   updatedAt: text("updated_at").notNull().default(now),
 });
 
+/**
+ * Local AI conversations.
+ *
+ * Separate from `prompts` (a library of reusable text) and from `notes` (things
+ * you wrote): a conversation is an ordered transcript with a model and a
+ * project attached, and forcing it into either of those would lose the ordering
+ * that makes it replayable.
+ *
+ * The project reference is nullable and clears rather than cascades — deleting
+ * a project should not silently destroy the thinking you did about it.
+ */
+export const aiConversations = sqliteTable(
+  "ai_conversations",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull().default("New chat"),
+    /** Which provider answered: local | hermes. */
+    provider: text("provider").notNull().default("local"),
+    /** chat | agent */
+    mode: text("mode").notNull().default("chat"),
+    /** Model tag last used in this conversation. */
+    model: text("model"),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [index("ai_conversations_updated_idx").on(t.updatedAt)],
+);
+
+export const aiMessages = sqliteTable(
+  "ai_messages",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => aiConversations.id, { onDelete: "cascade" }),
+    /** system | user | assistant */
+    role: text("role").notNull(),
+    content: text("content").notNull().default(""),
+    model: text("model"),
+    /** Set when generation was stopped or failed part-way. */
+    stoppedReason: text("stopped_reason"),
+    /**
+     * Files the user attached to this turn, as a JSON array of
+     * `{ id, filename, size, truncated }`.
+     *
+     * A summary, not the bytes: the transcript records *what* was sent so the
+     * conversation still reads correctly on reload, while the contents stay in
+     * the uploads directory where they can be re-read, re-sent or deleted.
+     */
+    attachments: text("attachments"),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    durationMs: integer("duration_ms"),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [index("ai_messages_conversation_idx").on(t.conversationId, t.createdAt)],
+);
+
 /** Simple key/value store for integration state and user preferences. */
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
@@ -261,3 +322,5 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;
 export type NoteRow = typeof notes.$inferSelect;
+export type AiConversationRow = typeof aiConversations.$inferSelect;
+export type AiMessageRow = typeof aiMessages.$inferSelect;

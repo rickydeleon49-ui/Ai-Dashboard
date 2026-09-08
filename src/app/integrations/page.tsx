@@ -16,7 +16,7 @@ export default async function IntegrationsPage() {
     {
       name: "GitHub",
       description:
-        "Repository listing, metadata, sync and one-click open. Personal access token today, OAuth in Phase 2.",
+        "Repository listing, metadata, sync and one-click open. Connect with your account, or paste a personal access token.",
       connected: github.connected,
       detail: github.detail,
       href: "/github",
@@ -25,20 +25,21 @@ export default async function IntegrationsPage() {
     {
       name: "Local files",
       description:
-        "Upload ZIPs, folders, documents and scripts, and attach them to any project.",
-      connected: false,
-      detail: "Storage layer and project_files table are in place; the UI lands in Phase 3.",
+        "Upload archives, documents and scripts, and attach them to any project.",
+      connected: true,
+      detail: "Files are stored on this machine, under the uploads directory shown in Settings.",
       href: "/uploads",
-      phase: 3,
+      phase: 1,
     },
     {
-      name: "Claude / Anthropic API",
+      name: "AI tools",
       description:
-        "Assistants, generated documentation and AI workflows driven by the Claude API.",
-      connected: false,
-      detail: "Arrives with the AI workspace in Phase 4.",
+        "A prompt library and quick links to the assistants you already use.",
+      connected: true,
+      detail:
+        "Prompts are stored locally. No AI provider is connected — nothing here sends your data anywhere.",
       href: "/ai",
-      phase: 4,
+      phase: 1,
     },
   ];
 

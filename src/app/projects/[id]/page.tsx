@@ -2,12 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   CircleDot,
+  Cpu,
   ExternalLink,
   GitBranch,
   GitFork,
   GitPullRequest,
   Github,
-  HardDrive,
   Lock,
   Pencil,
   Star as StarIcon,
@@ -28,6 +28,7 @@ import { projectRepository } from "@/db/repositories";
 import { listProjectActivity } from "@/core/activity/service";
 import { listProjectFiles } from "@/core/files/service";
 import { ProjectFiles } from "@/components/projects/project-files";
+import { LocalActions } from "@/components/projects/local-actions";
 import { SOURCE_META, STATUS_META, TYPE_META, languageColor } from "@/core/projects/labels";
 import { githubLinks } from "@/core/github/types";
 import type { Project } from "@/core/projects/types";
@@ -157,6 +158,16 @@ export default async function ProjectDetailPage({
 
       {/* Primary actions */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3">
+        {/* The workspace reads the project from the URL, so this link is the
+            whole of "open in AI" — no hidden state to set first. */}
+        <Link
+          href={`/ai/chat?project=${encodeURIComponent(project.id)}`}
+          className={buttonClasses("secondary", "md")}
+        >
+          <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Open in AI Workspace
+        </Link>
+
         {project.projectUrl ? (
           <OpenProjectButton projectId={project.id} href={project.projectUrl}>
             <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -354,15 +365,7 @@ export default async function ProjectDetailPage({
               <LinkRow label="Repository" href={project.repositoryUrl} />
               <LinkRow label="Project URL" href={project.projectUrl} />
               {project.localPath ? (
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
-                    Local path
-                  </p>
-                  <p className="mt-0.5 flex items-center gap-1.5 break-all font-mono text-[12px] text-fg">
-                    <HardDrive className="h-3 w-3 shrink-0 text-faint" strokeWidth={1.75} />
-                    {project.localPath}
-                  </p>
-                </div>
+                <LocalActions projectId={project.id} localPath={project.localPath} />
               ) : null}
               {!project.repositoryUrl && !project.projectUrl && !project.localPath ? (
                 <p className="text-[12.5px] text-faint">No links added yet.</p>

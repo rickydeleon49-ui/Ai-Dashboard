@@ -182,6 +182,135 @@ describe("uploads", () => {
   });
 });
 
+describe("attaching project files to a chat", () => {
+  /** Uploads one file to a project and returns its id. */
+  async function upload(projectId: string, name: string, body: string): Promise<string> {
+    const response = await page.request.post(
+      `${baseURL}/api/projects/${projectId}/files`,
+      {
+        multipart: {
+          files: { name, mimeType: "text/plain", buffer: Buffer.from(body) },
+        },
+      },
+    );
+    assert.equal(response.status(), 201, await response.text());
+    return (await response.json()).files[0].id as string;
+  }
+
+  it("refuses attachments with no project to scope them", async () => {
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: {
+        message: "What is in this file?",
+        model: "any-model",
+        attachments: ["file_whatever"],
+      },
+    });
+
+    assert.equal(response.status(), 422, await response.text());
+    assert.match((await response.json()).error, /project/i);
+  });
+
+  it("will not send a file that belongs to another project", async () => {
+    const mine = await createProject({ name: "Attach Mine", source: "uploaded" });
+    const theirs = await createProject({ name: "Attach Theirs", source: "uploaded" });
+    const foreign = await upload(theirs, "secret.txt", "not yours");
+
+    /*
+     * There is no Ollama in CI, so the generation itself fails — which is the
+     * point: the attachment decision is made and streamed before any model is
+     * contacted, so the NDJSON still carries the refusal.
+     */
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: {
+        message: "Read it",
+        model: "any-model",
+        projectId: mine,
+        attachments: [foreign],
+      },
+    });
+
+    assert.ok(response.ok(), await response.text());
+    const lines = (await response.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const event = lines.find((line) => line.type === "attachments");
+    assert.ok(event, "the stream should report on the attachments");
+    assert.deepEqual(event.attached, []);
+    assert.equal(event.rejected.length, 1);
+    assert.match(event.rejected[0].reason, /different project/);
+  });
+
+  it("records an accepted attachment on the stored message", async () => {
+    const id = await createProject({ name: "Attach Recorded", source: "uploaded" });
+    const fileId = await upload(id, "notes.txt", "a line of notes");
+
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: {
+        message: "Summarise the notes",
+        model: "any-model",
+        projectId: id,
+        attachments: [fileId],
+      },
+    });
+    assert.ok(response.ok(), await response.text());
+
+    const lines = (await response.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const started = lines.find((line) => line.type === "conversation");
+    assert.ok(started, "the stream should name the conversation it created");
+    const event = lines.find((line) => line.type === "attachments");
+    assert.equal(event.attached.length, 1);
+    assert.equal(event.attached[0].filename, "notes.txt");
+
+    // And it survives a reload, which is the reason it is stored at all.
+    const stored = await (
+      await page.request.get(`${baseURL}/api/ai/conversations/${started.id}`)
+    ).json();
+    const user = stored.conversation.messages.find(
+      (message: { role: string }) => message.role === "user",
+    );
+    assert.equal(user.attachments.length, 1);
+    assert.equal(user.attachments[0].filename, "notes.txt");
+  });
+});
+
+describe("agent approval policy", () => {
+  it("defaults to reading only, and remembers a change", async () => {
+    const initial = await (await page.request.get(`${baseURL}/api/ai/approvals`)).json();
+    assert.equal(initial.approvals.read_file, "auto");
+    assert.equal(initial.approvals.git_push, "never");
+
+    const patched = await page.request.patch(`${baseURL}/api/ai/approvals`, {
+      data: { run_command: "never" },
+    });
+    assert.ok(patched.ok(), await patched.text());
+    assert.equal((await patched.json()).approvals.run_command, "never");
+
+    const reread = await (await page.request.get(`${baseURL}/api/ai/approvals`)).json();
+    assert.equal(reread.approvals.run_command, "never");
+
+    // Blocking "run a command" is what stops Agent mode reaching Hermes.
+    const status = await (await page.request.get(`${baseURL}/api/ai/status`)).json();
+    assert.equal(status.hermes.state, "disabled");
+
+    await page.request.patch(`${baseURL}/api/ai/approvals`, {
+      data: { run_command: "ask" },
+    });
+  });
+
+  it("rejects a body naming nothing it knows", async () => {
+    const response = await page.request.patch(`${baseURL}/api/ai/approvals`, {
+      data: { not_an_action: "auto" },
+    });
+    assert.equal(response.status(), 422);
+  });
+});
+
 describe("github hub with no working credential", () => {
   it("shows demo data and says so rather than failing", async () => {
     await page.goto("/github", { waitUntil: "domcontentloaded" });
@@ -249,5 +378,117 @@ describe("prompt library", () => {
     ).json();
     assert.equal(found.prompts.length, 1);
     assert.equal(found.prompts[0].title, "Unrelated Title");
+  });
+});
+
+/**
+ * Local AI with no Ollama on the machine.
+ *
+ * The test runner has no Ollama, which is the state most worth covering: the
+ * workspace has to say so plainly, keep the rest of the dashboard working, and
+ * refuse to send rather than hang.
+ */
+describe("local AI", () => {
+  it("reports offline instead of spinning when nothing is listening", async () => {
+    const response = await page.request.get(`${baseURL}/api/ai/status`);
+    assert.ok(response.ok(), await response.text());
+
+    const body = await response.json();
+    assert.equal(body.local.state, "offline");
+    assert.deepEqual(body.models, []);
+    assert.equal(body.selectedModel, null);
+    assert.ok(body.local.detail.length > 0, "an offline status must explain itself");
+  });
+
+  it("shows the workspace with the composer disabled", async () => {
+    await page.goto("/ai/chat", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("h1");
+
+    assert.equal((await page.textContent("h1"))?.trim(), "Local AI");
+    await page.waitForSelector("textarea");
+    assert.equal(await page.locator("textarea").isDisabled(), true);
+    assert.ok((await page.textContent("body"))?.includes("Offline"));
+  });
+
+  it("saves a preference and reads it back", async () => {
+    const saved = await page.request.patch(`${baseURL}/api/ai/settings`, {
+      data: { contextSize: 40960, defaultModel: "qwen3-64k:latest" },
+    });
+    assert.ok(saved.ok(), await saved.text());
+
+    const body = await (await page.request.get(`${baseURL}/api/ai/settings`)).json();
+    assert.equal(body.settings.contextSize, 40960);
+    assert.equal(body.settings.defaultModel, "qwen3-64k:latest");
+
+    // Restore, so the assertions above do not depend on test ordering.
+    await page.request.patch(`${baseURL}/api/ai/settings`, {
+      data: { contextSize: 8192, defaultModel: "" },
+    });
+  });
+
+  it("rejects a preference that is not a URL", async () => {
+    const response = await page.request.patch(`${baseURL}/api/ai/settings`, {
+      data: { endpoint: "not a url" },
+    });
+    assert.equal(response.status(), 422);
+  });
+
+  it("refuses to chat when local AI is turned off", async () => {
+    await page.request.patch(`${baseURL}/api/ai/settings`, { data: { enabled: false } });
+
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: { message: "hello", model: "qwen3:8b" },
+    });
+    assert.equal(response.status(), 409);
+    assert.equal((await response.json()).code, "not_configured");
+
+    await page.request.patch(`${baseURL}/api/ai/settings`, { data: { enabled: true } });
+  });
+
+  it("streams an error instead of hanging when Ollama is not there", async () => {
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: { message: "hello", model: "qwen3:8b" },
+    });
+    assert.equal(response.status(), 200);
+
+    const events = (await response.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type: string; code?: string });
+
+    assert.equal(events[0]?.type, "conversation");
+    const failure = events.find((event) => event.type === "error");
+    assert.equal(failure?.code, "offline");
+  });
+
+  it("keeps the transcript of a conversation that failed", async () => {
+    const conversations = await (
+      await page.request.get(`${baseURL}/api/ai/conversations`)
+    ).json();
+    assert.ok(conversations.conversations.length > 0, "the failed send should be saved");
+
+    const first = conversations.conversations[0];
+    const detail = await (
+      await page.request.get(`${baseURL}/api/ai/conversations/${first.id}`)
+    ).json();
+
+    assert.equal(detail.conversation.messages[0].role, "user");
+    assert.equal(detail.conversation.messages[0].content, "hello");
+
+    const removed = await page.request.delete(`${baseURL}/api/ai/conversations/${first.id}`);
+    assert.ok(removed.ok());
+  });
+
+  it("offers Open in AI Workspace on a project, carrying the project in the URL", async () => {
+    const id = await createProject({ name: "E2E AI Context Project" });
+    await page.goto(`/projects/${id}`, { waitUntil: "domcontentloaded" });
+
+    const link = page.locator("a", { hasText: "Open in AI Workspace" }).first();
+    assert.equal(await link.count(), 1);
+    assert.equal(await link.getAttribute("href"), `/ai/chat?project=${id}`);
+
+    await link.click();
+    await page.waitForURL(`**/ai/chat?project=${id}`);
+    assert.ok((await page.textContent("body"))?.includes("E2E AI Context Project"));
   });
 });

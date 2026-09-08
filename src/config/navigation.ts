@@ -2,26 +2,32 @@
  * Sidebar structure.
  *
  * The navigation is pure data. Adding a section to the dashboard means adding an
- * entry here and a route file — no component edits. `phase` marks routes whose
- * feature set arrives later; the UI renders them with a subdued "soon" marker
- * instead of pretending they are finished.
+ * entry here and a route file — no component edits.
+ *
+ * Only working features appear here. A sidebar full of entries that lead to a
+ * description of what a page will one day do makes the whole application feel
+ * unfinished, and it costs the user a click to find that out every time. Routes
+ * for unbuilt sections still exist and are still reachable by URL — they are
+ * just not advertised until they do something.
+ *
+ * `phase` is kept for the few entries whose feature set is genuinely partial, and
+ * renders as a subdued marker. It is not a to-do list.
  */
 import type { LucideIcon } from "lucide-react";
 import {
   Bell,
   Bot,
   Boxes,
+  Cpu,
   FileUp,
   Github,
   LayoutDashboard,
   Library,
   type LucideIcon as Icon,
-  NotebookPen,
   Plug,
   Settings,
   Sparkles,
   Star,
-  Wrench,
   Workflow,
 } from "lucide-react";
 
@@ -60,6 +66,7 @@ export const NAVIGATION: NavGroup[] = [
     label: "AI",
     items: [
       { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
+      { label: "Local AI", href: "/ai/chat", icon: Cpu, phase: 1 },
       { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
       { label: "Automations", href: "/ai/workflows", icon: Workflow, phase: 1 },
     ],
@@ -67,15 +74,13 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "Tools",
     items: [
-      { label: "Tools", href: "/tools", icon: Wrench, phase: 5 },
       { label: "Notifications", href: "/notifications", icon: Bell, phase: 1 },
-      { label: "Integrations", href: "/integrations", icon: Plug, phase: 2 },
+      { label: "Integrations", href: "/integrations", icon: Plug, phase: 1 },
     ],
   },
   {
     label: "Other",
     items: [
-      { label: "Notes", href: "/notes", icon: NotebookPen, phase: 3 },
       { label: "Settings", href: "/settings", icon: Settings, phase: 1 },
     ],
   },
