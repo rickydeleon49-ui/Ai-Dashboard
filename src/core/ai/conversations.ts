@@ -112,8 +112,8 @@ export function listConversations(limit = 50): Conversation[] {
   return db
     .select()
     .from(aiConversations)
-    // Ids carry a timestamp prefix, so they break a tie between two rows
-    // written in the same millisecond deterministically.
+    // Ids are monotonic (see lib/ids), so they break a tie between two rows
+    // written in the same millisecond in the order they were written.
     .orderBy(desc(aiConversations.updatedAt), desc(aiConversations.id))
     .limit(limit)
     .all() as Conversation[];
