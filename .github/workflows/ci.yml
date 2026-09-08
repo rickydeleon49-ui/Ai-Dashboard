@@ -29,8 +29,13 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The registry drops connections often enough to matter: a bare `npm ci`
+      # failed here with ECONNRESET twenty-three seconds in, before a single
+      # test had run, and the job cannot tell that from a real failure. npm's
+      # own retry is the fix; the defaults (2 retries, 10s cap) are too meagre
+      # for a hosted runner.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --fetch-retries 5 --fetch-retry-mintimeout 20000 --fetch-retry-maxtimeout 120000
 
       - name: Typecheck
         run: npm run typecheck
