@@ -1,9 +1,10 @@
 import "server-only";
 
-import { getAiSettings } from "./settings";
+import { getAiSettings, getApprovalPolicies } from "./settings";
 import { LocalChatProvider } from "./local-provider";
 import { HermesAgentProvider } from "./hermes-provider";
 import type { AiSettings } from "./config";
+import { DEFAULT_APPROVAL_POLICIES, type ApprovalPolicies } from "./approvals";
 import type {
   AIProvider,
   AiProviderId,
@@ -37,20 +38,30 @@ export function isLocalRuntime(): boolean {
   return detectRuntime() !== "hosted";
 }
 
-export function getProvider(settings: AiSettings, id: AiProviderId): AIProvider {
+export function getProvider(
+  settings: AiSettings,
+  id: AiProviderId,
+  policies: ApprovalPolicies = DEFAULT_APPROVAL_POLICIES,
+): AIProvider {
   return id === "hermes"
-    ? new HermesAgentProvider(settings.hermesPath)
+    ? new HermesAgentProvider(settings.hermesPath, policies)
     : LocalChatProvider.fromSettings(settings);
 }
 
 /** The provider a request should use, given the mode the user is in. */
-export function providerForMode(settings: AiSettings, mode: AiSettings["mode"]): AIProvider {
-  return getProvider(settings, mode === "agent" ? "hermes" : "local");
+export function providerForMode(
+  settings: AiSettings,
+  mode: AiSettings["mode"],
+  policies: ApprovalPolicies = DEFAULT_APPROVAL_POLICIES,
+): AIProvider {
+  return getProvider(settings, mode === "agent" ? "hermes" : "local", policies);
 }
 
 export interface AiOverview {
   runtime: AiRuntime;
   settings: AiSettings;
+  /** The approval policy an agent would run under, defaults included. */
+  approvals: ApprovalPolicies;
   /** Ollama's status, or a synthetic one when it cannot apply. */
   local: ProviderStatus;
   hermes: ProviderStatus;
@@ -101,6 +112,7 @@ export function resolveModel(settings: AiSettings, models: LocalModel[]): string
  */
 export async function getAiOverview(): Promise<AiOverview> {
   const settings = getAiSettings();
+  const approvals = getApprovalPolicies();
   const runtime = detectRuntime();
   const endpoint = settings.endpoint;
 
@@ -108,6 +120,7 @@ export async function getAiOverview(): Promise<AiOverview> {
     return {
       runtime,
       settings,
+      approvals,
       local: syntheticStatus("local", "disabled", endpoint),
       hermes: syntheticStatus("hermes", "disabled", null),
       models: [],
@@ -120,6 +133,7 @@ export async function getAiOverview(): Promise<AiOverview> {
     return {
       runtime,
       settings,
+      approvals,
       local: syntheticStatus("local", "unsupported", endpoint),
       hermes: syntheticStatus("hermes", "unsupported", null),
       models: [],
@@ -129,7 +143,7 @@ export async function getAiOverview(): Promise<AiOverview> {
   }
 
   const local = LocalChatProvider.fromSettings(settings);
-  const hermes = new HermesAgentProvider(settings.hermesPath);
+  const hermes = new HermesAgentProvider(settings.hermesPath, approvals);
 
   const [localStatus, hermesStatus] = await Promise.all([local.status(), hermes.status()]);
 
@@ -147,6 +161,7 @@ export async function getAiOverview(): Promise<AiOverview> {
   return {
     runtime,
     settings,
+    approvals,
     local: localStatus,
     hermes: hermesStatus,
     models,
