@@ -182,6 +182,135 @@ describe("uploads", () => {
   });
 });
 
+describe("attaching project files to a chat", () => {
+  /** Uploads one file to a project and returns its id. */
+  async function upload(projectId: string, name: string, body: string): Promise<string> {
+    const response = await page.request.post(
+      `${baseURL}/api/projects/${projectId}/files`,
+      {
+        multipart: {
+          files: { name, mimeType: "text/plain", buffer: Buffer.from(body) },
+        },
+      },
+    );
+    assert.equal(response.status(), 201, await response.text());
+    return (await response.json()).files[0].id as string;
+  }
+
+  it("refuses attachments with no project to scope them", async () => {
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: {
+        message: "What is in this file?",
+        model: "any-model",
+        attachments: ["file_whatever"],
+      },
+    });
+
+    assert.equal(response.status(), 422, await response.text());
+    assert.match((await response.json()).error, /project/i);
+  });
+
+  it("will not send a file that belongs to another project", async () => {
+    const mine = await createProject({ name: "Attach Mine", source: "uploaded" });
+    const theirs = await createProject({ name: "Attach Theirs", source: "uploaded" });
+    const foreign = await upload(theirs, "secret.txt", "not yours");
+
+    /*
+     * There is no Ollama in CI, so the generation itself fails — which is the
+     * point: the attachment decision is made and streamed before any model is
+     * contacted, so the NDJSON still carries the refusal.
+     */
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: {
+        message: "Read it",
+        model: "any-model",
+        projectId: mine,
+        attachments: [foreign],
+      },
+    });
+
+    assert.ok(response.ok(), await response.text());
+    const lines = (await response.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const event = lines.find((line) => line.type === "attachments");
+    assert.ok(event, "the stream should report on the attachments");
+    assert.deepEqual(event.attached, []);
+    assert.equal(event.rejected.length, 1);
+    assert.match(event.rejected[0].reason, /different project/);
+  });
+
+  it("records an accepted attachment on the stored message", async () => {
+    const id = await createProject({ name: "Attach Recorded", source: "uploaded" });
+    const fileId = await upload(id, "notes.txt", "a line of notes");
+
+    const response = await page.request.post(`${baseURL}/api/ai/chat`, {
+      data: {
+        message: "Summarise the notes",
+        model: "any-model",
+        projectId: id,
+        attachments: [fileId],
+      },
+    });
+    assert.ok(response.ok(), await response.text());
+
+    const lines = (await response.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const started = lines.find((line) => line.type === "conversation");
+    assert.ok(started, "the stream should name the conversation it created");
+    const event = lines.find((line) => line.type === "attachments");
+    assert.equal(event.attached.length, 1);
+    assert.equal(event.attached[0].filename, "notes.txt");
+
+    // And it survives a reload, which is the reason it is stored at all.
+    const stored = await (
+      await page.request.get(`${baseURL}/api/ai/conversations/${started.id}`)
+    ).json();
+    const user = stored.conversation.messages.find(
+      (message: { role: string }) => message.role === "user",
+    );
+    assert.equal(user.attachments.length, 1);
+    assert.equal(user.attachments[0].filename, "notes.txt");
+  });
+});
+
+describe("agent approval policy", () => {
+  it("defaults to reading only, and remembers a change", async () => {
+    const initial = await (await page.request.get(`${baseURL}/api/ai/approvals`)).json();
+    assert.equal(initial.approvals.read_file, "auto");
+    assert.equal(initial.approvals.git_push, "never");
+
+    const patched = await page.request.patch(`${baseURL}/api/ai/approvals`, {
+      data: { run_command: "never" },
+    });
+    assert.ok(patched.ok(), await patched.text());
+    assert.equal((await patched.json()).approvals.run_command, "never");
+
+    const reread = await (await page.request.get(`${baseURL}/api/ai/approvals`)).json();
+    assert.equal(reread.approvals.run_command, "never");
+
+    // Blocking "run a command" is what stops Agent mode reaching Hermes.
+    const status = await (await page.request.get(`${baseURL}/api/ai/status`)).json();
+    assert.equal(status.hermes.state, "disabled");
+
+    await page.request.patch(`${baseURL}/api/ai/approvals`, {
+      data: { run_command: "ask" },
+    });
+  });
+
+  it("rejects a body naming nothing it knows", async () => {
+    const response = await page.request.patch(`${baseURL}/api/ai/approvals`, {
+      data: { not_an_action: "auto" },
+    });
+    assert.equal(response.status(), 422);
+  });
+});
+
 describe("github hub with no working credential", () => {
   it("shows demo data and says so rather than failing", async () => {
     await page.goto("/github", { waitUntil: "domcontentloaded" });

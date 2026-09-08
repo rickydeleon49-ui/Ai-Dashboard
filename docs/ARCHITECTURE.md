@@ -410,6 +410,8 @@ core/ai/ndjson.ts         incremental NDJSON (Ollama streams one object a line)
 core/ai/ollama-client.ts  the HTTP boundary; fetch is injectable
 core/ai/local-provider.ts Ollama as an AIProvider
 core/ai/hermes-provider.ts   the agent seam — detects Hermes, runs nothing
+core/ai/approvals.ts      the action vocabulary *and* the approval decision
+core/ai/attachments.ts    resolving picked project files into prompt text
 core/ai/service.ts        which provider answers, and whether local AI applies
 core/ai/settings.ts       preferences on the existing key/value store
 core/ai/conversations.ts  transcripts, on the existing database
@@ -451,17 +453,52 @@ all — that is the guarantee, not a policy. Agent mode is the Hermes seam: it
 detects the executable (by `stat`, never by running it, since the path is a
 user-writable setting and settings are writable through the HTTP API) and
 refuses to generate rather than faking agency with the chat model.
-`core/ai/approvals.ts` defines the action vocabulary and the default policy —
-read is automatic, writes and commands ask, push is blocked — and the workspace
-displays it now, before anything can act on it.
+
+`core/ai/approvals.ts` defines the action vocabulary *and* the decision.
+`evaluateAction` is the single function a would-be agent action goes through, so
+"what is allowed" has one answer that can be tested rather than a rule restated
+at each call site. Defaults are the strict end — read is automatic, writes and
+commands ask, push is blocked — and overrides live one row per action in the
+settings table (`ai.approval.run_command`), for the same reason the AI
+preferences do: a single JSON blob cannot be changed one field at a time without
+a read-modify-write race.
+
+Launching Hermes is itself running a command, so `run_command` is what gates the
+provider. The policy is consulted **before** the filesystem: with it blocked,
+`status()` reports the provider off and `chat()` refuses with the policy's own
+reason, without looking for the executable. That ordering is the point — an
+agent refused only at the moment of acting has already decided to act — and it
+means the execution, when it lands, is written against a policy that already
+exists rather than one retrofitted around whatever the execution turned out to
+do.
 
 ### Project context
 
 Metadata only: name, kind, status, tags, path, repository and the checked-out
 branch, read from `.git/HEAD` rather than by spawning git (no PATH dependency,
 no process per render, no user-supplied directory next to a command line).
-Repository *contents* are never sent — the system prompt says so explicitly, so
-the model asks for files instead of assuming it has them.
+Repository *contents* are never sent because a project is selected.
+
+The system prompt has always ended by telling the model to ask the user to
+attach specific files, and `core/ai/attachments.ts` is that mechanism. It keeps
+the property the prompt describes: files are sent because the user picked them
+for one message, never as a side effect of opening a page. Three limits, each
+protecting something different — a count so the picker stays honest, a per-file
+cap so one large file cannot consume the context window, and a total so a single
+request is bounded. Bytes containing NUL are refused rather than pasted in, the
+same test `git` uses.
+
+The load-bearing check is the project scope: ids arrive from the browser, so
+every file is verified to belong to the project the conversation is pointed at.
+Without it, a chat about one project could read every other project's uploads by
+naming their ids. Attachments are also resolved *before* the turn is written, so
+the transcript records what was actually sent rather than what was asked for, and
+what it records is a summary — id, name, size, whether it was truncated — not the
+bytes, which stay in the uploads directory where they can be re-read or deleted.
+File contents reach the model inside delimiters and under an instruction to treat
+them as material to read rather than instructions to follow: an uploaded file is
+untrusted text, and arriving in a system message should not make it more
+persuasive than the person typing.
 
 ### Hosted mode
 
