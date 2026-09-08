@@ -125,7 +125,10 @@ export function buildProjectContext(project: Project): ProjectContext {
  * own material, and a model told nothing but the truth about a project is more
  * useful than one told a story about it.
  */
-export function projectSystemPrompt(context: ProjectContext): string {
+export function projectSystemPrompt(
+  context: ProjectContext,
+  options: { attachedFiles?: number } = {},
+): string {
   const lines = [
     "You are the local assistant inside Command Center, the user's project dashboard.",
     "",
@@ -153,9 +156,12 @@ export function projectSystemPrompt(context: ProjectContext): string {
     );
   }
 
+  const attached = options.attachedFiles ?? 0;
   lines.push(
     "",
-    "You have not been given the contents of any file. If you need to see code, ask the user to attach the specific files.",
+    attached > 0
+      ? `You have been given the contents of ${attached} file${attached === 1 ? "" : "s"} the user attached to this message, and nothing else from the project. If you need to see more, ask them to attach it.`
+      : "You have not been given the contents of any file. If you need to see code, ask the user to attach the specific files.",
   );
 
   return lines.join("\n");

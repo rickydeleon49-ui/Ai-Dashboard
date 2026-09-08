@@ -13,6 +13,22 @@ import type { AiMode, AiProviderId, ChatMessage, ChatRole } from "./types";
  * conversations too, and nothing new has to be installed or run.
  */
 
+/**
+ * One file the user sent with a message.
+ *
+ * A summary only. The bytes stay in the uploads directory, so a transcript
+ * stays small, and a file that was deleted since does not resurrect itself in
+ * the history.
+ */
+export interface MessageAttachment {
+  id: string;
+  filename: string;
+  /** Size of the stored file, not of what was sent. */
+  size: number;
+  /** Whether the model saw only the beginning of it. */
+  truncated: boolean;
+}
+
 export interface StoredMessage {
   id: string;
   role: ChatRole;
@@ -23,7 +39,40 @@ export interface StoredMessage {
   promptTokens: number | null;
   completionTokens: number | null;
   durationMs: number | null;
+  /** Files sent with this turn. Empty for everything else. */
+  attachments: MessageAttachment[];
   createdAt: string;
+}
+
+/**
+ * Reads the attachment column back.
+ *
+ * The column is nullable and holds JSON written by an earlier version of this
+ * application, so it is parsed defensively: a row that predates the column, or
+ * one edited by hand, degrades to "no attachments" rather than breaking the
+ * conversation it belongs to.
+ */
+function parseAttachments(raw: unknown): MessageAttachment[] {
+  if (typeof raw !== "string" || !raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry): MessageAttachment[] => {
+      if (!entry || typeof entry !== "object") return [];
+      const record = entry as Record<string, unknown>;
+      if (typeof record.id !== "string" || typeof record.filename !== "string") return [];
+      return [
+        {
+          id: record.id,
+          filename: record.filename,
+          size: typeof record.size === "number" ? record.size : 0,
+          truncated: record.truncated === true,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
 }
 
 export interface Conversation {
@@ -83,7 +132,19 @@ export function findConversation(id: string): ConversationWithMessages | null {
     .from(aiMessages)
     .where(eq(aiMessages.conversationId, id))
     .orderBy(asc(aiMessages.createdAt), asc(aiMessages.id))
-    .all() as StoredMessage[];
+    .all()
+    .map((row): StoredMessage => ({
+      id: row.id,
+      role: row.role as ChatRole,
+      content: row.content,
+      model: row.model,
+      stoppedReason: row.stoppedReason,
+      promptTokens: row.promptTokens,
+      completionTokens: row.completionTokens,
+      durationMs: row.durationMs,
+      attachments: parseAttachments(row.attachments),
+      createdAt: row.createdAt,
+    }));
 
   return { ...(row as Conversation), messages };
 }
@@ -121,6 +182,7 @@ export function appendMessage(
     promptTokens?: number | null;
     completionTokens?: number | null;
     durationMs?: number | null;
+    attachments?: MessageAttachment[];
   },
 ): StoredMessage {
   const row: StoredMessage = {
@@ -132,10 +194,19 @@ export function appendMessage(
     promptTokens: message.promptTokens ?? null,
     completionTokens: message.completionTokens ?? null,
     durationMs: message.durationMs ?? null,
+    attachments: message.attachments ?? [],
     createdAt: nowIso(),
   };
 
-  db.insert(aiMessages).values({ ...row, conversationId }).run();
+  db.insert(aiMessages)
+    .values({
+      ...row,
+      conversationId,
+      // Null rather than "[]" for the common case, so the column stays empty
+      // for every message that carried nothing.
+      attachments: row.attachments.length > 0 ? JSON.stringify(row.attachments) : null,
+    })
+    .run();
   db.update(aiConversations)
     .set({ updatedAt: row.createdAt, ...(row.model ? { model: row.model } : {}) })
     .where(eq(aiConversations.id, conversationId))

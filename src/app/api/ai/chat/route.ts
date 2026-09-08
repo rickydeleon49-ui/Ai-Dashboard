@@ -4,7 +4,7 @@ import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectRepository } from "@/db/repositories";
 import { AI_MODES } from "@/core/ai/types";
 import type { ChatEvent, ChatMessage } from "@/core/ai/types";
-import { getAiSettings, rememberLastProject } from "@/core/ai/settings";
+import { getAiSettings, getApprovalPolicies, rememberLastProject } from "@/core/ai/settings";
 import { isLocalRuntime, providerForMode } from "@/core/ai/service";
 import { LocalChatProvider } from "@/core/ai/local-provider";
 import { aiLog } from "@/core/ai/logging";
@@ -18,6 +18,14 @@ import {
   toChatMessages,
 } from "@/core/ai/conversations";
 import { buildProjectContext, projectSystemPrompt } from "@/core/projects/context";
+import {
+  attachmentsPrompt,
+  loadAttachments,
+  summarise,
+  MAX_ATTACHMENTS,
+  type RejectedAttachment,
+} from "@/core/ai/attachments";
+import type { MessageAttachment } from "@/core/ai/conversations";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +35,21 @@ const bodySchema = z.object({
   mode: z.enum(AI_MODES).default("chat"),
   conversationId: z.string().trim().max(64).nullish(),
   projectId: z.string().trim().max(64).nullish(),
+  /** Ids of uploaded files to send with this message. */
+  attachments: z.array(z.string().trim().max(64)).max(MAX_ATTACHMENTS).default([]),
 });
 
 /** One NDJSON line per event — the same shape the provider yields. */
-function encode(event: ChatEvent | { type: "conversation"; id: string; title: string }) {
+type StreamEvent =
+  | ChatEvent
+  | { type: "conversation"; id: string; title: string }
+  | {
+      type: "attachments";
+      attached: MessageAttachment[];
+      rejected: RejectedAttachment[];
+    };
+
+function encode(event: StreamEvent) {
   return new TextEncoder().encode(`${JSON.stringify(event)}\n`);
 }
 
@@ -112,22 +131,56 @@ export async function POST(request: Request) {
   // ---- Messages ----------------------------------------------------------
 
   const history = existing ? toChatMessages(existing.messages) : [];
-  appendMessage(conversation.id, { role: "user", content: input.message });
+
+  /*
+   * Attachments are per message and per project.
+   *
+   * They are resolved before the turn is written so the transcript records what
+   * was actually sent rather than what was asked for, and they are refused
+   * outright with no project selected: the project is what scopes the ids, so
+   * without one there is nothing to check them against.
+   */
+  let attached: Awaited<ReturnType<typeof loadAttachments>>["attached"] = [];
+  let rejected: RejectedAttachment[] = [];
+  if (input.attachments.length > 0) {
+    if (!project) {
+      return NextResponse.json(
+        { error: "Select a project before attaching files to a message." },
+        { status: 422 },
+      );
+    }
+    ({ attached, rejected } = await loadAttachments(project.id, input.attachments));
+  }
+
+  const attachmentSummary = summarise(attached);
+  appendMessage(conversation.id, {
+    role: "user",
+    content: input.message,
+    attachments: attachmentSummary,
+  });
 
   const messages: ChatMessage[] = [];
   if (project) {
     const context = buildProjectContext(project);
-    messages.push({ role: "system", content: projectSystemPrompt(context) });
+    messages.push({
+      role: "system",
+      content: projectSystemPrompt(context, { attachedFiles: attached.length }),
+    });
     aiLog("project.context", {
       projectId: project.id,
       hasRepository: context.git.isRepository,
+      attachments: attached.length,
+      rejectedAttachments: rejected.length,
     });
+  }
+  if (attached.length > 0) {
+    messages.push({ role: "system", content: attachmentsPrompt(attached) });
   }
   messages.push(...history, { role: "user", content: input.message });
 
   // ---- Generation --------------------------------------------------------
 
-  const provider = providerForMode(settings, input.mode);
+  const provider = providerForMode(settings, input.mode, getApprovalPolicies());
   const controller = new AbortController();
   // A browser that navigates away or presses Stop aborts the request; that has
   // to reach Ollama, or it keeps generating into a socket nobody reads.
@@ -182,6 +235,9 @@ export async function POST(request: Request) {
       };
 
       send({ type: "conversation", id: conversation.id, title: conversation.title });
+      if (attachmentSummary.length > 0 || rejected.length > 0) {
+        send({ type: "attachments", attached: attachmentSummary, rejected });
+      }
 
       try {
         for await (const event of provider.chat(chatRequest)) {

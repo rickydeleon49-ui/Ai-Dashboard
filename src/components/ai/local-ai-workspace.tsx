@@ -8,9 +8,11 @@ import {
   Cpu,
   GitBranch,
   MessageSquarePlus,
+  Paperclip,
   Play,
   Square,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
@@ -18,7 +20,12 @@ import { StatusDot, stateLabel } from "@/components/ai/status-dot";
 import { AgentModePanel } from "@/components/ai/agent-mode-panel";
 import { cn, formatBytes } from "@/lib/utils";
 import type { AiOverview } from "@/core/ai/service";
-import type { Conversation, ConversationWithMessages } from "@/core/ai/conversations";
+import type {
+  Conversation,
+  ConversationWithMessages,
+  MessageAttachment,
+} from "@/core/ai/conversations";
+import type { ProjectFile } from "@/core/projects/types";
 import type { ProjectContext } from "@/core/projects/context";
 import type { AiMode, AiState } from "@/core/ai/types";
 
@@ -38,8 +45,12 @@ interface DisplayMessage {
   role: "user" | "assistant";
   content: string;
   stoppedReason: string | null;
+  attachments: MessageAttachment[];
   pending?: boolean;
 }
+
+/** Files can only be attached to a message once a project scopes them. */
+const MAX_ATTACHMENTS = 8;
 
 interface Props {
   overview: AiOverview;
@@ -98,11 +109,59 @@ export function LocalAiWorkspace({
         role: message.role === "assistant" ? "assistant" : "user",
         content: message.content,
         stoppedReason: message.stoppedReason,
+        attachments: message.attachments,
       })),
   );
   const [draft, setDraft] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<{ message: string; code: string } | null>(null);
+
+  /*
+   * Attachments belong to the next message, not to the conversation.
+   *
+   * The project's uploaded files are listed here so the user can pick the ones
+   * this question is about; the selection is cleared once it has been sent, so
+   * a long conversation does not quietly re-send the same files every turn.
+   */
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
+
+  /*
+   * Switching project drops the selection during the render that reports it,
+   * rather than in an effect. An effect would let one paint happen with the
+   * previous project's files still listed as attached, and React's own advice
+   * for "state derived from a prop that changed" is exactly this.
+   */
+  const [filesFor, setFilesFor] = useState<string | null>(projectId);
+  if (filesFor !== projectId) {
+    setFilesFor(projectId);
+    setProjectFiles([]);
+    setSelectedFiles([]);
+    setPickerOpen(false);
+    setAttachmentNotice(null);
+  }
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    // A project switched mid-request would otherwise apply the previous
+    // project's file list to the new one.
+    let current = true;
+    fetch(`/api/projects/${projectId}/files`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : { files: [] }))
+      .then((body: { files?: ProjectFile[] }) => {
+        if (current) setProjectFiles(body.files ?? []);
+      })
+      .catch(() => {
+        if (current) setProjectFiles([]);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [projectId]);
 
   const abortRef = useRef<AbortController | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -192,10 +251,33 @@ export function LocalAiWorkspace({
     setDraft("");
     setError(null);
     setGenerating(true);
+    const sending = selectedFiles;
+    setAttachmentNotice(null);
     setMessages((current) => [
       ...current,
-      { id: `${pendingId}-user`, role: "user", content, stoppedReason: null },
-      { id: pendingId, role: "assistant", content: "", stoppedReason: null, pending: true },
+      {
+        id: `${pendingId}-user`,
+        role: "user",
+        content,
+        stoppedReason: null,
+        // Replaced by the server's own list once it says what it accepted.
+        attachments: projectFiles
+          .filter((file) => sending.includes(file.id))
+          .map((file) => ({
+            id: file.id,
+            filename: file.filename,
+            size: file.size,
+            truncated: false,
+          })),
+      },
+      {
+        id: pendingId,
+        role: "assistant",
+        content: "",
+        stoppedReason: null,
+        attachments: [],
+        pending: true,
+      },
     ]);
 
     const append = (text: string) =>
@@ -216,6 +298,7 @@ export function LocalAiWorkspace({
           mode,
           conversationId: activeConversation.current,
           projectId,
+          attachments: sending,
         }),
       });
 
@@ -253,6 +336,31 @@ export function LocalAiWorkspace({
           if (event.type === "conversation" && typeof event.id === "string") {
             createdConversation = event.id;
             activeConversation.current = event.id;
+          } else if (event.type === "attachments") {
+            const accepted = Array.isArray(event.attached)
+              ? (event.attached as MessageAttachment[])
+              : [];
+            const refused = Array.isArray(event.rejected)
+              ? (event.rejected as { filename: string | null; reason: string }[])
+              : [];
+
+            // The server decides what was actually sent — a file deleted since
+            // the picker was opened, or one too large to fit, never arrives.
+            setSelectedFiles([]);
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === `${pendingId}-user`
+                  ? { ...message, attachments: accepted }
+                  : message,
+              ),
+            );
+            setAttachmentNotice(
+              refused.length > 0
+                ? refused
+                    .map((entry) => `${entry.filename ?? "A file"}: ${entry.reason}`)
+                    .join(" · ")
+                : null,
+            );
           } else if (event.type === "delta" && typeof event.text === "string") {
             append(event.text);
           } else if (event.type === "done" && typeof event.text === "string") {
@@ -477,7 +585,11 @@ export function LocalAiWorkspace({
 
           {/* Transcript ------------------------------------------------ */}
           {mode === "agent" ? (
-            <AgentModePanel status={overview.hermes} enabled={overview.settings.agentEnabled} />
+            <AgentModePanel
+              status={overview.hermes}
+              enabled={overview.settings.agentEnabled}
+              approvals={overview.approvals}
+            />
           ) : (
             <>
               <div
@@ -526,7 +638,116 @@ export function LocalAiWorkspace({
                   </div>
                 ) : null}
 
+                {attachmentNotice ? (
+                  <p className="mb-2 rounded-md border border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[12px] text-amber-300">
+                    {attachmentNotice}
+                  </p>
+                ) : null}
+
+                {pickerOpen ? (
+                  <div className="mb-2 rounded-md border border-line bg-[var(--bg-subtle)]">
+                    <div className="flex items-center justify-between gap-2 border-b border-line px-2.5 py-1.5">
+                      <p className="text-[11.5px] text-muted">
+                        {projectFiles.length === 0
+                          ? "This project has no uploaded files."
+                          : `Attach up to ${MAX_ATTACHMENTS} files to the next message`}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setPickerOpen(false)}
+                        aria-label="Close attachments"
+                        className="rounded p-0.5 text-faint transition-colors hover:text-fg"
+                      >
+                        <X className="h-3 w-3" strokeWidth={2} />
+                      </button>
+                    </div>
+                    {projectFiles.length === 0 ? (
+                      <p className="px-2.5 py-2 text-[11.5px] leading-relaxed text-faint">
+                        Add files from the project page, then attach them here.
+                      </p>
+                    ) : (
+                      <ul className="max-h-44 overflow-y-auto py-1">
+                        {projectFiles.map((file) => {
+                          const checked = selectedFiles.includes(file.id);
+                          return (
+                            <li key={file.id}>
+                              <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1 text-[12.5px] transition-colors hover:bg-[var(--bg-hover)]">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={!checked && selectedFiles.length >= MAX_ATTACHMENTS}
+                                  onChange={() =>
+                                    setSelectedFiles((current) =>
+                                      checked
+                                        ? current.filter((id) => id !== file.id)
+                                        : [...current, file.id],
+                                    )
+                                  }
+                                  className="h-3 w-3 shrink-0 accent-[var(--accent)]"
+                                />
+                                <span className="min-w-0 flex-1 truncate text-fg">
+                                  {file.filename}
+                                </span>
+                                <span className="shrink-0 text-[11px] text-faint">
+                                  {formatBytes(file.size)}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                ) : null}
+
+                {selectedFiles.length > 0 ? (
+                  <ul className="mb-2 flex flex-wrap gap-1.5">
+                    {projectFiles
+                      .filter((file) => selectedFiles.includes(file.id))
+                      .map((file) => (
+                        <li
+                          key={file.id}
+                          className="flex items-center gap-1 rounded-md border border-line bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[11.5px] text-muted"
+                        >
+                          <Paperclip className="h-3 w-3 text-faint" strokeWidth={1.75} />
+                          <span className="max-w-40 truncate">{file.filename}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedFiles((current) =>
+                                current.filter((id) => id !== file.id),
+                              )
+                            }
+                            aria-label={`Remove ${file.filename}`}
+                            className="rounded text-faint transition-colors hover:text-fg"
+                          >
+                            <X className="h-3 w-3" strokeWidth={2} />
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                ) : null}
+
                 <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen((open) => !open)}
+                    disabled={!projectId || generating}
+                    aria-label="Attach files"
+                    aria-expanded={pickerOpen}
+                    title={
+                      projectId
+                        ? "Attach files from this project"
+                        : "Select a project to attach its files"
+                    }
+                    className={cn(
+                      "flex h-[2.75rem] w-9 shrink-0 items-center justify-center rounded-md border border-line text-faint transition-colors",
+                      "hover:border-[var(--border-strong)] hover:text-fg disabled:opacity-40 disabled:hover:border-line disabled:hover:text-faint",
+                      selectedFiles.length > 0 && "border-[var(--accent)] text-fg",
+                    )}
+                  >
+                    <Paperclip className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </button>
                   <textarea
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
@@ -570,7 +791,7 @@ export function LocalAiWorkspace({
                 <p className="mt-1.5 text-[11px] text-faint">
                   Runs entirely on this machine. Nothing is sent to a cloud service.
                   {projectContext
-                    ? " The model is told the project's name, path and branch — never its files."
+                    ? " The model is told the project's name, path and branch — and only the files you attach."
                     : ""}
                 </p>
               </div>
@@ -615,6 +836,22 @@ function Bubble({ message }: { message: DisplayMessage }) {
             : "border border-transparent text-fg",
         )}
       >
+        {message.attachments.length > 0 ? (
+          <ul className="mb-1.5 flex flex-wrap gap-1">
+            {message.attachments.map((file) => (
+              <li
+                key={file.id}
+                className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[11px] text-muted"
+                title={file.truncated ? "Only the beginning of this file was sent" : undefined}
+              >
+                <Paperclip className="h-2.5 w-2.5 text-faint" strokeWidth={1.75} />
+                <span className="max-w-40 truncate">{file.filename}</span>
+                {file.truncated ? <span className="text-faint">· truncated</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {message.content ? (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         ) : message.pending ? (

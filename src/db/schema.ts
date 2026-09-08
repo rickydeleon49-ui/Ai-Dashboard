@@ -239,6 +239,15 @@ export const aiMessages = sqliteTable(
     model: text("model"),
     /** Set when generation was stopped or failed part-way. */
     stoppedReason: text("stopped_reason"),
+    /**
+     * Files the user attached to this turn, as a JSON array of
+     * `{ id, filename, size, truncated }`.
+     *
+     * A summary, not the bytes: the transcript records *what* was sent so the
+     * conversation still reads correctly on reload, while the contents stay in
+     * the uploads directory where they can be re-read, re-sent or deleted.
+     */
+    attachments: text("attachments"),
     promptTokens: integer("prompt_tokens"),
     completionTokens: integer("completion_tokens"),
     durationMs: integer("duration_ms"),
