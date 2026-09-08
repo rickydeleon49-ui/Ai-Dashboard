@@ -20,6 +20,27 @@ export const SETTING_KEYS = {
   githubTokenOrigin: "github.token_origin",
   /** OAuth app client id enabling "Connect with GitHub". Not a secret. */
   githubClientId: "github.client_id",
+
+  /*
+   * Local AI. One row per preference rather than a single JSON blob: a blob
+   * cannot be updated by one form field without a read-modify-write race, and
+   * it hides what is actually stored from anyone opening the database.
+   */
+  aiEnabled: "ai.enabled",
+  aiAutoStart: "ai.auto_start",
+  aiProvider: "ai.provider",
+  aiEndpoint: "ai.endpoint",
+  aiDefaultModel: "ai.default_model",
+  aiPreloadModel: "ai.preload_model",
+  aiIdleTimeoutMinutes: "ai.idle_timeout_minutes",
+  aiContextSize: "ai.context_size",
+  aiStreaming: "ai.streaming",
+  aiReasoningEffort: "ai.reasoning_effort",
+  aiMode: "ai.mode",
+  aiAgentEnabled: "ai.agent_enabled",
+  /** Path to the Hermes executable. Never passed to a shell. */
+  aiHermesPath: "ai.hermes_path",
+  aiLastProjectId: "ai.last_project_id",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
