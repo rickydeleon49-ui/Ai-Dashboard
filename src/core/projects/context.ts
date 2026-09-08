@@ -63,9 +63,9 @@ export function readGitInfo(directory: string): GitInfo {
 
   let gitDir = path.join(directory, ".git");
   try {
-    const stats = fs.statSync(gitDir);
+    const stats = fs.statSync(/*turbopackIgnore: true*/ gitDir);
     if (stats.isFile()) {
-      const pointer = fs.readFileSync(gitDir, "utf8").trim();
+      const pointer = fs.readFileSync(/*turbopackIgnore: true*/ gitDir, "utf8").trim();
       const match = /^gitdir:\s*(.+)$/.exec(pointer);
       const pointed = match?.[1];
       if (!pointed) return absent;
@@ -79,7 +79,7 @@ export function readGitInfo(directory: string): GitInfo {
 
   let head: string;
   try {
-    head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+    head = fs.readFileSync(/*turbopackIgnore: true*/ path.join(gitDir, "HEAD"), "utf8").trim();
   } catch {
     // A .git that exists but has no readable HEAD is still a repository — just
     // one we cannot name a branch for.
@@ -98,7 +98,7 @@ export function readGitInfo(directory: string): GitInfo {
 
 export function buildProjectContext(project: Project): ProjectContext {
   const resolved = project.localPath ? resolveLocalPath(project.localPath) : null;
-  const exists = resolved ? fs.existsSync(resolved) : false;
+  const exists = resolved ? fs.existsSync(/*turbopackIgnore: true*/ resolved) : false;
 
   return {
     id: project.id,

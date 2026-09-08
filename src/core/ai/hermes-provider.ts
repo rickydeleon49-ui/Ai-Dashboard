@@ -77,7 +77,7 @@ export function locateHermes(configuredPath: string): HermesLocation {
       };
     }
     try {
-      if (fs.statSync(configured).isFile()) {
+      if (fs.statSync(/*turbopackIgnore: true*/ configured).isFile()) {
         return { found: true, path: configured, origin: "setting", problem: null };
       }
       return {
@@ -101,9 +101,9 @@ export function locateHermes(configuredPath: string): HermesLocation {
   const entries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
   for (const directory of entries) {
     for (const name of executableNames()) {
-      const candidate = path.join(directory, name);
+      const candidate = path.join(/*turbopackIgnore: true*/ directory, name);
       try {
-        if (fs.statSync(candidate).isFile()) {
+        if (fs.statSync(/*turbopackIgnore: true*/ candidate).isFile()) {
           return { found: true, path: candidate, origin: "path", problem: null };
         }
       } catch {
