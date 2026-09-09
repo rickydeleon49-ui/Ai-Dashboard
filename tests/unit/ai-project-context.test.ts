@@ -21,9 +21,9 @@ before(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "cc-git-"));
 });
 
-after(() => {
+after(async () => {
   fs.rmSync(root, { recursive: true, force: true });
-  cleanup();
+  await cleanup();
 });
 
 /** Creates a directory containing a .git with the given HEAD contents. */

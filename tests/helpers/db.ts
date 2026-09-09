@@ -17,7 +17,12 @@ process.env.UPLOADS_DIR = path.join(root, "uploads");
 
 export const testRoot = root;
 
-export function cleanup(): void {
+export async function cleanup(): Promise<void> {
+  // Closed before the directory holding it is removed: Windows cannot delete
+  // a file an open handle still references, so skipping this turns every
+  // cleanup into an EPERM there instead of a no-op.
+  const { closeConnection } = await import("../../src/db/client");
+  closeConnection();
   rmSync(root, { recursive: true, force: true });
 }
 
