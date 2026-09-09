@@ -95,10 +95,25 @@ jobs:
             release/*.dmg
             release/*.AppImage
 
-      # Tag pushes also publish a release, which is what the in-app update
-      # check reads. Manual runs only produce artifacts.
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+  # Tag pushes also publish a release, which is what the in-app update check
+  # reads. Runs once, after every platform has built, rather than once per
+  # matrix entry: three parallel "attach to release" steps each generating
+  # notes against the same tag produced a release body with the changelog
+  # pasted in three times over (see v0.4.0 and v0.5.0). One job, one set of
+  # notes, all three installers attached together.
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: command-center-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
