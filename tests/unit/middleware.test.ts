@@ -44,6 +44,12 @@ function hosted(password: string | null = PASSWORD): void {
   else env.DASHBOARD_PASSWORD = password;
 }
 
+/** Puts the process into the desktop configuration. */
+function local(): void {
+  delete env.DASHBOARD_PASSWORD;
+  env.DASHBOARD_LOCAL = "1";
+}
+
 function request(
   method: string,
   headers: Record<string, string> = {},
@@ -139,5 +145,42 @@ describe("cross-site request forgery", () => {
     // No Origin and no Sec-Fetch-Site: nothing attached credentials ambiently,
     // so this is not the thing CSRF describes.
     assert.notEqual(middleware(request("POST", auth)).status, 403);
+  });
+});
+
+describe("desktop mode cross-site protection", () => {
+  // The desktop server has no password, but loopback binding is not an
+  // authorization boundary: a page open in the same browser can still POST to
+  // it. Unauthenticated is not the same as unprotected.
+  it("blocks a cross-site mutation even though no password is required", () => {
+    local();
+    const response = middleware(
+      request("POST", { "sec-fetch-site": "cross-site" }),
+    );
+    assert.equal(response.status, 403);
+  });
+
+  it("blocks one identified by a foreign Origin", () => {
+    local();
+    const response = middleware(
+      request("POST", { origin: "https://attacker.example" }),
+    );
+    assert.equal(response.status, 403);
+  });
+
+  it("still allows the app's own requests", () => {
+    local();
+    const response = middleware(
+      request("POST", { "sec-fetch-site": "same-origin" }),
+    );
+    assert.notEqual(response.status, 403);
+  });
+
+  it("does not block reads", () => {
+    local();
+    const response = middleware(
+      request("GET", { "sec-fetch-site": "cross-site" }),
+    );
+    assert.notEqual(response.status, 403);
   });
 });
