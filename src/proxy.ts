@@ -116,7 +116,7 @@ function forbidden(): NextResponse {
   });
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // The desktop shell sets this when it forks the bundled server. That server
   // listens on 127.0.0.1 only, so nothing off the machine can reach it directly —
   // but loopback binding is not an authorization boundary. A malicious page open
