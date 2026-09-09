@@ -157,7 +157,7 @@ src/
     client.ts         one cached connection per process
     repositories/     interface · Drizzle implementation · composition root
   config/             navigation.ts, quick-actions.ts, app.ts — surfaces as data
-  middleware.ts       auth + CSRF for the whole app
+  proxy.ts            auth + CSRF for the whole app
 ```
 
 Two seams carry most of the extensibility:

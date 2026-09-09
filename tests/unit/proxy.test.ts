@@ -9,14 +9,14 @@
 import assert from "node:assert/strict";
 import { afterEach, before, describe, it } from "node:test";
 
-type Middleware = typeof import("../../src/middleware").middleware;
-let middleware: Middleware;
+type Proxy = typeof import("../../src/proxy").proxy;
+let proxy: Proxy;
 let NextRequest: typeof import("next/server").NextRequest;
 
 const PASSWORD = "correct-horse-battery-staple";
 
 before(async () => {
-  ({ middleware } = await import("../../src/middleware"));
+  ({ proxy } = await import("../../src/proxy"));
   ({ NextRequest } = await import("next/server"));
 });
 
@@ -44,6 +44,12 @@ function hosted(password: string | null = PASSWORD): void {
   else env.DASHBOARD_PASSWORD = password;
 }
 
+/** Puts the process into the desktop configuration. */
+function local(): void {
+  delete env.DASHBOARD_PASSWORD;
+  env.DASHBOARD_LOCAL = "1";
+}
+
 function request(
   method: string,
   headers: Record<string, string> = {},
@@ -59,12 +65,12 @@ const auth = { authorization: `Basic ${btoa(`user:${PASSWORD}`)}` };
 describe("hosted mode authentication", () => {
   it("refuses to serve at all when no password is configured", () => {
     hosted(null);
-    assert.equal(middleware(request("GET")).status, 503);
+    assert.equal(proxy(request("GET")).status, 503);
   });
 
   it("challenges an unauthenticated request", () => {
     hosted();
-    const response = middleware(request("GET"));
+    const response = proxy(request("GET"));
     assert.equal(response.status, 401);
     assert.match(response.headers.get("www-authenticate") ?? "", /^Basic/);
   });
@@ -72,25 +78,25 @@ describe("hosted mode authentication", () => {
   it("rejects a wrong password", () => {
     hosted();
     const wrong = { authorization: `Basic ${btoa("user:nope")}` };
-    assert.equal(middleware(request("GET", wrong)).status, 401);
+    assert.equal(proxy(request("GET", wrong)).status, 401);
   });
 
   it("allows a correct password", () => {
     hosted();
-    assert.notEqual(middleware(request("GET", auth)).status, 401);
+    assert.notEqual(proxy(request("GET", auth)).status, 401);
   });
 
   it("lets the desktop shell through without a password", () => {
     hosted(null);
     process.env.DASHBOARD_LOCAL = "1";
-    assert.notEqual(middleware(request("GET")).status, 503);
+    assert.notEqual(proxy(request("GET")).status, 503);
   });
 });
 
 describe("cross-site request forgery", () => {
   it("blocks an authenticated mutation a browser reports as cross-site", () => {
     hosted();
-    const response = middleware(
+    const response = proxy(
       request("POST", { ...auth, "sec-fetch-site": "cross-site" }),
     );
     assert.equal(response.status, 403, "a cross-site POST must not be accepted");
@@ -98,7 +104,7 @@ describe("cross-site request forgery", () => {
 
   it("blocks one identified by a foreign Origin", () => {
     hosted();
-    const response = middleware(
+    const response = proxy(
       request("POST", { ...auth, origin: "https://attacker.example" }),
     );
     assert.equal(response.status, 403);
@@ -107,7 +113,7 @@ describe("cross-site request forgery", () => {
   for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
     it(`blocks cross-site ${method}`, () => {
       hosted();
-      const response = middleware(
+      const response = proxy(
         request(method, { ...auth, "sec-fetch-site": "cross-site" }),
       );
       assert.equal(response.status, 403);
@@ -121,14 +127,14 @@ describe("cross-site request forgery", () => {
       { origin: "http://dashboard.example" },
     ];
     for (const headers of sameOrigin) {
-      const response = middleware(request("POST", { ...auth, ...headers }));
+      const response = proxy(request("POST", { ...auth, ...headers }));
       assert.notEqual(response.status, 403, JSON.stringify(headers));
     }
   });
 
   it("does not block reads, which change nothing", () => {
     hosted();
-    const response = middleware(
+    const response = proxy(
       request("GET", { ...auth, "sec-fetch-site": "cross-site" }),
     );
     assert.notEqual(response.status, 403);
@@ -138,6 +144,43 @@ describe("cross-site request forgery", () => {
     hosted();
     // No Origin and no Sec-Fetch-Site: nothing attached credentials ambiently,
     // so this is not the thing CSRF describes.
-    assert.notEqual(middleware(request("POST", auth)).status, 403);
+    assert.notEqual(proxy(request("POST", auth)).status, 403);
+  });
+});
+
+describe("desktop mode cross-site protection", () => {
+  // The desktop server has no password, but loopback binding is not an
+  // authorization boundary: a page open in the same browser can still POST to
+  // it. Unauthenticated is not the same as unprotected.
+  it("blocks a cross-site mutation even though no password is required", () => {
+    local();
+    const response = proxy(
+      request("POST", { "sec-fetch-site": "cross-site" }),
+    );
+    assert.equal(response.status, 403);
+  });
+
+  it("blocks one identified by a foreign Origin", () => {
+    local();
+    const response = proxy(
+      request("POST", { origin: "https://attacker.example" }),
+    );
+    assert.equal(response.status, 403);
+  });
+
+  it("still allows the app's own requests", () => {
+    local();
+    const response = proxy(
+      request("POST", { "sec-fetch-site": "same-origin" }),
+    );
+    assert.notEqual(response.status, 403);
+  });
+
+  it("does not block reads", () => {
+    local();
+    const response = proxy(
+      request("GET", { "sec-fetch-site": "cross-site" }),
+    );
+    assert.notEqual(response.status, 403);
   });
 });

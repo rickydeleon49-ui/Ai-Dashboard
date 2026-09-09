@@ -116,10 +116,16 @@ function forbidden(): NextResponse {
   });
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // The desktop shell sets this when it forks the bundled server. That server
-  // listens on 127.0.0.1 only, so nothing off the machine can reach it.
-  if (process.env.DASHBOARD_LOCAL === "1") return NextResponse.next();
+  // listens on 127.0.0.1 only, so nothing off the machine can reach it directly —
+  // but loopback binding is not an authorization boundary. A malicious page open
+  // in the same browser can still issue a cross-site request to localhost, so
+  // mutating requests get the same cross-site rejection hosted mode uses below.
+  if (process.env.DASHBOARD_LOCAL === "1") {
+    if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
+    return NextResponse.next();
+  }
 
   // Local development is equally unreachable and should not need a password.
   if (process.env.NODE_ENV !== "production") return NextResponse.next();

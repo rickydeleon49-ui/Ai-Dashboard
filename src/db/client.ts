@@ -40,3 +40,13 @@ if (process.env.NODE_ENV !== "production") globalForDb.__dashboardDb = sqlite;
 
 export const db = drizzle(sqlite, { schema });
 export { schema };
+
+/**
+ * Closes the connection. Tests use this before deleting the temporary
+ * directory that holds their throwaway database: on Windows, an open SQLite
+ * file cannot be removed, so skipping this turns every cleanup into an
+ * `EPERM` rather than a no-op.
+ */
+export function closeConnection(): void {
+  if (sqlite.open) sqlite.close();
+}
