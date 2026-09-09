@@ -106,7 +106,14 @@ describe("stored policies", () => {
 });
 
 describe("Hermes against the policy", () => {
-  const blocked = approvals.resolveApprovalPolicies({ run_command: "never" });
+  // Deferred to a `before` scoped to this suite: `describe` callbacks run at
+  // registration time, before the file's top-level `before` above has
+  // resolved the dynamic imports, so reading `approvals` here directly would
+  // throw with it still undefined.
+  let blocked: ReturnType<typeof approvals.resolveApprovalPolicies>;
+  before(() => {
+    blocked = approvals.resolveApprovalPolicies({ run_command: "never" });
+  });
 
   it("reports itself off when running commands is blocked", async () => {
     const provider = new hermes.HermesAgentProvider("", blocked);
