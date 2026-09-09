@@ -23,10 +23,15 @@ function createConnection(): Database.Database {
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
   const connection = new Database(file);
+  // Set before any other pragma. Next.js runs several build workers as
+  // separate processes against this same file, each running migrations on
+  // first connect; without a timeout in place first, the next pragma call
+  // below can land mid another worker's write lock and fail immediately
+  // with SQLITE_BUSY instead of waiting for it to release.
+  connection.pragma("busy_timeout = 5000");
   // WAL keeps reads non-blocking while a write is in flight.
   connection.pragma("journal_mode = WAL");
   connection.pragma("foreign_keys = ON");
-  connection.pragma("busy_timeout = 5000");
   return connection;
 }
 
