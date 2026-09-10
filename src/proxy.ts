@@ -1,23 +1,30 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
+import type { NextAuthRequest } from "next-auth";
 
 /**
  * Access control for the whole application.
  *
  * The dashboard has no user accounts — it is one person's tool — but it holds
- * project notes and can create, edit and delete everything through its API. Two
+ * project notes and can create, edit and delete everything through its API. Three
  * very different deployments have to be served:
  *
- *   Desktop  the bundled server binds 127.0.0.1 on a random port and is
- *            unreachable from outside the machine. Asking for a password there
- *            would be pure friction, so the desktop shell marks itself with
- *            DASHBOARD_LOCAL and is let through.
+ *   Desktop   the bundled server binds 127.0.0.1 on a random port and is
+ *             unreachable from outside the machine. Asking for a password there
+ *             would be pure friction, so the desktop shell marks itself with
+ *             DASHBOARD_LOCAL and is let through.
  *
- *   Hosted   a Railway (or similar) deployment is reachable by anyone who finds
- *            the URL. It requires DASHBOARD_PASSWORD.
+ *   Hosted,   a Railway (or similar) deployment is reachable by anyone who finds
+ *   single-   the URL. It requires DASHBOARD_PASSWORD — one shared secret, no
+ *   password  per-user accounts.
+ *
+ *   Hosted,   AUTH_MODE=accounts opts into real per-user accounts (Auth.js
+ *   accounts  sessions, workspaces) instead of the single shared password.
+ *             Requires DATABASE_URL (Postgres) — see handleAccountsMode below.
  *
  * The default is deliberately fail-safe: a production deployment with no
- * password configured serves a setup notice instead of the dashboard. Forgetting
- * to set it cannot silently publish the library to the internet.
+ * password (or, in accounts mode, no database) configured serves a setup
+ * notice instead of the dashboard. Forgetting to set it cannot silently
+ * publish the library to the internet.
  */
 
 const REALM = "Command Center";
@@ -116,7 +123,102 @@ function forbidden(): NextResponse {
   });
 }
 
-export function proxy(request: NextRequest) {
+/** Shown when AUTH_MODE=accounts is set but DATABASE_URL is not. */
+function accountsNotConfigured(): NextResponse {
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configuration required</title>
+<style>
+  body { background:#08090b; color:#ededef; font:14px/1.6 ui-sans-serif,system-ui,sans-serif;
+         display:grid; place-items:center; min-height:100dvh; margin:0; padding:24px; }
+  main { max-width:34rem; }
+  h1 { font-size:1.05rem; margin:0 0 .75rem; }
+  p { color:#8b8d98; margin:0 0 .75rem; }
+  code { background:#16191f; border:1px solid rgba(255,255,255,.1); border-radius:4px;
+         padding:.15em .4em; font-family:ui-monospace,monospace; font-size:.9em; color:#b9a7ff; }
+</style>
+<main>
+  <h1>Command Center is not configured for hosted accounts</h1>
+  <p><code>AUTH_MODE=accounts</code> is set, but <code>DATABASE_URL</code> is not —
+     accounts mode needs a Postgres database to store users, sessions and
+     workspaces.</p>
+  <p>Set <code>DATABASE_URL</code> in your service variables and redeploy.</p>
+</main>`;
+
+  return new NextResponse(html, {
+    status: 503,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
+
+/** Auth.js's own routes: sign-in, OAuth/email callbacks, session, sign-out. */
+function isAuthRoute(pathname: string): boolean {
+  return pathname === "/api/auth" || pathname.startsWith("/api/auth/");
+}
+
+function unauthenticatedResponse(request: NextRequest): NextResponse {
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Authentication required." },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const signInUrl = new URL("/api/auth/signin", request.url);
+  signInUrl.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
+  return NextResponse.redirect(signInUrl);
+}
+
+/**
+ * AUTH_MODE=accounts: gates page loads and API calls on an Auth.js session.
+ *
+ * `@/auth` is imported dynamically, inside this function, rather than at
+ * module scope: proxy.ts's matcher covers every request in every mode, so a
+ * static import would pull Auth.js (and this app's Postgres client) into
+ * every build and every request regardless of mode — real cost for
+ * desktop and single-password hosted deployments, which never use this
+ * branch at all. It also sidesteps a test-harness-only crash: `tests/unit/`
+ * runs under --conditions=react-server (to resolve `server-only` guards
+ * elsewhere), and Auth.js's own import graph does not tolerate that flag —
+ * see tests/unit-pg-auth/auth.test.ts's header comment. A static import
+ * here would pull that crash into the desktop/SQLite regression suite,
+ * which never sets AUTH_MODE=accounts and so should never pay for it.
+ *
+ * Authorization here is deliberately shallow — "is there a signed-in user
+ * at all" — not "is this user allowed to do this". Real authorization is
+ * workspace-scoped and lives in each route handler (see the plan's
+ * requireRole() step); this is defense in depth, not the only check.
+ */
+async function handleAccountsMode(request: NextRequest, event: NextFetchEvent) {
+  if (!process.env.DATABASE_URL) return accountsNotConfigured();
+
+  const { auth } = await import("@/auth");
+  // Declaring both parameters (matching NextAuthMiddleware's own signature)
+  // disambiguates this from auth()'s route-handler overload, whose second
+  // parameter is an incompatible { params } context rather than the fetch
+  // event proxy.ts is called with.
+  //
+  // auth(callback) itself must be awaited here: because src/auth.ts passes
+  // NextAuth() a config *factory* (the lazy form Step 2 needed to avoid
+  // constructing the Postgres adapter at build time), next-auth's own
+  // wrapper takes a different internal branch than the plain-config case
+  // its docs example shows — one that resolves to the actual handler
+  // asynchronously instead of returning it outright.
+  const gate = await auth(async (req: NextAuthRequest, _event: NextFetchEvent) => {
+    if (isAuthRoute(req.nextUrl.pathname)) {
+      return MUTATING.has(req.method) && isCrossSite(req) ? forbidden() : NextResponse.next();
+    }
+    if (!req.auth) return unauthenticatedResponse(req);
+
+    // Checked after authentication so an unauthenticated caller learns
+    // nothing about which requests would otherwise have been accepted.
+    if (MUTATING.has(req.method) && isCrossSite(req)) return forbidden();
+    return NextResponse.next();
+  });
+  return gate(request, event);
+}
+
+export async function proxy(request: NextRequest, event: NextFetchEvent) {
   // The desktop shell sets this when it forks the bundled server. That server
   // listens on 127.0.0.1 only, so nothing off the machine can reach it directly —
   // but loopback binding is not an authorization boundary. A malicious page open
@@ -126,6 +228,11 @@ export function proxy(request: NextRequest) {
     if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
     return NextResponse.next();
   }
+
+  // An explicit opt-in, independent of NODE_ENV: someone testing accounts
+  // mode locally (`next dev` with AUTH_MODE=accounts) wants the real gating
+  // behavior, not the local-development bypass below.
+  if (process.env.AUTH_MODE === "accounts") return handleAccountsMode(request, event);
 
   // Local development is equally unreachable and should not need a password.
   if (process.env.NODE_ENV !== "production") return NextResponse.next();
