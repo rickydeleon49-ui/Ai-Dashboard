@@ -18,6 +18,7 @@ import Nodemailer from "next-auth/providers/nodemailer";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { getPgDb } from "@/db/pg-client";
 import { accounts, sessions, users, verificationTokens } from "@/db/schema.pg";
+import { ensurePersonalWorkspace } from "@/core/workspaces/service";
 
 /**
  * Sends the magic-link sign-in email.
@@ -102,4 +103,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
       sendVerificationRequest,
     }),
   ],
+  events: {
+    // Fires exactly once, at true first-ever sign-in (whichever provider),
+    // right after the adapter inserts the new `users` row — the right place
+    // for "no signup friction": a personal workspace exists before the user
+    // sees a page that would need one. If this event's effect is somehow
+    // lost (a crash between the adapter write and this handler, say), the
+    // per-request workspace resolution added in a later step self-heals via
+    // the same `ensurePersonalWorkspace` — that call is idempotent and race-
+    // safe, so this isn't the only path that can create one, just the
+    // normal one.
+    async createUser({ user }) {
+      if (user.id) await ensurePersonalWorkspace(user.id, user.name);
+    },
+  },
 }));

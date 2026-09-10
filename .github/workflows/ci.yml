@@ -121,6 +121,9 @@ jobs:
       - name: Postgres-backed tests
         run: npm run test:unit:pg
 
+      - name: Postgres-backed tests (Auth.js)
+        run: npm run test:unit:pg:auth
+
   # Unit tests only, not the full suite above: this exists to catch
   # Windows-specific breakage (path handling, file locking) cheaply, not to
   # duplicate everything the Linux job already covers.

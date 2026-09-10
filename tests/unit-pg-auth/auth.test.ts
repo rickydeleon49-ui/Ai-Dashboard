@@ -17,6 +17,13 @@
  * --conditions=react-server that resolves to the server-only React build
  * instead, which has no `createContext`, and the import throws before any
  * test body even runs.
+ *
+ * src/auth.ts also imports src/core/workspaces/service.ts (for its
+ * events.createUser hook), which is guarded by `import "server-only"` —
+ * normally resolved to a no-op by that same flag this suite can't use. Its
+ * npm script (test:unit:pg:auth) instead preloads
+ * tests/helpers/stub-server-only.cjs via NODE_OPTIONS to get the same
+ * no-op outcome without the flag.
  */
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";

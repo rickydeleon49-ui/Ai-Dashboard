@@ -54,6 +54,19 @@ times: one clean pass proves nothing against an intermittent failure.
 packages. `--conditions=react-server` resolves the `server-only` marker package
 to its empty build; without it, importing anything under `src/core` throws.
 
+**Postgres-backed tests split across two directories.** `tests/unit-pg/`
+(`npm run test:unit:pg`) runs with `--conditions=react-server`, same as
+`tests/unit/`, because it exercises `src/core/*` service code guarded by
+`server-only`. `tests/unit-pg-auth/` (`npm run test:unit:pg:auth`) is the one
+exception: Auth.js's import graph reaches Next's client-side navigation
+internals, which need the real React build, not the server-only one that flag
+selects — so that suite runs without it instead. Put a new Postgres-backed
+test in `unit-pg-auth/` only if it touches Auth.js directly; everything else
+goes in `unit-pg/`. Since `src/auth.ts` also imports workspace service code
+guarded by `server-only`, `test:unit:pg:auth` preloads
+`tests/helpers/stub-server-only.cjs` via `NODE_OPTIONS` to neutralize that
+guard without turning the flag back on.
+
 **`next start` is run directly, not through `npx`.** `npx` spawns the server as
 its own child, so killing the returned handle left it running — and a leaked
 server keeps serving an older build, then answers the next run and produces
