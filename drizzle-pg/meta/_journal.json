@@ -8,6 +8,20 @@
       "when": 1789006015540,
       "tag": "0000_striped_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789011848921,
+      "tag": "0001_steep_nehzno",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789011865353,
+      "tag": "0002_workspace_last_owner_trigger",
+      "breakpoints": true
     }
   ]
 }
