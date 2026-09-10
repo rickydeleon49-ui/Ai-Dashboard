@@ -1,4 +1,4 @@
-import { Boxes, Cpu, Database, Github, Palette, Users } from "lucide-react";
+import { Boxes, Cpu, Database, Download, Github, Palette, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -21,6 +21,7 @@ import { getAiOverview } from "@/core/ai/service";
 import { WorkspaceManager } from "@/components/settings/workspace-manager";
 import { CURRENT_WORKSPACE_COOKIE, resolveCurrentWorkspace } from "@/core/workspaces/current-workspace";
 import type { WorkspaceWithRole } from "@/core/workspaces/types";
+import { ClaimOwnershipForm } from "@/components/settings/claim-ownership-form";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
@@ -60,15 +61,32 @@ async function getWorkspacesSection(): Promise<{
   return { workspaces, currentId: current?.id ?? null };
 }
 
+/**
+ * True only while there is something left to claim: accounts mode is on,
+ * this deployment still has a DASHBOARD_PASSWORD configured (proof it was
+ * once single-password hosted), and nobody has claimed it yet. Once claimed,
+ * the card simply stops rendering — see src/core/ownership-claim/service.ts
+ * for why a second attempt would fail anyway even without this check.
+ */
+async function shouldShowClaimOwnership(): Promise<boolean> {
+  if (process.env.AUTH_MODE !== "accounts" || !process.env.DATABASE_URL) return false;
+  if (!process.env.DASHBOARD_PASSWORD?.trim()) return false;
+
+  const { isAlreadyClaimed } = await import("@/core/ownership-claim/service");
+  return !(await isAlreadyClaimed());
+}
+
 export default async function SettingsPage() {
-  const [stats, github, tags, credentialSource, ai, workspacesSection] = await Promise.all([
-    projectRepository.stats(LOCAL_WORKSPACE_ID),
-    getConnection(),
-    projectRepository.allTags(LOCAL_WORKSPACE_ID),
-    getCredentialSource(),
-    getAiOverview(),
-    getWorkspacesSection(),
-  ]);
+  const [stats, github, tags, credentialSource, ai, workspacesSection, showClaimOwnership] =
+    await Promise.all([
+      projectRepository.stats(LOCAL_WORKSPACE_ID),
+      getConnection(),
+      projectRepository.allTags(LOCAL_WORKSPACE_ID),
+      getCredentialSource(),
+      getAiOverview(),
+      getWorkspacesSection(),
+      shouldShowClaimOwnership(),
+    ]);
 
   const tokenStatus = describeSecret(SETTING_KEYS.githubToken);
   const canConnect = isDeviceFlowConfigured();
@@ -167,6 +185,20 @@ export default async function SettingsPage() {
                 workspaces={workspacesSection.workspaces}
                 currentId={workspacesSection.currentId}
               />
+            </CardBody>
+          </Card>
+        ) : null}
+
+        {showClaimOwnership ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Download className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Claim legacy data
+              </CardTitle>
+            </CardHeader>
+            <CardBody>
+              <ClaimOwnershipForm />
             </CardBody>
           </Card>
         ) : null}
