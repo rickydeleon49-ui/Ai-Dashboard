@@ -1,4 +1,4 @@
-import { Boxes, Cpu, Database, Github, Palette } from "lucide-react";
+import { Boxes, Cpu, Database, Github, Palette, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -18,17 +18,56 @@ import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 import { LocalAiSettings } from "@/components/settings/local-ai-settings";
 import { getAiOverview } from "@/core/ai/service";
+import { WorkspaceManager } from "@/components/settings/workspace-manager";
+import { CURRENT_WORKSPACE_COOKIE, resolveCurrentWorkspace } from "@/core/workspaces/current-workspace";
+import type { WorkspaceWithRole } from "@/core/workspaces/types";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
 
+/**
+ * Hosted multi-user mode only (AUTH_MODE=accounts) — desktop and today's
+ * single-password hosted mode have no accounts or workspaces at all, so
+ * this returns null there rather than rendering an empty or broken card.
+ * `@/auth` and the workspace service are both dynamically imported for
+ * the same reason proxy.ts's handleAccountsMode imports them dynamically:
+ * this function is only ever reached in accounts mode, but a static
+ * import would pull Auth.js and the Postgres client into every build.
+ */
+async function getWorkspacesSection(): Promise<{
+  workspaces: WorkspaceWithRole[];
+  currentId: string | null;
+} | null> {
+  if (process.env.AUTH_MODE !== "accounts" || !process.env.DATABASE_URL) return null;
+
+  const [{ auth }, { listWorkspacesForUser }, { cookies }] = await Promise.all([
+    import("@/auth"),
+    import("@/core/workspaces/service"),
+    import("next/headers"),
+  ]);
+
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return null;
+
+  const workspaces = await listWorkspacesForUser(userId, 50);
+  const cookieStore = await cookies();
+  const current = resolveCurrentWorkspace(
+    workspaces,
+    cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value,
+  );
+
+  return { workspaces, currentId: current?.id ?? null };
+}
+
 export default async function SettingsPage() {
-  const [stats, github, tags, credentialSource, ai] = await Promise.all([
+  const [stats, github, tags, credentialSource, ai, workspacesSection] = await Promise.all([
     projectRepository.stats(LOCAL_WORKSPACE_ID),
     getConnection(),
     projectRepository.allTags(LOCAL_WORKSPACE_ID),
     getCredentialSource(),
     getAiOverview(),
+    getWorkspacesSection(),
   ]);
 
   const tokenStatus = describeSecret(SETTING_KEYS.githubToken);
@@ -114,6 +153,23 @@ export default async function SettingsPage() {
             ) : null}
           </CardBody>
         </Card>
+
+        {workspacesSection ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Workspaces
+              </CardTitle>
+            </CardHeader>
+            <CardBody>
+              <WorkspaceManager
+                workspaces={workspacesSection.workspaces}
+                currentId={workspacesSection.currentId}
+              />
+            </CardBody>
+          </Card>
+        ) : null}
 
         {/* Spans both columns: it has more controls than anything else here,
             and squeezing them into half the width would wrap every label. */}
