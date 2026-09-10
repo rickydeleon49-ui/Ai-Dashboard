@@ -98,6 +98,11 @@ jobs:
 
     env:
       DATABASE_URL: postgres://ai_dashboard:ai_dashboard_ci@localhost:5432/ai_dashboard
+      # The postgres:16 image's POSTGRES_USER is a real superuser, so this
+      # role can create/drop the throwaway databases tests/helpers/db.pg.ts
+      # needs — no separate admin credential to manage in CI.
+      TEST_DATABASE_ADMIN_URL: postgres://ai_dashboard:ai_dashboard_ci@localhost:5432/postgres
+      AUTH_SECRET: ci-only-not-a-real-secret
 
     steps:
       - uses: actions/checkout@v4
@@ -112,6 +117,9 @@ jobs:
 
       - name: Migrate the Postgres schema
         run: npm run db:migrate:pg
+
+      - name: Postgres-backed tests
+        run: npm run test:unit:pg
 
   # Unit tests only, not the full suite above: this exists to catch
   # Windows-specific breakage (path handling, file locking) cheaply, not to

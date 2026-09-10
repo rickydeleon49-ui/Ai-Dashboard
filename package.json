@@ -27,14 +27,18 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "tsx --conditions=react-server --test tests/unit/*.test.ts",
     "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts",
-    "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts"
+    "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts",
+    "test:unit:pg": "tsx --test tests/unit-pg/*.test.ts"
   },
   "dependencies": {
+    "@auth/drizzle-adapter": "1.11.3",
     "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^0.544.0",
     "next": "16.3.3",
+    "next-auth": "5.0.0-beta.32",
+    "nodemailer": "^10.0.2",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -46,6 +50,7 @@
     "@tailwindcss/postcss": "^4.1.13",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
@@ -128,5 +133,8 @@
       "installerIcon": "desktop/resources/icon.ico",
       "uninstallerIcon": "desktop/resources/icon.ico"
     }
+  },
+  "overrides": {
+    "nodemailer": "^10.0.2"
   }
 }
