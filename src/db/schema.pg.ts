@@ -273,6 +273,28 @@ export const projectTags = pgTable(
   ],
 );
 
+/**
+ * The ownership-claim flow's own durable "already done" record — a single
+ * row, always at id "singleton". A pre-accounts-mode hosted install has its
+ * data in SQLite with no owner at all; this table is what lets exactly one
+ * signed-in account claim it (importing the legacy SQLite projects/tags
+ * into their own workspace) and makes sure no later visitor can repeat
+ * that. The row is inserted with `onConflictDoNothing()` racing on the
+ * primary key itself, so a second concurrent claim attempt loses outright
+ * rather than needing a separate lock.
+ */
+export const ownershipClaims = pgTable("ownership_claim", {
+  id: text("id").primaryKey(),
+  claimedBy: text("claimed_by")
+    .notNull()
+    .references(() => users.id),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  projectsImported: integer("projects_imported").notNull().default(0),
+  claimedAt: timestamp("claimed_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 export const activityEvents = pgTable(
   "activity_event",
   {

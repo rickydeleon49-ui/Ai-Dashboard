@@ -82,6 +82,16 @@ class and changing one line in `index.ts` — no caller changes beyond the
 `workspaceId` argument itself, which every caller already had to pass once the
 interface gained it.
 
+- `core/ownership-claim/service.ts` — the one place that reads both databases
+  at once. A pre-accounts-mode hosted install has all its data in SQLite,
+  owned by nobody; `claimOwnership(userId, password)` lets exactly one
+  signed-in account, proven to be the deployment's operator by also supplying
+  its `DASHBOARD_PASSWORD`, import that SQLite `projects`/`tags` data into
+  their own personal workspace. The `ownership_claim` table (Postgres) is a
+  single row, inserted with `onConflictDoNothing()` before any import
+  happens, so a second claim — concurrent or later, by the same account or a
+  different one — always loses. SQLite is only ever read, never written.
+
 ### `src/config/` — data-driven surfaces
 
 `navigation.ts` and `quick-actions.ts` are plain arrays. Adding a sidebar section
