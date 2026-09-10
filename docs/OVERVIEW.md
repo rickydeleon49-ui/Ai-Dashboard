@@ -272,12 +272,13 @@ regression fails the suite rather than shipping.
 **Upload safety.** Uploaded filenames are display data only; files on disk are
 named by generated id, so a filename can never become a path.
 
-**Known gap.** The GitHub token is stored as plaintext in the `settings` table.
-It sits in the application's per-user data directory, but the application does
-not encrypt it or explicitly enforce file permissions. Electron's
-`safeStorage` is the right answer and is not a small change — the Next server is
-`fork()`ed as plain Node, so encryption would need an IPC protocol, a hosted
-fallback and a migration path. ARCHITECTURE.md §7b has the full analysis.
+**Token storage.** The GitHub token is encrypted at rest in the `settings`
+table when the app can protect a key for it (a symmetric key wrapped with
+Electron's `safeStorage` in the main process, handed to the forked server
+once as an env var — no IPC protocol needed, since the server does the actual
+AES work itself), and stored plaintext when it can't: hosted mode,
+`desktop:dev`, or a system with no OS keyring. ARCHITECTURE.md §7b has the
+full design.
 
 ---
 
@@ -374,7 +375,6 @@ Honest inventory of what is not finished:
   is no user-defined workflow builder, and the task catalogue is code, not data.
 - **`/notes` and `/tools` exist but are unadvertised.** They are placeholder
   pages, intentionally removed from the sidebar rather than deleted.
-- **The GitHub token is not encrypted at rest** (§7).
 - **Updates are checked, not installed** — the repository is private, and
   auto-update would mean shipping a token inside the installer.
 

@@ -273,29 +273,38 @@ Navigation guards compare parsed origins rather than string prefixes.
 everything before the `@` is credentials, and a bare `route.startsWith("/")`
 admits the protocol-relative `//example.com`.
 
-### Token storage — known gap
+### Token storage
 
-The GitHub token is stored as plaintext in the `settings` table. It sits in the application's per-user data directory, but the application does
-not encrypt it or explicitly enforce file permissions. Anything able to read the
-database can read it.
+The GitHub token is encrypted at rest in the `settings` table (`src/core/
+settings/service.ts`) when the app can protect a key for it, and stored
+plaintext — same as always — when it can't (hosted mode, `desktop:dev`, or a
+system with no OS keyring).
 
-Electron's `safeStorage` is the right answer and is **not a small change**. The
-Next server does not run in the Electron main process: it is `fork()`ed with
-`ELECTRON_RUN_AS_NODE=1`, so it is plain Node and `require("electron")` there
-yields a path, not the API. Using `safeStorage` means:
+The obstacle this previously stopped on: the Next server does not run in the
+Electron main process. It is `fork()`ed with `ELECTRON_RUN_AS_NODE=1`, so it
+is plain Node — `require("electron")` there yields a path, not the API — and
+only the main process can call `safeStorage`. The straightforward design,
+round-tripping every encrypt/decrypt over the existing `fork()` IPC channel to
+the main process, forces `getSetting`/`setSetting` to become async, which
+ripples into provider resolution, the device flow and the updates service, all
+of which call them synchronously today.
 
-1. A request/response protocol over the existing `fork()` IPC channel, since
-   only the main process can encrypt or decrypt.
-2. A fallback for hosted mode, which has no Electron parent and no keychain.
-3. Migration of existing plaintext values, and a stored prefix (`enc:v1:`) so
-   both forms can coexist while that happens.
-4. Either making `getSetting` async — which ripples into provider resolution,
-   the device flow and the updates service, all of which call it synchronously —
-   or decrypting once at boot into an in-memory cache and accepting that
-   requests arriving before that completes must wait.
+**Envelope encryption avoids that ripple.** `safeStorage` is used exactly
+twice, both already in the main process, both at app startup, in
+`desktop/main.js`'s `resolveEncryptionKey()` — never per setting operation. It
+protects one small symmetric key (`<userData>/settings-key.enc`), stable
+across restarts, which then travels to the forked server once as an env var,
+`SETTINGS_ENCRYPTION_KEY`, the same way `DATABASE_PATH` already does. The
+server does the actual AES-256-GCM encrypt/decrypt of setting values itself
+with Node's built-in `crypto` — synchronous, so `getSetting`/`setSetting`
+never change shape.
 
-Point 4 is the reason this is deferred rather than done in passing: it is a
-design decision about the settings layer, not a patch to it.
+Values carry an `enc:v1:` prefix when encrypted, so plaintext (no key
+available) and encrypted rows coexist. A pre-existing plaintext value is
+upgraded the first time it's read after a key becomes available — no user
+action, no separate migration step. Scope is narrow: only
+`SETTING_KEYS.githubToken` is treated as a secret; `githubClientId` isn't one,
+and `githubTokenOrigin` is just `"oauth" | "pat"`.
 
 ## 7c. A hydration bug worth remembering
 

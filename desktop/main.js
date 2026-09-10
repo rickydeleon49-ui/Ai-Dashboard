@@ -9,10 +9,11 @@
  *   1. Storage lives in the OS user-data directory, not the working directory.
  *   2. Outbound links (Open GitHub, Open Project) go to the real browser.
  */
-const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain, safeStorage } = require("electron");
 const { fork, spawn } = require("node:child_process");
 const { editorCandidates, terminalCandidates, launchFirst } = require("./launch");
 const { createOllamaSupervisor } = require("./ollama");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
@@ -81,6 +82,41 @@ function resolveUserPaths() {
     DATABASE_PATH: path.join(dataDir, "dashboard.db"),
     UPLOADS_DIR: path.join(dataDir, "uploads"),
   };
+}
+
+/**
+ * The symmetric key `src/core/settings/service.ts` uses to encrypt secrets
+ * (currently just the GitHub token) before they reach SQLite.
+ *
+ * `safeStorage` only exists in this process — the forked server runs with
+ * `ELECTRON_RUN_AS_NODE=1`, plain Node, no Electron API. Rather than round-
+ * tripping every encrypt/decrypt over IPC to here, `safeStorage` is used just
+ * once, to protect this one small key, which then travels to the server as
+ * an env var the same way DATABASE_PATH does; the server does its own AES
+ * work with it. That keeps `getSetting`/`setSetting` synchronous.
+ *
+ * Returns null when there is nothing to protect the key with (no OS keyring
+ * available), in which case the caller stores secrets as plaintext — the same
+ * behaviour this app always had, not a regression.
+ */
+function resolveEncryptionKey() {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+
+  const file = path.join(app.getPath("userData"), "settings-key.enc");
+  try {
+    return safeStorage.decryptString(fs.readFileSync(file));
+  } catch {
+    // No key yet, or the file is unreadable — generate a fresh one below.
+  }
+
+  const key = crypto.randomBytes(32).toString("base64");
+  try {
+    fs.writeFileSync(file, safeStorage.encryptString(key));
+  } catch (error) {
+    console.error(`[secrets] could not persist the encryption key: ${error.message}`);
+    return null;
+  }
+  return key;
 }
 
 // ---------------------------------------------------------------------------
@@ -620,9 +656,11 @@ if (!app.requestSingleInstanceLock()) {
         baseUrl = process.env.DESKTOP_DEV_URL ?? "http://localhost:3000";
         await waitForServer(baseUrl, 60_000);
       } else {
+        const encryptionKey = resolveEncryptionKey();
         baseUrl = await startServer({
           DATABASE_PATH: paths.DATABASE_PATH,
           UPLOADS_DIR: paths.UPLOADS_DIR,
+          ...(encryptionKey ? { SETTINGS_ENCRYPTION_KEY: encryptionKey } : {}),
         });
       }
     } catch (error) {
