@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getPgDb } from "@/db/pg-client";
 import { workspaceMembers, workspaces } from "@/db/schema.pg";
 import { createId, slugify } from "@/lib/ids";
@@ -89,6 +89,13 @@ async function uniqueSlug(base: string): Promise<string> {
     candidate = `${root}-${createId().slice(-6)}`;
   }
   throw new Error(`Could not generate a unique slug for "${base}"`);
+}
+
+/** A workspace by id, with no membership check — callers authorize separately. */
+export async function getWorkspace(workspaceId: string): Promise<Workspace | null> {
+  const db = getPgDb();
+  const [row] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  return row ? toWorkspace(row) : null;
 }
 
 export async function findPersonalWorkspace(userId: string): Promise<Workspace | null> {
@@ -182,14 +189,27 @@ export async function createTeamWorkspace(userId: string, name: string): Promise
   });
 }
 
-/** Every workspace a user belongs to, with their role in each. */
-export async function listWorkspacesForUser(userId: string): Promise<WorkspaceWithRole[]> {
+/**
+ * Every workspace a user belongs to, with their role in each, ordered
+ * newest-first. `limit` is optional (and omitted by every caller from
+ * step 3, so their behavior is unaffected) — the workspace-management API
+ * route passes one, since a list a user can keep growing (accepting team
+ * invitations over years) should be capped rather than fetched whole.
+ */
+export async function listWorkspacesForUser(
+  userId: string,
+  limit?: number,
+): Promise<WorkspaceWithRole[]> {
   const db = getPgDb();
-  const rows = await db
+  let query = db
     .select({ workspace: workspaces, role: workspaceMembers.role })
     .from(workspaceMembers)
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(eq(workspaceMembers.userId, userId));
+    .where(eq(workspaceMembers.userId, userId))
+    .orderBy(desc(workspaces.createdAt))
+    .$dynamic();
+  if (limit) query = query.limit(limit);
+  const rows = await query;
 
   return rows.map(({ workspace, role }) => ({
     ...toWorkspace(workspace),
