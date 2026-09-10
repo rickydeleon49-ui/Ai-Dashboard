@@ -4,16 +4,8 @@ import { and, desc, eq } from "drizzle-orm";
 import { getPgDb } from "@/db/pg-client";
 import { workspaceMembers, workspaces } from "@/db/schema.pg";
 import { createId, slugify } from "@/lib/ids";
+import { pgErrorCode, UNIQUE_VIOLATION } from "@/db/pg-errors";
 import type { Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceWithRole } from "./types";
-
-/** Postgres SQLSTATE for a unique-constraint violation. */
-const UNIQUE_VIOLATION = "23505";
-
-function pgErrorCode(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null && "code" in error
-    ? String((error as { code: unknown }).code)
-    : undefined;
-}
 
 /**
  * Thrown when an operation would leave a workspace with zero owners — the

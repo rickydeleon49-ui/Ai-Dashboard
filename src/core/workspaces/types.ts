@@ -31,3 +31,21 @@ export interface WorkspaceMembership {
 export interface WorkspaceWithRole extends Workspace {
   role: WorkspaceRole;
 }
+
+/**
+ * The raw token is never persisted (only its hash is) and so never appears
+ * here — it exists only in the invite link itself, generated once at
+ * creation time and handed back to the caller who requested it.
+ */
+export interface WorkspaceInvitation {
+  id: string;
+  workspaceId: string;
+  email: string;
+  role: InvitableRole;
+  invitedBy: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  acceptedAt: Date | null;
+  acceptedBy: string | null;
+  createdAt: Date;
+}
