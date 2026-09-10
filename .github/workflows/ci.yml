@@ -74,6 +74,45 @@ jobs:
       - name: Desktop shell tests
         run: xvfb-run -a npm run test:desktop
 
+  # Hosted multi-user mode's Postgres path. Separate job rather than folding
+  # into `check`: the SQLite suite above needs no database service at all, and
+  # keeping them apart means a Postgres-side failure never blocks the desktop/
+  # SQLite signal this repo has relied on so far.
+  postgres:
+    name: Postgres (hosted multi-user mode)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ai_dashboard
+          POSTGRES_PASSWORD: ai_dashboard_ci
+          POSTGRES_DB: ai_dashboard
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://ai_dashboard:ai_dashboard_ci@localhost:5432/ai_dashboard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --fetch-retries 5 --fetch-retry-mintimeout 20000 --fetch-retry-maxtimeout 120000
+
+      - name: Migrate the Postgres schema
+        run: npm run db:migrate:pg
+
   # Unit tests only, not the full suite above: this exists to catch
   # Windows-specific breakage (path handling, file locking) cheaply, not to
   # duplicate everything the Linux job already covers.
