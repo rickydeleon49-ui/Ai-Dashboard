@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureDatabaseReady } from "@/db/bootstrap";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { AI_MODES } from "@/core/ai/types";
 import type { ChatEvent, ChatMessage } from "@/core/ai/types";
 import { getAiSettings, getApprovalPolicies, rememberLastProject } from "@/core/ai/settings";
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
   }
 
   const projectId = input.projectId?.trim() || existing?.projectId || null;
-  const project = projectId ? await projectRepository.findById(projectId) : null;
+  const project = projectId ? await projectRepository.findById(LOCAL_WORKSPACE_ID, projectId) : null;
 
   const conversation =
     existing ??

@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { cleanup, migrate } from "../helpers/db";
+import { LOCAL_WORKSPACE_ID } from "../../src/db/repositories/project-repository";
 
 let attachments: typeof import("../../src/core/ai/attachments");
 let files: typeof import("../../src/core/files/service");
@@ -25,7 +26,7 @@ before(async () => {
 after(() => cleanup());
 
 async function newProject(name: string) {
-  return projectRepository.create({ name, source: "uploaded", status: "active" });
+  return projectRepository.create(LOCAL_WORKSPACE_ID, { name, source: "uploaded", status: "active" });
 }
 
 async function attach(projectId: string, name: string, body: string | Uint8Array) {

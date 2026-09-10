@@ -6,7 +6,7 @@ import { buttonClasses } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ProjectGrid } from "@/components/projects/project-card";
 import { PromptCard } from "@/components/prompts/prompt-card";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { listPrompts } from "@/core/prompts/service";
 import { getAiOverview } from "@/core/ai/service";
 import { StatusDot, stateLabel } from "@/components/ai/status-dot";
@@ -28,7 +28,7 @@ const AI_TOOLS = [
 
 export default async function AiWorkspacePage() {
   const [aiProjects, recentPrompts, allPrompts, ai] = await Promise.all([
-    projectRepository.list({ type: "ai", sort: "updated" }),
+    projectRepository.list(LOCAL_WORKSPACE_ID, { type: "ai", sort: "updated" }),
     listPrompts({ favorite: true }),
     listPrompts(),
     getAiOverview(),

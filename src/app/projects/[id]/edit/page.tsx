@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProjectForm } from "@/components/projects/project-form";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export default async function EditProjectPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await projectRepository.findById(id);
+  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
   if (!project) notFound();
 
   return (

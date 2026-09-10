@@ -14,7 +14,7 @@ import {
 import { GitHubClientIdForm } from "@/components/settings/github-client-id-form";
 import { UpdateCheck } from "@/components/settings/update-check";
 import { APP_VERSION } from "@/config/app";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 import { LocalAiSettings } from "@/components/settings/local-ai-settings";
 import { getAiOverview } from "@/core/ai/service";
@@ -24,9 +24,9 @@ export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const [stats, github, tags, credentialSource, ai] = await Promise.all([
-    projectRepository.stats(),
+    projectRepository.stats(LOCAL_WORKSPACE_ID),
     getConnection(),
-    projectRepository.allTags(),
+    projectRepository.allTags(LOCAL_WORKSPACE_ID),
     getCredentialSource(),
     getAiOverview(),
   ]);

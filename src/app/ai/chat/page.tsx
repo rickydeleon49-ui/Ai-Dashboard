@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { LocalAiWorkspace } from "@/components/ai/local-ai-workspace";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { getAiOverview } from "@/core/ai/service";
 import { listConversations, findConversation } from "@/core/ai/conversations";
 import { buildProjectContext } from "@/core/projects/context";
@@ -28,7 +28,7 @@ export default async function LocalAiPage({
   const params = await searchParams;
   const [overview, projects, conversations] = await Promise.all([
     getAiOverview(),
-    projectRepository.list({ sort: "updated" }),
+    projectRepository.list(LOCAL_WORKSPACE_ID, { sort: "updated" }),
     Promise.resolve(listConversations()),
   ]);
 

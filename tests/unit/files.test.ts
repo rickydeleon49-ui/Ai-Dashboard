@@ -11,6 +11,7 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { cleanup, migrate, testRoot } from "../helpers/db";
+import { LOCAL_WORKSPACE_ID } from "../../src/db/repositories/project-repository";
 
 let files: typeof import("../../src/core/files/service");
 let projectRepository: typeof import("../../src/db/repositories").projectRepository;
@@ -24,7 +25,7 @@ before(async () => {
 after(() => cleanup());
 
 async function newProject(name: string) {
-  return projectRepository.create({
+  return projectRepository.create(LOCAL_WORKSPACE_ID, {
     name,
     source: "uploaded",
     type: "software",

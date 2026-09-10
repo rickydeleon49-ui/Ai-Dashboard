@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function POST(
 ) {
   ensureDatabaseReady();
   const { id } = await params;
-  const project = await projectRepository.markOpened(id);
+  const project = await projectRepository.markOpened(LOCAL_WORKSPACE_ID, id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }

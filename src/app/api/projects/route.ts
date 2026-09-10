@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projectCreateSchema, projectQuerySchema } from "@/core/projects/schema";
 
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const projects = await projectRepository.list(parsed.data);
+  const projects = await projectRepository.list(LOCAL_WORKSPACE_ID, parsed.data);
   return NextResponse.json({ projects });
 }
 
@@ -43,6 +43,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const project = await projectRepository.create(parsed.data);
+  const project = await projectRepository.create(LOCAL_WORKSPACE_ID, parsed.data);
   return NextResponse.json({ project }, { status: 201 });
 }

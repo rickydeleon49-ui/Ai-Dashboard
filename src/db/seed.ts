@@ -4,7 +4,7 @@
  *
  * Run with `npm run db:seed` (or `npm run db:reset` to start clean).
  */
-import { projectRepository } from "./repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "./repositories";
 import { runMigrations } from "./migrate";
 import type { ProjectCreateInput } from "@/core/projects/types";
 
@@ -94,14 +94,14 @@ const SEED: ProjectCreateInput[] = [
 async function seed(): Promise<void> {
   runMigrations();
 
-  const existing = await projectRepository.list({ includeArchived: true, limit: 1 });
+  const existing = await projectRepository.list(LOCAL_WORKSPACE_ID, { includeArchived: true, limit: 1 });
   if (existing.length > 0) {
     console.log("Database already has projects — skipping seed.");
     return;
   }
 
   for (const project of SEED) {
-    await projectRepository.create(project);
+    await projectRepository.create(LOCAL_WORKSPACE_ID, project);
   }
   console.log(`Seeded ${SEED.length} projects.`);
 }

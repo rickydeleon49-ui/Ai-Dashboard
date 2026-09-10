@@ -7,7 +7,7 @@ import { buttonClasses } from "@/components/ui/button";
 import { RepoList, SyncButton } from "@/components/github/repo-list";
 import { ProjectGrid } from "@/components/projects/project-card";
 import { getConnection, listCachedRepositories } from "@/core/github/service";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export default async function GitHubPage() {
   const [connection, repos, linkedProjects] = await Promise.all([
     getConnection(),
     listCachedRepositories(),
-    projectRepository.list({ source: "github", sort: "updated" }),
+    projectRepository.list(LOCAL_WORKSPACE_ID, { source: "github", sort: "updated" }),
   ]);
 
   const lastSync = repos.reduce<string | null>(

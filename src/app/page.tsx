@@ -17,7 +17,7 @@ import { QuickActions } from "@/components/dashboard/quick-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { ProjectRowList } from "@/components/dashboard/project-row-list";
 import { ProjectGrid } from "@/components/projects/project-card";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { listRecentActivity } from "@/core/activity/service";
 import { STATUS_META } from "@/core/projects/labels";
 import { PROJECT_STATUSES } from "@/core/projects/types";
@@ -27,11 +27,11 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const [stats, activeProjects, recentlyOpened, favorites, allRecent, activity] =
     await Promise.all([
-      projectRepository.stats(),
-      projectRepository.list({ status: "active", sort: "updated", limit: 8 }),
-      projectRepository.list({ sort: "opened", limit: 6 }),
-      projectRepository.list({ favorite: true, sort: "updated", limit: 6 }),
-      projectRepository.list({ sort: "updated", limit: 8 }),
+      projectRepository.stats(LOCAL_WORKSPACE_ID),
+      projectRepository.list(LOCAL_WORKSPACE_ID, { status: "active", sort: "updated", limit: 8 }),
+      projectRepository.list(LOCAL_WORKSPACE_ID, { sort: "opened", limit: 6 }),
+      projectRepository.list(LOCAL_WORKSPACE_ID, { favorite: true, sort: "updated", limit: 6 }),
+      projectRepository.list(LOCAL_WORKSPACE_ID, { sort: "updated", limit: 8 }),
       listRecentActivity(10),
     ]);
 

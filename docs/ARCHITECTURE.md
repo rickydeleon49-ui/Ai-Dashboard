@@ -59,16 +59,28 @@ Framework-agnostic. No React, no Next.js imports.
 
 ### `src/db/` — persistence
 
-- `schema.ts` — Drizzle table definitions.
+- `schema.ts` — Drizzle table definitions (SQLite).
+- `schema.pg.ts` — Drizzle table definitions (Postgres, hosted multi-user mode only).
 - `client.ts` — one cached SQLite connection per process (WAL, foreign keys on).
-- `repositories/project-repository.ts` — **the interface**.
+- `pg-client.ts` — one cached Postgres pool per process, created lazily.
+- `repositories/project-repository.ts` — **the interface**. Every method takes
+  a mandatory `workspaceId: string` first argument — explicit, not ambient
+  context — plus `LOCAL_WORKSPACE_ID`, the one value SQLite ever accepts.
 - `repositories/drizzle-project-repository.ts` — the SQLite implementation.
+  Single-tenant forever: it asserts `workspaceId === LOCAL_WORKSPACE_ID` and
+  throws otherwise, rather than carrying a `workspace_id` column that would
+  never mean anything on desktop.
+- `repositories/postgres-project-repository.ts` — the Postgres implementation,
+  hosted multi-user mode only. Genuinely scoped: every query — including tags
+  and activity events, not just projects themselves — filters on `workspaceId`.
 - `repositories/index.ts` — **the composition root**. The only file that names a
-  concrete implementation.
+  concrete implementation, chosen by whether `DATABASE_URL` is set.
 
 The repository methods are `async` even though better-sqlite3 is synchronous.
-That is deliberate: moving to Postgres, Turso or a hosted API means writing one
-new class and changing one line in `index.ts` — no caller changes.
+That was deliberate from the start: moving to Postgres meant writing one new
+class and changing one line in `index.ts` — no caller changes beyond the
+`workspaceId` argument itself, which every caller already had to pass once the
+interface gained it.
 
 ### `src/config/` — data-driven surfaces
 
@@ -530,4 +542,4 @@ the hosted copy would ask its own container about models and show a permanent
 | A quick action | One entry in `config/quick-actions.ts` |
 | A scheduled automation | One entry in `core/automation/tasks.ts`; the row is created on read |
 | An integration | Define a provider interface in `core/<name>/`, resolve it in one place |
-| A different database | New `ProjectRepository` implementation + one line in `db/repositories/index.ts` |
+| A different database | New `ProjectRepository` implementation + one branch in `db/repositories/index.ts` |

@@ -9,9 +9,11 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -175,4 +177,115 @@ export const workspaceInvitations = pgTable(
       .on(t.workspaceId, sql`lower(${t.email})`)
       .where(sql`${t.acceptedAt} is null and ${t.revokedAt} is null`),
   ],
+);
+
+/**
+ * The project domain, workspace-scoped — hosted multi-user mode's own
+ * projects/tags/project_tags/activity_events, entirely separate from
+ * SQLite's unscoped tables of the same name (see schema.ts). Column
+ * shapes mirror the SQLite versions closely so PostgresProjectRepository's
+ * domain mapping matches DrizzleProjectRepository's, but use native
+ * Postgres types (boolean, jsonb, timestamp) rather than SQLite's
+ * integer/text encodings of the same — a PostgresProjectRepository detail,
+ * not something the shared `Project` domain type needs to know about.
+ *
+ * No CHECK constraints on source/type/status: matches how the SQLite table
+ * already treats them (plain text, validated by the Zod schema in the API
+ * layer, not the database) — this table is new, but there is no reason for
+ * its enforcement posture to differ from its SQLite counterpart.
+ */
+export const projects = pgTable(
+  "project",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    source: text("source").notNull().default("manual"),
+    type: text("type").notNull().default("software"),
+    status: text("status").notNull().default("idea"),
+
+    repositoryUrl: text("repository_url"),
+    projectUrl: text("project_url"),
+    localPath: text("local_path"),
+    notes: text("notes"),
+
+    favorite: boolean("favorite").notNull().default(false),
+    archived: boolean("archived").notNull().default(false),
+
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    lastOpenedAt: timestamp("last_opened_at", { mode: "date" }),
+
+    externalId: text("external_id"),
+    syncedAt: timestamp("synced_at", { mode: "date" }),
+
+    metadata: jsonb("metadata").notNull().default({}),
+  },
+  (t) => [
+    index("project_workspace_idx").on(t.workspaceId),
+    // Used by findByExternalId, scoped the same way every other lookup is.
+    index("project_workspace_external_idx").on(t.workspaceId, t.source, t.externalId),
+  ],
+);
+
+export const tags = pgTable(
+  "tag",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Always stored lowercase; the UI title-cases for display. */
+    name: text("name").notNull(),
+  },
+  (t) => [
+    // Unlike SQLite's globally-unique tag name, two workspaces may each
+    // have their own "python" tag independently.
+    uniqueIndex("tag_workspace_name_idx").on(t.workspaceId, t.name),
+  ],
+);
+
+export const projectTags = pgTable(
+  "project_tag",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    // Denormalized from project/tag (both already belong to the same
+    // workspace by construction) so a join mistake elsewhere can't
+    // associate a tag from one workspace with a project in another —
+    // every query can filter on this column directly rather than trusting
+    // a join to have scoped things correctly.
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.projectId, t.tagId] }),
+    index("project_tag_tag_idx").on(t.tagId),
+    index("project_tag_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+export const activityEvents = pgTable(
+  "activity_event",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** e.g. project.created, project.opened, github.synced */
+    type: text("type").notNull(),
+    message: text("message").notNull(),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index("activity_event_workspace_created_idx").on(t.workspaceId, t.createdAt)],
 );
