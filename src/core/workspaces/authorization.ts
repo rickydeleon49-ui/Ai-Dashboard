@@ -4,9 +4,14 @@ import { NextResponse } from "next/server";
 import { getMembership } from "./service";
 import { WORKSPACE_ROLES, type WorkspaceMembership, type WorkspaceRole } from "./types";
 
-/** Higher ranks can do everything a lower rank can. */
+/**
+ * Higher ranks can do everything a lower rank can. WORKSPACE_ROLES is
+ * ordered most-to-least powerful ("owner" first), so the rank is the
+ * reverse of its array index — owner must end up with the *highest*
+ * number, not the lowest.
+ */
 const ROLE_RANK: Record<WorkspaceRole, number> = Object.fromEntries(
-  WORKSPACE_ROLES.map((role, index) => [role, index]),
+  WORKSPACE_ROLES.map((role, index) => [role, WORKSPACE_ROLES.length - index]),
 ) as Record<WorkspaceRole, number>;
 
 export type AuthorizationFailureReason = "unauthenticated" | "not_a_member" | "insufficient_role";
