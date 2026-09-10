@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ProjectGrid } from "@/components/projects/project-card";
 import { UploadProjectForm } from "@/components/projects/upload-project-form";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { formatLimit, MAX_UPLOAD_BYTES } from "@/core/files/service";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export const metadata = { title: "Uploaded" };
  * the destination was missing, so every one of those links returned a 404.
  */
 export default async function UploadsPage() {
-  const projects = await projectRepository.list({ source: "uploaded", sort: "updated" });
+  const projects = await projectRepository.list(LOCAL_WORKSPACE_ID, { source: "uploaded", sort: "updated" });
 
   return (
     <div className="space-y-5">

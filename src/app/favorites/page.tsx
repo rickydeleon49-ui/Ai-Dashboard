@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClasses } from "@/components/ui/button";
 import { ProjectFilters } from "@/components/projects/project-filters";
 import { ProjectGrid } from "@/components/projects/project-card";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { buildProjectQuery } from "@/core/projects/query";
 import type { SearchParams } from "@/lib/routing";
 
@@ -19,8 +19,8 @@ export default async function FavoritesPage({
 }) {
   const raw = await searchParams;
   const [projects, tags] = await Promise.all([
-    projectRepository.list(buildProjectQuery(raw, { favorite: true })),
-    projectRepository.allTags(),
+    projectRepository.list(LOCAL_WORKSPACE_ID, buildProjectQuery(raw, { favorite: true })),
+    projectRepository.allTags(LOCAL_WORKSPACE_ID),
   ]);
 
   return (

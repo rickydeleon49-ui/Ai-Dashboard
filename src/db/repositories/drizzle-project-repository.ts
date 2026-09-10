@@ -2,10 +2,11 @@ import { and, desc, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "../client";
 import { activityEvents, projectTags, projects, prompts, tags } from "../schema";
 import type { ProjectRow } from "../schema";
-import type {
-  ProjectRepository,
-  ProjectSummary,
-  TagCount,
+import {
+  LOCAL_WORKSPACE_ID,
+  type ProjectRepository,
+  type ProjectSummary,
+  type TagCount,
 } from "./project-repository";
 import type {
   Project,
@@ -140,13 +141,31 @@ function recordActivity(
 }
 
 /**
+ * SQLite is single-tenant forever (see LOCAL_WORKSPACE_ID's own comment) —
+ * this is a loud programming error, not a real authorization boundary. A
+ * real cross-tenant leak is impossible here by construction: SQLite has no
+ * `workspace_id` column to leak from, since exactly one install-wide
+ * "workspace" exists. Any other value can only mean a caller was wired up
+ * for hosted multi-user mode without switching to PostgresProjectRepository.
+ */
+function assertLocalWorkspace(workspaceId: string): void {
+  if (workspaceId !== LOCAL_WORKSPACE_ID) {
+    throw new Error(
+      `DrizzleProjectRepository (SQLite) only serves "${LOCAL_WORKSPACE_ID}"; got "${workspaceId}". ` +
+        "Hosted multi-user mode must use PostgresProjectRepository instead.",
+    );
+  }
+}
+
+/**
  * SQLite-backed implementation of {@link ProjectRepository}.
  *
  * better-sqlite3 is synchronous; the async signatures exist so that a networked
  * implementation can be dropped in without touching a single caller.
  */
 export class DrizzleProjectRepository implements ProjectRepository {
-  async list(query: ProjectQuery = {}): Promise<Project[]> {
+  async list(workspaceId: string, query: ProjectQuery = {}): Promise<Project[]> {
+    assertLocalWorkspace(workspaceId);
     const conditions = [];
 
     if (!query.includeArchived) {
@@ -227,7 +246,8 @@ export class DrizzleProjectRepository implements ProjectRepository {
     return rows.map((row) => toDomain(row, tagMap.get(row.id) ?? []));
   }
 
-  async listSummaries(limit = 500): Promise<ProjectSummary[]> {
+  async listSummaries(workspaceId: string, limit = 500): Promise<ProjectSummary[]> {
+    assertLocalWorkspace(workspaceId);
     return db
       .select({
         id: projects.id,
@@ -241,16 +261,19 @@ export class DrizzleProjectRepository implements ProjectRepository {
       .all();
   }
 
-  async findById(id: string): Promise<Project | null> {
+  async findById(workspaceId: string, id: string): Promise<Project | null> {
+    assertLocalWorkspace(workspaceId);
     const row = db.select().from(projects).where(eq(projects.id, id)).get();
     if (!row) return null;
     return toDomain(row, loadTags([row.id]).get(row.id) ?? []);
   }
 
   async findByExternalId(
+    workspaceId: string,
     source: string,
     externalId: string,
   ): Promise<Project | null> {
+    assertLocalWorkspace(workspaceId);
     const row = db
       .select()
       .from(projects)
@@ -260,7 +283,8 @@ export class DrizzleProjectRepository implements ProjectRepository {
     return toDomain(row, loadTags([row.id]).get(row.id) ?? []);
   }
 
-  async create(input: ProjectCreateInput): Promise<Project> {
+  async create(workspaceId: string, input: ProjectCreateInput): Promise<Project> {
+    assertLocalWorkspace(workspaceId);
     const id = createId("prj");
     const timestamp = nowIso();
     const tagNames = input.tags ?? [];
@@ -296,12 +320,17 @@ export class DrizzleProjectRepository implements ProjectRepository {
       source: input.source ?? "manual",
     });
 
-    const created = await this.findById(id);
+    const created = await this.findById(workspaceId, id);
     if (!created) throw new Error("Failed to read back created project");
     return created;
   }
 
-  async update(id: string, input: ProjectUpdateInput): Promise<Project | null> {
+  async update(
+    workspaceId: string,
+    id: string,
+    input: ProjectUpdateInput,
+  ): Promise<Project | null> {
+    assertLocalWorkspace(workspaceId);
     const existing = db.select().from(projects).where(eq(projects.id, id)).get();
     if (!existing) return null;
 
@@ -377,10 +406,11 @@ export class DrizzleProjectRepository implements ProjectRepository {
       recordActivity(id, "project.updated", `Updated ${patch.name ?? existing.name}`);
     }
 
-    return this.findById(id);
+    return this.findById(workspaceId, id);
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(workspaceId: string, id: string): Promise<boolean> {
+    assertLocalWorkspace(workspaceId);
     const existing = db.select().from(projects).where(eq(projects.id, id)).get();
     if (!existing) return false;
     db.delete(projects).where(eq(projects.id, id)).run();
@@ -388,7 +418,8 @@ export class DrizzleProjectRepository implements ProjectRepository {
     return true;
   }
 
-  async markOpened(id: string): Promise<Project | null> {
+  async markOpened(workspaceId: string, id: string): Promise<Project | null> {
+    assertLocalWorkspace(workspaceId);
     const existing = db.select().from(projects).where(eq(projects.id, id)).get();
     if (!existing) return null;
 
@@ -397,10 +428,11 @@ export class DrizzleProjectRepository implements ProjectRepository {
       .where(eq(projects.id, id))
       .run();
     recordActivity(id, "project.opened", `Opened ${existing.name}`);
-    return this.findById(id);
+    return this.findById(workspaceId, id);
   }
 
-  async stats(): Promise<ProjectStats> {
+  async stats(workspaceId: string): Promise<ProjectStats> {
+    assertLocalWorkspace(workspaceId);
     const rows = db
       .select({
         source: projects.source,
@@ -454,7 +486,8 @@ export class DrizzleProjectRepository implements ProjectRepository {
     return stats;
   }
 
-  async allTags(): Promise<TagCount[]> {
+  async allTags(workspaceId: string): Promise<TagCount[]> {
+    assertLocalWorkspace(workspaceId);
     const rows = db
       .select({ name: tags.name, count: sql<number>`count(${projectTags.projectId})` })
       .from(tags)

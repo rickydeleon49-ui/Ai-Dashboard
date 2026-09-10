@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { cleanup, migrate } from "../helpers/db";
-import type { ProjectRepository } from "../../src/db/repositories/project-repository";
+import { LOCAL_WORKSPACE_ID, type ProjectRepository } from "../../src/db/repositories/project-repository";
 
 // Loaded in `before` rather than at the top of the file: the database client
 // opens its connection at import time, so DATABASE_PATH (set by the helper
@@ -27,29 +27,29 @@ after(() => cleanup());
 
 describe("archive and restore", () => {
   it("moves status to archived and remembers where it came from", async () => {
-    const project = await projectRepository.create({
+    const project = await projectRepository.create(LOCAL_WORKSPACE_ID, {
       name: "Paused thing",
       source: "manual",
       type: "software",
       status: "paused",
     });
 
-    const archived = await projectRepository.update(project.id, { archived: true });
+    const archived = await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: true });
     assert.equal(archived?.archived, true);
     assert.equal(archived?.status, "archived");
     assert.equal(archived?.metadata.statusBeforeArchive, "paused");
   });
 
   it("restores the status the project had before archiving", async () => {
-    const project = await projectRepository.create({
+    const project = await projectRepository.create(LOCAL_WORKSPACE_ID, {
       name: "Completed thing",
       source: "manual",
       type: "software",
       status: "completed",
     });
 
-    await projectRepository.update(project.id, { archived: true });
-    const restored = await projectRepository.update(project.id, { archived: false });
+    await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: true });
+    const restored = await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: false });
 
     assert.equal(restored?.archived, false);
     assert.equal(restored?.status, "completed", "status must not stay archived");
@@ -61,7 +61,7 @@ describe("archive and restore", () => {
   });
 
   it("falls back to active for a project archived before this was recorded", async () => {
-    const project = await projectRepository.create({
+    const project = await projectRepository.create(LOCAL_WORKSPACE_ID, {
       name: "Legacy",
       source: "manual",
       type: "software",
@@ -69,23 +69,23 @@ describe("archive and restore", () => {
     });
 
     // Simulate the old behaviour: flag and status set, nothing remembered.
-    await projectRepository.update(project.id, { status: "archived" });
-    await projectRepository.update(project.id, { archived: true });
+    await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { status: "archived" });
+    await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: true });
 
-    const restored = await projectRepository.update(project.id, { archived: false });
+    const restored = await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: false });
     assert.equal(restored?.status, "active");
   });
 
   it("lets an explicit status win over the remembered one", async () => {
-    const project = await projectRepository.create({
+    const project = await projectRepository.create(LOCAL_WORKSPACE_ID, {
       name: "Explicit",
       source: "manual",
       type: "software",
       status: "planning",
     });
 
-    await projectRepository.update(project.id, { archived: true });
-    const restored = await projectRepository.update(project.id, {
+    await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: true });
+    const restored = await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, {
       archived: false,
       status: "active",
     });
@@ -94,22 +94,22 @@ describe("archive and restore", () => {
   });
 
   it("keeps archived projects out of the default listing and in the stats", async () => {
-    const project = await projectRepository.create({
+    const project = await projectRepository.create(LOCAL_WORKSPACE_ID, {
       name: "Counted",
       source: "manual",
       type: "software",
       status: "active",
     });
-    await projectRepository.update(project.id, { archived: true });
+    await projectRepository.update(LOCAL_WORKSPACE_ID, project.id, { archived: true });
 
-    const visible = await projectRepository.list({});
+    const visible = await projectRepository.list(LOCAL_WORKSPACE_ID, {});
     assert.equal(
       visible.some((p) => p.id === project.id),
       false,
       "an archived project should not appear in the default library view",
     );
 
-    const stats = await projectRepository.stats();
+    const stats = await projectRepository.stats(LOCAL_WORKSPACE_ID);
     assert.ok(stats.archived >= 1);
   });
 });

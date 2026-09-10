@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClasses } from "@/components/ui/button";
 import { ProjectFilters } from "@/components/projects/project-filters";
 import { ProjectGrid } from "@/components/projects/project-card";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { buildProjectQuery } from "@/core/projects/query";
 import type { SearchParams } from "@/lib/routing";
 
@@ -21,8 +21,8 @@ export default async function ProjectsPage({
   const query = buildProjectQuery(raw);
 
   const [projects, tags] = await Promise.all([
-    projectRepository.list(query),
-    projectRepository.allTags(),
+    projectRepository.list(LOCAL_WORKSPACE_ID, query),
+    projectRepository.allTags(LOCAL_WORKSPACE_ID),
   ]);
 
   const filtered = Boolean(

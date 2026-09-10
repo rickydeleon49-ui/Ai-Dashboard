@@ -4,7 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { activityEvents, githubRepositories } from "@/db/schema";
 import type { GithubRepositoryRow } from "@/db/schema";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { createId } from "@/lib/ids";
 import { resolveGitHubProvider, type CredentialSource } from "./provider";
 import { DemoGitHubProvider } from "./demo-provider";
@@ -302,7 +302,7 @@ export async function syncRepositories(): Promise<SyncResult> {
   // Keep already-linked projects' upstream fields in step. Outside the
   // transaction because the repository interface is async by design.
   for (const { projectId, repo } of linkedToRefresh) {
-    await projectRepository.update(projectId, {
+    await projectRepository.update(LOCAL_WORKSPACE_ID, projectId, {
       description: repo.description,
       repositoryUrl: repo.htmlUrl,
       projectUrl: repo.homepage,
@@ -352,11 +352,11 @@ export async function linkRepositoryToProject(externalId: string) {
   if (!repo) throw new Error(`Repository ${externalId} is not in the local cache`);
 
   if (repo.linkedProjectId) {
-    const existing = await projectRepository.findById(repo.linkedProjectId);
+    const existing = await projectRepository.findById(LOCAL_WORKSPACE_ID, repo.linkedProjectId);
     if (existing) return existing;
   }
 
-  const project = await projectRepository.create({
+  const project = await projectRepository.create(LOCAL_WORKSPACE_ID, {
     name: repo.name,
     description: repo.description,
     source: "github",
@@ -383,7 +383,7 @@ export async function linkRepositoryToProject(externalId: string) {
 export async function unlinkRepository(externalId: string): Promise<void> {
   const repo = await findCachedRepository(externalId);
   if (!repo?.linkedProjectId) return;
-  await projectRepository.delete(repo.linkedProjectId);
+  await projectRepository.delete(LOCAL_WORKSPACE_ID, repo.linkedProjectId);
   db.update(githubRepositories)
     .set({ linkedProjectId: null })
     .where(eq(githubRepositories.externalId, externalId))

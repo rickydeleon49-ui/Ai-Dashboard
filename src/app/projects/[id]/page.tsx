@@ -24,7 +24,7 @@ import {
   OpenProjectButton,
 } from "@/components/projects/project-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { listProjectActivity } from "@/core/activity/service";
 import { listProjectFiles } from "@/core/files/service";
 import { ProjectFiles } from "@/components/projects/project-files";
@@ -63,7 +63,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await projectRepository.findById(id);
+  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
   return { title: project?.name ?? "Project" };
 }
 
@@ -80,7 +80,7 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await projectRepository.findById(id);
+  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
   if (!project) notFound();
 
   const [activity, files] = await Promise.all([

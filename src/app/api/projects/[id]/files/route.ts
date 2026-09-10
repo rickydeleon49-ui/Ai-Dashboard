@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseReady } from "@/db/bootstrap";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { addProjectFiles, listProjectFiles } from "@/core/files/service";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export async function POST(request: Request, { params }: Context) {
   ensureDatabaseReady();
   const { id } = await params;
 
-  const project = await projectRepository.findById(id);
+  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: Context) {
     .map(({ filename, error }) => ({ filename, error }));
 
   // Only touch the project's timestamp if something was actually attached.
-  if (saved.length > 0) await projectRepository.update(id, {});
+  if (saved.length > 0) await projectRepository.update(LOCAL_WORKSPACE_ID, id, {});
 
   /*
    * A partly-successful batch is reported as success with the failures listed,

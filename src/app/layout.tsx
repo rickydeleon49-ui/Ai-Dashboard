@@ -3,7 +3,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { DesktopBridge } from "@/components/layout/desktop-bridge";
 import { themeScript } from "@/components/layout/theme-script";
 import { ensureDatabaseReady } from "@/db/bootstrap";
-import { projectRepository } from "@/db/repositories";
+import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { unreadCount } from "@/core/automation/notifications";
 import { APP_NAME } from "@/config/navigation";
 import "./globals.css";
@@ -36,8 +36,8 @@ export default async function RootLayout({
   // aggregation, and the palette index as four columns rather than whole
   // projects with their tags and metadata.
   const [stats, paletteProjects, unreadNotifications] = await Promise.all([
-    projectRepository.stats(),
-    projectRepository.listSummaries(),
+    projectRepository.stats(LOCAL_WORKSPACE_ID),
+    projectRepository.listSummaries(LOCAL_WORKSPACE_ID),
     unreadCount(),
   ]);
 

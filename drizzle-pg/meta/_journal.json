@@ -22,6 +22,13 @@
       "when": 1789011865353,
       "tag": "0002_workspace_last_owner_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789020766400,
+      "tag": "0003_solid_bullseye",
+      "breakpoints": true
     }
   ]
 }
