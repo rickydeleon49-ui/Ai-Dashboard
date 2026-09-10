@@ -17,3 +17,16 @@ export function resolveUploadsDir(): string {
   if (configured) return path.resolve(configured);
   return path.resolve(process.cwd(), "data", "uploads");
 }
+
+/**
+ * The Postgres connection string for hosted multi-user mode, or null.
+ *
+ * Unlike `resolveDatabasePath`, there is no sensible local-file default here —
+ * absence means "not running in hosted multi-user mode" rather than "use a
+ * default database." Desktop and today's single-password hosted mode never
+ * read this at all.
+ */
+export function resolveDatabaseUrl(): string | null {
+  const configured = process.env.DATABASE_URL?.trim();
+  return configured ? configured : null;
+}
