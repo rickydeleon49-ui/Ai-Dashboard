@@ -461,6 +461,17 @@ schema change.
 reached through a provider interface rather than by scattering `fetch` calls
 through components.
 
+**Hosted accounts & workspaces (shipped, a separate track from Phases 1–6
+above — see its own "SaaS Phase 1" plan, not renumbered here to avoid
+confusion with the phases already named Phase 1–6).** Real per-user sign-in
+and team workspaces (`AUTH_MODE=accounts`) on top of the same codebase,
+genuinely scoping only the Projects domain for now; every other domain above
+stays desktop/single-password-only in this mode rather than exposed
+half-scoped (§2b/§7/§11 in docs/OVERVIEW.md, §7b below). Ends at one working
+flow: sign in → create workspace → create project → invite teammate →
+role permissions enforced. Full tenant isolation of the other domains named
+in Phases 1–6 is a later phase's work, not this one's.
+
 ### Where the work happens
 
 The desktop build is not a wrapper around a static page: it forks a real Next

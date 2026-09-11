@@ -198,6 +198,10 @@ All optional — see `.env.example`.
 | `UPLOADS_DIR` | `./data/uploads` | Uploaded files (Phase 3) |
 | `GITHUB_TOKEN` | — | Personal access token for live repository data |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | — | OAuth app (Phase 2) |
+| `DASHBOARD_PASSWORD` | — | **Required** for any single-password hosted deployment (see below) |
+
+Hosted multi-user mode (`AUTH_MODE=accounts`) has its own set of variables —
+see the section below.
 
 ## Deploying to Railway (optional)
 
@@ -218,6 +222,53 @@ machine.
 
 The volume is what makes your library survive redeploys. Without it, SQLite lives
 on ephemeral container disk.
+
+## Hosted, multi-user mode (accounts & workspaces)
+
+Everything above this line describes the single-password deployment, where
+anyone with the password has full access to one shared library. An opt-in
+alternative gives every person their own account and lets teams share a
+**workspace** instead: `AUTH_MODE=accounts`.
+
+**What you get.** Sign in with GitHub or an emailed magic link. A personal
+workspace is created for you automatically. Create a team workspace, invite
+teammates by email at a role (`admin` / `member` / `viewer`), and switch
+between the workspaces you belong to from Settings. A `viewer` can look but
+not edit; only an `admin` or `owner` can invite.
+
+**Only Dashboard, Projects, Favorites and Settings are reachable.** Every
+other page and API route (AI workspace, uploads, prompts, automations,
+GitHub sync, notes, notifications, integrations, tools) is deliberately
+blocked (404) in this mode — see [docs/OVERVIEW.md](docs/OVERVIEW.md#2b-hosted-multi-user-mode-opt-in-auth_modeaccounts)
+for why.
+
+**Setup:**
+
+1. Provision a Postgres database and set `DATABASE_URL`.
+2. Run the Postgres migrations: `npm run db:migrate:pg`.
+3. Set `AUTH_MODE=accounts` and `AUTH_SECRET` (generate one with
+   `openssl rand -base64 32`).
+4. Configure at least one sign-in method:
+   - **GitHub OAuth** — create an OAuth App at
+     [github.com/settings/developers](https://github.com/settings/developers)
+     with callback URL `<your-url>/api/auth/callback/github`, then set
+     `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET`.
+   - **Email magic link** — set `EMAIL_SERVER` (an SMTP connection string)
+     and `EMAIL_FROM`. Without these, the magic link is logged to the server
+     console instead of emailed — usable for local testing, not for a real
+     deployment.
+5. Redeploy.
+
+**Upgrading an existing single-password deployment.** Keep
+`DASHBOARD_PASSWORD` set alongside the new variables above, redeploy, sign
+in, then go to **Settings → Claim legacy data** and enter the deployment's
+dashboard password. This is a one-time action — it imports that
+deployment's existing SQLite projects and tags into your own workspace,
+leaves the SQLite data untouched, and cannot be repeated by a second
+account once it succeeds.
+
+See `.env.example` for every variable and `docs/OVERVIEW.md` §2b/§7 for how
+route restriction, workspace resolution and role checks fit together.
 
 ## Architecture
 
