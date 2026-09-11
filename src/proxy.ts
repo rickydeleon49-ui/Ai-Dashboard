@@ -161,16 +161,30 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
 /**
  * Pages reachable at all under AUTH_MODE=accounts: Dashboard, Projects and
  * Favorites (a filtered view of the same, genuinely-ported Projects domain
- * — see PostgresProjectRepository) and Settings, plus the invitation-accept
- * page accounts mode itself needs. Everything else (AI workspace, uploads,
- * prompts, automations, GitHub sync, notes, notifications, integrations,
- * tools) still reads and writes SQLite-only tables that were never given a
- * workspace_id column — reachable here, every accounts-mode user would see
- * one shared dataset regardless of which workspace they're in. Hidden
- * rather than exposed half-scoped, per the plan's own framing; each gets
- * genuinely ported in a later phase.
+ * — see PostgresProjectRepository), Settings, My Work, plus the
+ * invitation-accept page accounts mode itself needs.
+ * `/projects/:id/tasks` needs no separate entry — it already matches the
+ * `/projects` prefix below. Milestones and tasks (Phase 2, Release A) are
+ * workspace-scoped for real in accounts mode too, the same as Projects
+ * (see PostgresMilestoneRepository/PostgresTaskRepository), so they're
+ * ported here rather than hidden.
+ *
+ * Everything else (AI workspace, uploads, prompts, automations, GitHub
+ * sync, notes, notifications, integrations, tools) still reads and writes
+ * SQLite-only tables that were never given a workspace_id column —
+ * reachable here, every accounts-mode user would see one shared dataset
+ * regardless of which workspace they're in. Hidden rather than exposed
+ * half-scoped, per the plan's own framing; each gets genuinely ported in
+ * a later phase.
  */
-const ACCOUNTS_MODE_ALLOWED_PAGES = ["/", "/projects", "/favorites", "/settings", "/invite"];
+const ACCOUNTS_MODE_ALLOWED_PAGES = [
+  "/",
+  "/projects",
+  "/favorites",
+  "/settings",
+  "/invite",
+  "/my-work",
+];
 
 /** The API routes those pages need. Same reasoning as the page list above. */
 const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
@@ -178,6 +192,8 @@ const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
   "/api/workspaces",
   "/api/invitations",
   "/api/ownership-claim",
+  "/api/tasks",
+  "/api/my-work",
 ];
 
 /** True for an exact match or anything nested under it (e.g. `/projects/new`). */

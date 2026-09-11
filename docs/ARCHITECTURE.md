@@ -472,6 +472,35 @@ flow: sign in → create workspace → create project → invite teammate →
 role permissions enforced. Full tenant isolation of the other domains named
 in Phases 1–6 is a later phase's work, not this one's.
 
+**Command Center Phase 2, Release A — Milestones, tasks & dependencies
+(shipped, its own "Release A" plan — see `core/tasks/`).** The first
+planning/execution domain beyond `projects` itself: milestones and tasks
+per project, subtasking (one level deep in the UI, though the schema
+allows more), dependencies between tasks with cycle prevention (a
+recursive CTE, checked inside a transaction; Postgres also row-locks
+against a concurrent add forming the same cycle), and a `blocked` status
+computed at read time from the dependency graph rather than stored. Genuinely
+workspace-scoped in accounts mode from the start — `PostgresMilestoneRepository`/
+`PostgresTaskRepository` mirror `PostgresProjectRepository`'s own pattern
+exactly, so this domain needed no separate "port it later" step the way
+Phases 1–6 above did. My Work (`/my-work`) is the cross-project view: every
+task in the caller's current workspace, filtered to their own `assigneeId`
+in accounts mode, every task in the one workspace on desktop (no user
+concept there). Ends at one working flow: break a project into milestones
+and tasks → mark a dependency → the dependent task shows blocked → complete
+the blocker → it unblocks → complete the milestone → My Work reflects it,
+including across a workspace switch.
+
+Deliberately deferred (this release's own explicit scope cut, not an
+oversight): recurring tasks, checklists, reusable templates, calendar/
+timeline views, bulk editing; an assignee picker/display (needs a
+members-list endpoint that returns names, not just `userId`+role — see
+`core/workspaces/service.ts`'s `listMembers()`); and everything the wider
+Phase 2 brief named that needs infrastructure this release didn't build —
+a GitHub issues/PRs/releases client, deployment/uptime monitoring, a
+durable hosted job system, and AI-generated summaries with a review/
+approval workflow. Each is a later release's work.
+
 ### Where the work happens
 
 The desktop build is not a wrapper around a static page: it forks a real Next

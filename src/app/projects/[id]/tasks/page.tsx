@@ -35,17 +35,20 @@ export default async function ProjectTasksPage({ params }: { params: Promise<{ i
 
   return (
     <div className="space-y-5">
-      <nav className="flex items-center gap-1.5 text-[12px] text-faint">
-        <Link href="/projects" className="transition-colors hover:text-fg">
-          Projects
-        </Link>
-        <span>/</span>
-        <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg">
-          {project.name}
-        </Link>
-        <span>/</span>
-        <span className="text-muted">Tasks</span>
-      </nav>
+      <div className="space-y-1">
+        <nav className="flex items-center gap-1.5 text-[12px] text-faint">
+          <Link href="/projects" className="transition-colors hover:text-fg">
+            Projects
+          </Link>
+          <span>/</span>
+          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg">
+            {project.name}
+          </Link>
+          <span>/</span>
+          <span className="text-muted">Tasks</span>
+        </nav>
+        <h1 className="text-xl font-semibold tracking-tight text-fg">{project.name}</h1>
+      </div>
 
       <ProjectTasksBoard projectId={project.id} milestones={milestones} tasks={tasks} />
     </div>

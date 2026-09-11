@@ -23,6 +23,7 @@ import {
   Github,
   LayoutDashboard,
   Library,
+  ListTodo,
   type LucideIcon as Icon,
   Plug,
   Settings,
@@ -57,6 +58,7 @@ export const NAVIGATION: NavGroup[] = [
     label: "Projects",
     items: [
       { label: "All Projects", href: "/projects", icon: Library, countKey: "total", phase: 1 },
+      { label: "My Work", href: "/my-work", icon: ListTodo, phase: 1 },
       { label: "GitHub", href: "/github", icon: Github, countKey: "github", phase: 1 },
       { label: "Uploaded", href: "/uploads", icon: FileUp, countKey: "uploaded", phase: 1 },
       { label: "Favorites", href: "/favorites", icon: Star, countKey: "favorites", phase: 1 },

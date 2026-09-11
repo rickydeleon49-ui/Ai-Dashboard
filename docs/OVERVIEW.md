@@ -60,6 +60,28 @@ ten runtime dependencies.
   shell string. In a browser there is no bridge, so the path renders as plain
   text rather than offering a button that cannot work.
 
+### Milestones, tasks & My Work (`/projects/:id/tasks`, `/my-work`)
+
+- **Per-project planning**: milestones and tasks, one level of subtasking (the
+  schema allows more, the UI renders one), status and priority, due dates — a
+  plain list (milestones as grouping headers, tasks nested under them), not a
+  board or calendar; those need Table/Board/Calendar primitives this app
+  doesn't have yet.
+- **Dependencies**: a task can depend on any other task in the same workspace.
+  Adding one that would create a cycle (directly or transitively) is rejected;
+  a task with an unfinished dependency shows as **Blocked** — computed fresh
+  from the dependency graph on every read, never stored, so it can never drift
+  out of sync.
+- **My Work** (`/my-work`) — every task across every project in your current
+  workspace, filtered to your own assignment in hosted accounts mode (there is
+  no assignee concept on desktop, so it's every task in the one workspace that
+  exists there); filterable by status, priority and project, with a quick
+  status-change control per row.
+- The project detail page's **Milestones & tasks** card is the real "project
+  overview" this covers: task/done/overdue/blocked counts and upcoming
+  milestones. GitHub issues/PRs, deployment status, uptime and business
+  metrics are a later release's work, not this one's.
+
 ### Dashboard (`/`)
 
 Totals and status breakdown, active work, recently opened, favourites, an
@@ -132,12 +154,13 @@ see ARCHITECTURE.md §7b).
   tags into their own workspace, proven to be the operator by also supplying
   the deployment's `DASHBOARD_PASSWORD`. The source SQLite data is only ever
   read, never modified, and a second claim attempt always fails.
-- **Only Projects, Favorites, Dashboard and Settings are reachable.** Every
-  other domain — AI workspace, uploads, prompts, automations, GitHub sync,
-  notes, notifications, integrations, tools — still reads and writes the
-  SQLite-only tables described in §6, which were never given a workspace
-  column. Reaching them in accounts mode would show every signed-in user the
-  same shared, unscoped data regardless of workspace, so `proxy.ts` 404s them
+- **Only Projects, Favorites, Dashboard, Settings, Milestones/Tasks and My
+  Work are reachable.** Every other domain — AI workspace, uploads, prompts,
+  automations, GitHub sync, notes, notifications, integrations, tools — still
+  reads and writes the SQLite-only tables described in §6, which were never
+  given a workspace column. Reaching them in accounts mode would show every
+  signed-in user the same shared, unscoped data regardless of workspace, so
+  `proxy.ts` 404s them
   outright rather than exposing them half-scoped (§7, §11). They get ported
   for real in a later phase.
 
@@ -240,6 +263,9 @@ event. The client component then refreshes the route.
 | Area | Endpoints |
 | --- | --- |
 | Projects | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projects/:id/open` |
+| Milestones | `GET/POST /projects/:id/milestones`, `GET/PATCH/DELETE /projects/:id/milestones/:milestoneId` |
+| Tasks | `GET/POST /projects/:id/tasks`, `GET/PATCH/DELETE /tasks/:id`, `GET/POST/DELETE /tasks/:id/dependencies` |
+| My Work | `GET /my-work` |
 | Files | `GET/POST /projects/:id/files`, `GET/DELETE /files/:id` |
 | Prompts | `GET/POST /prompts`, `GET/PATCH/DELETE /prompts/:id` |
 | GitHub | `POST /github/sync`, `POST/DELETE /github/link`, `GET/POST /github/device` |
@@ -259,7 +285,9 @@ projects ──┬── project_tags ── tags
            ├── project_files            uploads (named on disk by generated id)
            ├── activity_events          the feed — append-only history
            ├── notes
-           └── github_repositories.linked_project_id
+           ├── github_repositories.linked_project_id
+           └── milestones ── tasks ── task_dependencies (task_id, depends_on_task_id)
+                              └── tasks (parent_task_id — one level of subtasking)
 
 settings        key/value: GitHub token, token origin, OAuth client id
 automations     one row per registered task: interval, enabled, last run/status
@@ -279,6 +307,9 @@ Three things are worth knowing:
    `isDemo` flag so cleanup can never delete real cached repositories.
 3. **`activity_events` and `notifications` are deliberately separate.** One is a
    log of what happened; the other is a short list of what you have not seen.
+4. **A task's `blocked` flag is never stored.** It's computed at read time from
+   `task_dependencies` — whether any direct dependency isn't done/cancelled —
+   so it can't drift out of sync with the graph or a blocker's own status.
 
 Migrations live in `drizzle/` and are generated with `npm run db:generate`. They
 also run automatically on first request (`src/db/bootstrap.ts`), so a fresh
@@ -288,9 +319,10 @@ clone or a fresh Railway volume works with no manual step.
 (`src/db/schema.pg.ts`, migrations in `drizzle-pg/`, `npm run db:generate:pg` /
 `db:migrate:pg`) — Auth.js's own tables, `workspace`/`workspace_member`/
 `workspace_invitation`, and workspace-scoped `project`/`tag`/`project_tag`/
-`activity_event` tables mirroring the SQLite ones above but with a
-`workspace_id` column. Desktop and single-password hosted mode never connect
-to Postgres at all. Full reasoning in ARCHITECTURE.md's `src/db/` section.
+`activity_event`/`milestone`/`task`/`task_dependency` tables mirroring the
+SQLite ones above but with a `workspace_id` column. Desktop and
+single-password hosted mode never connect to Postgres at all. Full reasoning
+in ARCHITECTURE.md's `src/db/` section.
 
 ---
 
@@ -459,11 +491,16 @@ Honest inventory of what is not finished:
   pages, intentionally removed from the sidebar rather than deleted.
 - **Updates are checked, not installed** — the repository is private, and
   auto-update would mean shipping a token inside the installer.
-- **Hosted accounts mode only ported the Projects domain.** Uploads, prompts,
-  AI conversations, automations, GitHub sync, notes, notifications, tools and
-  integrations are desktop/single-password-only for now — genuinely
+- **Hosted accounts mode only ported Projects and Milestones/Tasks.** Uploads,
+  prompts, AI conversations, automations, GitHub sync, notes, notifications,
+  tools and integrations are desktop/single-password-only for now — genuinely
   unreachable in accounts mode (§2b, §7) rather than half-scoped, until each
   gets ported for real in a later phase.
+- **No assignee picker or display.** A task's `assigneeId` is a real column
+  and the API accepts it, but there's no UI for it — resolving a workspace
+  member's id to a name needs a members-list endpoint that returns more than
+  `userId`+role (`core/workspaces/service.ts`'s `listMembers()` doesn't), and
+  showing a raw id would be worse than not showing one.
 
 ---
 
@@ -474,6 +511,7 @@ Honest inventory of what is not finished:
 | A sidebar section | One entry in `config/navigation.ts` + a route file |
 | A quick action | One entry in `config/quick-actions.ts` |
 | A project field | `core/projects/types.ts` → `db/schema.ts` → `core/projects/schema.ts` → `npm run db:generate` |
+| A milestone/task field | `core/tasks/types.ts` → `db/schema.ts` (SQLite) + `db/schema.pg.ts` (Postgres) → `core/tasks/schema.ts` → `npm run db:generate` + `db:generate:pg` |
 | An experimental field | Put it in `metadata`; no migration |
 | A status or project type | The const array in `types.ts` + an entry in `labels.ts` |
 | A scheduled automation | One entry in `core/automation/tasks.ts`; the row is created on read |
