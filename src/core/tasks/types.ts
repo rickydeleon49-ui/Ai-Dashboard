@@ -1,0 +1,83 @@
+/**
+ * Core planning domain types (Phase 2, release A): milestones and tasks.
+ *
+ * Single source of truth for what a milestone/task is anywhere in the
+ * application — mirrors `core/projects/types.ts`'s own conventions exactly.
+ * A field earns a column when it's queried or filtered directly; anything
+ * more open-ended belongs in `description`, not a new column.
+ */
+
+export const MILESTONE_STATUSES = ["open", "completed", "cancelled"] as const;
+export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
+
+export interface Milestone {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  status: MilestoneStatus;
+  /** ISO date/time, or null if the milestone has no target date. */
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export type MilestoneCreateInput = Partial<Omit<Milestone, "id">> & {
+  projectId: string;
+  title: string;
+};
+
+/** Fields a caller may change. `projectId` and `createdAt` are immutable. */
+export type MilestoneUpdateInput = Partial<Omit<Milestone, "id" | "projectId" | "createdAt">>;
+
+export interface MilestoneQuery {
+  status?: MilestoneStatus | "all";
+}
+
+export const TASK_STATUSES = ["todo", "in_progress", "done", "cancelled"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export interface Task {
+  id: string;
+  projectId: string;
+  milestoneId: string | null;
+  /** One level of subtasking is all the UI renders; the schema allows more. */
+  parentTaskId: string | null;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  /**
+   * Meaningless on desktop — there is no user concept there, so
+   * `DrizzleTaskRepository` always reads/writes this as `null`. Real in
+   * hosted accounts mode, where it references a workspace member.
+   */
+  assigneeId: string | null;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export type TaskCreateInput = Partial<Omit<Task, "id">> & {
+  projectId: string;
+  title: string;
+};
+
+/** Fields a caller may change. `projectId` and `createdAt` are immutable. */
+export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt">>;
+
+export interface TaskQuery {
+  status?: TaskStatus | "all";
+  priority?: TaskPriority | "all";
+  milestoneId?: string;
+  assigneeId?: string;
+  /** `null` means "top-level tasks only"; omitted means "no filter". */
+  parentTaskId?: string | null;
+  sort?: "dueDate" | "priority" | "created" | "updated";
+  limit?: number;
+}

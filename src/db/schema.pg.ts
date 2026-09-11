@@ -9,6 +9,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
   index,
@@ -310,4 +311,89 @@ export const activityEvents = pgTable(
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (t) => [index("activity_event_workspace_created_idx").on(t.workspaceId, t.createdAt)],
+);
+
+/**
+ * The planning domain (Phase 2, release A) — a goal within a project,
+ * grouping the tasks that complete it. Workspace-scoped from day one, unlike
+ * SQLite's version of this table, which has no workspace_id column at all
+ * (single-tenant forever — see LOCAL_WORKSPACE_ID's own comment in
+ * db/repositories/project-repository.ts). `status` gets a CHECK constraint
+ * here (a small closed set with real integrity implications), matching
+ * workspace_member.role rather than projects.status — see that table's own
+ * comment for when this codebase does and doesn't bother with one.
+ */
+export const milestones = pgTable(
+  "milestone",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("open"),
+    dueDate: timestamp("due_date", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { mode: "date" }),
+  },
+  (t) => [
+    index("milestone_project_idx").on(t.projectId),
+    index("milestone_workspace_due_idx").on(t.workspaceId, t.dueDate),
+    check("milestone_status_check", sql`${t.status} in ('open', 'completed', 'cancelled')`),
+  ],
+);
+
+/**
+ * A unit of work within a project. `parentTaskId` self-references for
+ * subtasks; `assigneeId` references a real user here (unlike SQLite, which
+ * has no user concept and always leaves this null — see schema.ts's own
+ * comment on the same column). Losing the assignee (removed from the
+ * workspace, or the account itself gone) clears the field rather than
+ * blocking the deletion or orphaning a reference — a task should never be
+ * unremovable because of who it happened to be assigned to.
+ */
+export const tasks = pgTable(
+  "task",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    milestoneId: text("milestone_id").references(() => milestones.id, { onDelete: "set null" }),
+    parentTaskId: text("parent_task_id").references((): AnyPgColumn => tasks.id, {
+      onDelete: "cascade",
+    }),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("todo"),
+    priority: text("priority").notNull().default("medium"),
+    assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    dueDate: timestamp("due_date", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { mode: "date" }),
+  },
+  (t) => [
+    index("task_project_idx").on(t.projectId),
+    index("task_milestone_idx").on(t.milestoneId),
+    index("task_parent_idx").on(t.parentTaskId),
+    index("task_workspace_assignee_idx").on(t.workspaceId, t.assigneeId),
+    index("task_workspace_due_idx").on(t.workspaceId, t.dueDate),
+    check(
+      "task_status_check",
+      sql`${t.status} in ('todo', 'in_progress', 'done', 'cancelled')`,
+    ),
+    check(
+      "task_priority_check",
+      sql`${t.priority} in ('low', 'medium', 'high', 'urgent')`,
+    ),
+  ],
 );
