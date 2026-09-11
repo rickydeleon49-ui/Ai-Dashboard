@@ -282,6 +282,40 @@ the host. Only positively cross-site requests are refused: a client sending
 neither header is not a browser, so it supplied the password itself and is not
 what CSRF describes. Refusing those would break scripts for no security gain.
 
+### Hosted, multi-user (`AUTH_MODE=accounts`)
+
+A third deployment shape: real per-user accounts and workspaces instead of one
+shared password. `proxy.ts`'s `handleAccountsMode` branch adds three checks on
+top of everything above, each independent and each enforced again below
+middleware (never trust `proxy.ts` alone — see this section's own opening):
+
+1. **Session required.** Every page and API call needs a valid Auth.js
+   session, except Auth.js's own routes. This is *authentication* only —
+   "is someone signed in" — not authorization.
+2. **Route allowlist.** Only Dashboard, Projects, Favorites, Settings and the
+   invitation-accept page (plus the API routes those need) are reachable at
+   all; everything else 404s. This isn't a UI nicety — every other domain
+   (AI workspace, uploads, prompts, automations, GitHub sync, notes,
+   notifications, integrations, tools) still reads and writes SQLite-only
+   tables that were never given a `workspace_id` column, so reaching them
+   would show every accounts-mode user the same shared dataset regardless of
+   which workspace they're in. `src/app/settings/page.tsx` hides the
+   corresponding Settings cards (GitHub connection, Local AI, Storage,
+   Application) for the same reason — the GitHub card specifically would
+   otherwise expose one shared operator token to every signed-in viewer.
+3. **Workspace resolution + role.** `src/core/workspaces/current-workspace.ts`
+   resolves the caller's *current* workspace fresh on every request
+   (`resolveWorkspaceIdForRequest`/`resolveWorkspaceIdForPage`) — self-healing
+   via `ensurePersonalWorkspace` the same way `src/auth.ts`'s
+   `events.createUser` does, and only ever returning a workspace the caller
+   actually belongs to. That alone proves "may read" (a minimum of the
+   `viewer` role); every mutating Projects route additionally calls
+   `requireRole(workspaceId, userId, "member")`, re-deriving the role from
+   `workspace_member` fresh rather than trusting membership's mere existence.
+   `LOCAL_WORKSPACE_ID` and `resolveWorkspaceId`'s `null` return are how the
+   same route handlers serve desktop/single-password mode and accounts mode
+   without branching on `AUTH_MODE` themselves.
+
 ### Renderer isolation
 
 The renderer runs with `contextIsolation` and `sandbox` on and `nodeIntegration`

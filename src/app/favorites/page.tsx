@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Star } from "lucide-react";
+import { LogIn, Star } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClasses } from "@/components/ui/button";
 import { ProjectFilters } from "@/components/projects/project-filters";
 import { ProjectGrid } from "@/components/projects/project-card";
-import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
+import { projectRepository } from "@/db/repositories";
+import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import { buildProjectQuery } from "@/core/projects/query";
 import type { SearchParams } from "@/lib/routing";
 
@@ -17,10 +18,22 @@ export default async function FavoritesPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const workspaceId = await resolveWorkspaceIdForPage();
+  if (!workspaceId) {
+    // Practically unreachable: proxy.ts already requires a session in
+    // accounts mode, and sign-in always creates a personal workspace.
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Favorites" />
+        <EmptyState icon={LogIn} title="Sign-in required" description="Sign in to see your favorites." />
+      </div>
+    );
+  }
+
   const raw = await searchParams;
   const [projects, tags] = await Promise.all([
-    projectRepository.list(LOCAL_WORKSPACE_ID, buildProjectQuery(raw, { favorite: true })),
-    projectRepository.allTags(LOCAL_WORKSPACE_ID),
+    projectRepository.list(workspaceId, buildProjectQuery(raw, { favorite: true })),
+    projectRepository.allTags(workspaceId),
   ]);
 
   return (

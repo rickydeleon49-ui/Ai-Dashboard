@@ -1,5 +1,6 @@
-import { Boxes, Cpu, Database, Download, Github, Palette, Users } from "lucide-react";
+import { Boxes, Cpu, Database, Download, Github, LogIn, Palette, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { getConnection, getCredentialSource } from "@/core/github/service";
@@ -14,17 +15,36 @@ import {
 import { GitHubClientIdForm } from "@/components/settings/github-client-id-form";
 import { UpdateCheck } from "@/components/settings/update-check";
 import { APP_VERSION } from "@/config/app";
-import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
+import { projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 import { LocalAiSettings } from "@/components/settings/local-ai-settings";
 import { getAiOverview } from "@/core/ai/service";
 import { WorkspaceManager } from "@/components/settings/workspace-manager";
-import { CURRENT_WORKSPACE_COOKIE, resolveCurrentWorkspace } from "@/core/workspaces/current-workspace";
+import {
+  CURRENT_WORKSPACE_COOKIE,
+  resolveCurrentWorkspace,
+  resolveWorkspaceIdForPage,
+} from "@/core/workspaces/current-workspace";
 import type { WorkspaceWithRole } from "@/core/workspaces/types";
 import { ClaimOwnershipForm } from "@/components/settings/claim-ownership-form";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
+
+/**
+ * GitHub connection, Local AI, Storage and Application below are all
+ * single-tenant/legacy surfaces — global settings (one shared GitHub token,
+ * one Ollama config, SQLite file paths) that were never given a
+ * workspace_id. In accounts mode they'd be the same page for every
+ * signed-in user regardless of role or workspace, which for GitHub's token
+ * specifically is a real "any signed-in viewer can see the operator's
+ * secret" problem, not just clutter — so this deployment mode hides them
+ * rather than exposing them half-scoped, matching proxy.ts's route
+ * allowlist for the same domains.
+ */
+function isAccountsMode(): boolean {
+  return process.env.AUTH_MODE === "accounts" && Boolean(process.env.DATABASE_URL);
+}
 
 /**
  * Hosted multi-user mode only (AUTH_MODE=accounts) — desktop and today's
@@ -77,13 +97,31 @@ async function shouldShowClaimOwnership(): Promise<boolean> {
 }
 
 export default async function SettingsPage() {
-  const [stats, github, tags, credentialSource, ai, workspacesSection, showClaimOwnership] =
+  const accountsMode = isAccountsMode();
+  const workspaceId = await resolveWorkspaceIdForPage();
+  if (!workspaceId) {
+    // Practically unreachable: proxy.ts already requires a session in
+    // accounts mode, and sign-in always creates a personal workspace.
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Settings" />
+        <EmptyState icon={LogIn} title="Sign-in required" description="Sign in to see your settings." />
+      </div>
+    );
+  }
+
+  const [stats, tags, github, credentialSource, ai, workspacesSection, showClaimOwnership] =
     await Promise.all([
-      projectRepository.stats(LOCAL_WORKSPACE_ID),
-      getConnection(),
-      projectRepository.allTags(LOCAL_WORKSPACE_ID),
-      getCredentialSource(),
-      getAiOverview(),
+      projectRepository.stats(workspaceId),
+      projectRepository.allTags(workspaceId),
+      // These are global, single-tenant surfaces (see isAccountsMode's own
+      // comment) — skipped entirely in accounts mode rather than fetched
+      // and merely hidden, since getAiOverview in particular does real
+      // local-network work (checking for a local Ollama) this deployment
+      // shape never has.
+      accountsMode ? null : getConnection(),
+      accountsMode ? null : getCredentialSource(),
+      accountsMode ? null : getAiOverview(),
       getWorkspacesSection(),
       shouldShowClaimOwnership(),
     ]);
@@ -120,57 +158,59 @@ export default async function SettingsPage() {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              <Github className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
-              GitHub
-            </CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-3">
-            <Row label="Status" value={github.connected ? "Connected" : "Not connected"} />
-            <Row label="Mode" value={github.mode} />
-            {github.account ? <Row label="Account" value={`@${github.account.login}`} /> : null}
-            <p className="text-[12px] leading-relaxed text-muted">{github.detail}</p>
+        {github && credentialSource ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Github className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                GitHub
+              </CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              <Row label="Status" value={github.connected ? "Connected" : "Not connected"} />
+              <Row label="Mode" value={github.mode} />
+              {github.account ? <Row label="Account" value={`@${github.account.login}`} /> : null}
+              <p className="text-[12px] leading-relaxed text-muted">{github.detail}</p>
 
-            {canConnect ? (
-              <div className="border-t border-line pt-3">
-                <GitHubConnect connected={github.connected} />
-              </div>
-            ) : (
-              /* Without a client id there is nothing to connect to, so the
-                 setup is shown outright rather than hidden behind a summary. */
-              <div className="border-t border-line pt-3">
-                <GitHubClientIdForm clientId={clientId} source={clientIdSource} />
-              </div>
-            )}
-
-            <details className="border-t border-line pt-3">
-              <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
-                {canConnect
-                  ? "Use a personal access token instead"
-                  : "Connect with a personal access token"}
-              </summary>
-              <div className="pt-3">
-                <GitHubTokenForm
-                  status={tokenStatus}
-                  credentialSource={credentialSource}
-                />
-              </div>
-            </details>
-
-            {canConnect ? (
-              <details className="border-t border-line pt-3">
-                <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
-                  OAuth app
-                </summary>
-                <div className="pt-3">
+              {canConnect ? (
+                <div className="border-t border-line pt-3">
+                  <GitHubConnect connected={github.connected} />
+                </div>
+              ) : (
+                /* Without a client id there is nothing to connect to, so the
+                   setup is shown outright rather than hidden behind a summary. */
+                <div className="border-t border-line pt-3">
                   <GitHubClientIdForm clientId={clientId} source={clientIdSource} />
                 </div>
+              )}
+
+              <details className="border-t border-line pt-3">
+                <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
+                  {canConnect
+                    ? "Use a personal access token instead"
+                    : "Connect with a personal access token"}
+                </summary>
+                <div className="pt-3">
+                  <GitHubTokenForm
+                    status={tokenStatus}
+                    credentialSource={credentialSource}
+                  />
+                </div>
               </details>
-            ) : null}
-          </CardBody>
-        </Card>
+
+              {canConnect ? (
+                <details className="border-t border-line pt-3">
+                  <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
+                    OAuth app
+                  </summary>
+                  <div className="pt-3">
+                    <GitHubClientIdForm clientId={clientId} source={clientIdSource} />
+                  </div>
+                </details>
+              ) : null}
+            </CardBody>
+          </Card>
+        ) : null}
 
         {workspacesSection ? (
           <Card>
@@ -205,47 +245,53 @@ export default async function SettingsPage() {
 
         {/* Spans both columns: it has more controls than anything else here,
             and squeezing them into half the width would wrap every label. */}
-        <Card id="local-ai" className="lg:col-span-2 scroll-mt-4">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              <Cpu className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
-              Local AI
-            </CardTitle>
-          </CardHeader>
-          <CardBody>
-            <LocalAiSettings overview={ai} />
-          </CardBody>
-        </Card>
+        {ai ? (
+          <Card id="local-ai" className="lg:col-span-2 scroll-mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Cpu className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Local AI
+              </CardTitle>
+            </CardHeader>
+            <CardBody>
+              <LocalAiSettings overview={ai} />
+            </CardBody>
+          </Card>
+        ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              <Database className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
-              Storage
-            </CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-2">
-            <Row label="Database" value={resolveDatabasePath()} mono />
-            <Row label="Uploads" value={resolveUploadsDir()} mono />
-            <p className="pt-1 text-[12px] leading-relaxed text-muted">
-              Both are set by <code className="font-mono">DATABASE_PATH</code> and{" "}
-              <code className="font-mono">UPLOADS_DIR</code>. On Railway, point them at a
-              mounted volume so your data survives redeploys.
-            </p>
-          </CardBody>
-        </Card>
+        {accountsMode ? null : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Database className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Storage
+              </CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-2">
+              <Row label="Database" value={resolveDatabasePath()} mono />
+              <Row label="Uploads" value={resolveUploadsDir()} mono />
+              <p className="pt-1 text-[12px] leading-relaxed text-muted">
+                Both are set by <code className="font-mono">DATABASE_PATH</code> and{" "}
+                <code className="font-mono">UPLOADS_DIR</code>. On Railway, point them at a
+                mounted volume so your data survives redeploys.
+              </p>
+            </CardBody>
+          </Card>
+        )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              <Boxes className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
-              Application
-            </CardTitle>
-          </CardHeader>
-          <CardBody>
-            <UpdateCheck version={APP_VERSION} />
-          </CardBody>
-        </Card>
+        {accountsMode ? null : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Boxes className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Application
+              </CardTitle>
+            </CardHeader>
+            <CardBody>
+              <UpdateCheck version={APP_VERSION} />
+            </CardBody>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

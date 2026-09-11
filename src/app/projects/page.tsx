@@ -5,8 +5,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClasses } from "@/components/ui/button";
 import { ProjectFilters } from "@/components/projects/project-filters";
 import { ProjectGrid } from "@/components/projects/project-card";
-import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
+import { projectRepository } from "@/db/repositories";
 import { buildProjectQuery } from "@/core/projects/query";
+import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import type { SearchParams } from "@/lib/routing";
 
 export const dynamic = "force-dynamic";
@@ -17,12 +18,25 @@ export default async function ProjectsPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const workspaceId = await resolveWorkspaceIdForPage();
+  if (!workspaceId) {
+    // Practically unreachable: proxy.ts already requires a session in
+    // accounts mode, and sign-in always creates a personal workspace.
+    // Shown defensively rather than crashing.
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Project Library" />
+        <EmptyState icon={FolderGit2} title="Sign-in required" description="Sign in to see your projects." />
+      </div>
+    );
+  }
+
   const raw = await searchParams;
   const query = buildProjectQuery(raw);
 
   const [projects, tags] = await Promise.all([
-    projectRepository.list(LOCAL_WORKSPACE_ID, query),
-    projectRepository.allTags(LOCAL_WORKSPACE_ID),
+    projectRepository.list(workspaceId, query),
+    projectRepository.allTags(workspaceId),
   ]);
 
   const filtered = Boolean(

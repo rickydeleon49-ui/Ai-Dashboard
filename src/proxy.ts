@@ -159,6 +159,50 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
 }
 
 /**
+ * Pages reachable at all under AUTH_MODE=accounts: Dashboard, Projects and
+ * Favorites (a filtered view of the same, genuinely-ported Projects domain
+ * — see PostgresProjectRepository) and Settings, plus the invitation-accept
+ * page accounts mode itself needs. Everything else (AI workspace, uploads,
+ * prompts, automations, GitHub sync, notes, notifications, integrations,
+ * tools) still reads and writes SQLite-only tables that were never given a
+ * workspace_id column — reachable here, every accounts-mode user would see
+ * one shared dataset regardless of which workspace they're in. Hidden
+ * rather than exposed half-scoped, per the plan's own framing; each gets
+ * genuinely ported in a later phase.
+ */
+const ACCOUNTS_MODE_ALLOWED_PAGES = ["/", "/projects", "/favorites", "/settings", "/invite"];
+
+/** The API routes those pages need. Same reasoning as the page list above. */
+const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
+  "/api/projects",
+  "/api/workspaces",
+  "/api/invitations",
+  "/api/ownership-claim",
+];
+
+/** True for an exact match or anything nested under it (e.g. `/projects/new`). */
+function isAllowedInAccountsMode(pathname: string): boolean {
+  const allowed = pathname.startsWith("/api/")
+    ? ACCOUNTS_MODE_ALLOWED_API_PATHS
+    : ACCOUNTS_MODE_ALLOWED_PAGES;
+  return allowed.some((base) => pathname === base || pathname.startsWith(`${base}/`));
+}
+
+/** Shown for a page or API route this deployment doesn't expose in accounts mode. */
+function notFoundInAccountsMode(request: NextRequest): NextResponse {
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Not found." },
+      { status: 404, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  return new NextResponse("Not found.", {
+    status: 404,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+/**
  * AUTH_MODE=accounts: gates page loads and API calls on an Auth.js session.
  *
  * `@/auth` is imported dynamically, inside this function, rather than at
@@ -200,7 +244,10 @@ async function handleAccountsMode(request: NextRequest, event: NextFetchEvent) {
     if (!req.auth) return unauthenticatedResponse(req);
 
     // Checked after authentication so an unauthenticated caller learns
-    // nothing about which requests would otherwise have been accepted.
+    // nothing about which requests would otherwise have been accepted —
+    // same reasoning as the CSRF check just below.
+    if (!isAllowedInAccountsMode(req.nextUrl.pathname)) return notFoundInAccountsMode(req);
+
     if (MUTATING.has(req.method) && isCrossSite(req)) return forbidden();
     return NextResponse.next();
   });
