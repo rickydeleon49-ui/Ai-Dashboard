@@ -15,6 +15,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   primaryKey,
@@ -83,6 +84,76 @@ export const projectTags = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.projectId, t.tagId] }),
     index("project_tags_tag_idx").on(t.tagId),
+  ],
+);
+
+/**
+ * A goal within a project, grouping the tasks that complete it. Enum columns
+ * (`status`) are plain text here, validated by Zod at the API layer, matching
+ * how `projects.status` is already handled — not enforced by a CHECK
+ * constraint the way some Postgres tables are (see schema.pg.ts's own note on
+ * when a CHECK earns its keep).
+ */
+export const milestones = sqliteTable(
+  "milestones",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** 'open' | 'completed' | 'cancelled' */
+    status: text("status").notNull().default("open"),
+    dueDate: text("due_date"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+    completedAt: text("completed_at"),
+  },
+  (t) => [
+    index("milestones_project_idx").on(t.projectId),
+    index("milestones_due_idx").on(t.dueDate),
+  ],
+);
+
+/**
+ * A unit of work within a project. `parentTaskId` self-references for
+ * subtasks (one level is all the UI renders, but the schema doesn't stop a
+ * deeper chain). `assigneeId` has no meaning on desktop — there is no user
+ * concept there — so `DrizzleTaskRepository` always reads/writes it as
+ * `null`; the column still exists so the SQLite and Postgres row shapes stay
+ * parallel, matching every other table pair in this file.
+ */
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    milestoneId: text("milestone_id").references(() => milestones.id, { onDelete: "set null" }),
+    parentTaskId: text("parent_task_id").references((): AnySQLiteColumn => tasks.id, {
+      onDelete: "cascade",
+    }),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** 'todo' | 'in_progress' | 'done' | 'cancelled' */
+    status: text("status").notNull().default("todo"),
+    /** 'low' | 'medium' | 'high' | 'urgent' */
+    priority: text("priority").notNull().default("medium"),
+    /** Meaningless on desktop (single-tenant, no users) — always null there. */
+    assigneeId: text("assignee_id"),
+    dueDate: text("due_date"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+    completedAt: text("completed_at"),
+  },
+  (t) => [
+    index("tasks_project_idx").on(t.projectId),
+    index("tasks_milestone_idx").on(t.milestoneId),
+    index("tasks_parent_idx").on(t.parentTaskId),
+    index("tasks_due_idx").on(t.dueDate),
+    index("tasks_status_idx").on(t.status),
   ],
 );
 
@@ -319,6 +390,8 @@ export type AutomationRow = typeof automations.$inferSelect;
 export type NotificationRow = typeof notifications.$inferSelect;
 
 export type ProjectRow = typeof projects.$inferSelect;
+export type MilestoneRow = typeof milestones.$inferSelect;
+export type TaskRow = typeof tasks.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;
 export type NoteRow = typeof notes.$inferSelect;
