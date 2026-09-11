@@ -16,17 +16,21 @@ A personal project operating system: one place to see, organise, launch and
 keep track of everything you work on — GitHub repositories, uploaded archives,
 and manual projects — plus a prompt library and a small automation runner.
 
-It is **single-user by design**. There are no accounts, no tenancy and no
-sharing model; access control is one password on hosted deployments and nothing
-at all on the desktop, because the desktop server is unreachable from off the
-machine.
+It is **single-user by design in its default and desktop forms** — one password
+on hosted deployments and nothing at all on the desktop, because the desktop
+server is unreachable from off the machine. An opt-in third mode,
+`AUTH_MODE=accounts`, adds real per-user sign-in and team workspaces on top of
+the same codebase (§2b and §7); everything in this document that doesn't say
+otherwise describes the single-user forms, which remain entirely unaffected
+whether or not accounts mode exists elsewhere.
 
-One codebase ships to two targets:
+One codebase ships to three targets:
 
 | Target | What it is | Storage | Auth |
 | --- | --- | --- | --- |
 | **Desktop** (primary) | Electron window wrapping the bundled Next.js server on `127.0.0.1:<random>` | OS user-data directory | none — not network reachable |
-| **Web** (optional) | The same app served by `next start`, e.g. on Railway | `./data`, or a mounted volume | HTTP Basic via `DASHBOARD_PASSWORD` |
+| **Web, single-password** (optional) | The same app served by `next start`, e.g. on Railway | `./data`, or a mounted volume | HTTP Basic via `DASHBOARD_PASSWORD` |
+| **Web, hosted accounts** (optional, `AUTH_MODE=accounts`) | The same app, real per-user sign-in and workspaces | Postgres (`DATABASE_URL`) | Auth.js session (GitHub OAuth or email magic link) |
 
 The application is primarily TypeScript/JavaScript across `src/` and `desktop/`, with
 ten runtime dependencies.
@@ -99,6 +103,43 @@ Settings (GitHub token/client id, theme, update check), Integrations, a command
 palette on `⌘K`/`Ctrl+K` over projects, actions and pages, dark/light/system
 themes, and an update check that reports a newer release and links to it rather
 than installing it.
+
+---
+
+## 2b. Hosted, multi-user mode (opt-in, `AUTH_MODE=accounts`)
+
+Real per-user accounts and team workspaces, on top of the same codebase —
+requires `DATABASE_URL` (Postgres) in addition to `AUTH_MODE=accounts`; see
+`.env.example` and README's **Hosted, multi-user mode** section for the full
+setup. Sign in (GitHub OAuth or an emailed magic link) and a personal
+workspace is created automatically on first sign-in
+(`src/auth.ts`'s `events.createUser`, self-healing on every request after —
+see ARCHITECTURE.md §7b).
+
+- **Workspaces.** Everyone gets a personal workspace; anyone can also create a
+  team workspace and switch between the workspaces they belong to (Settings).
+  A workspace always has at least one **owner** — a database trigger, not just
+  application logic, rejects whatever would remove the last one.
+- **Roles.** `owner` > `admin` > `member` > `viewer`, checked fresh from
+  `workspace_member` on every mutating request — never trusted from a session
+  claim, a cookie, or the mere fact of being signed in.
+- **Invitations.** An admin or owner invites by email at a role below owner;
+  accepting requires the signed-in email to match the invited one exactly
+  (case-insensitively), is single-use, and expires after 7 days.
+- **Claiming an existing single-password deployment.** A one-shot flow
+  (Settings → *Claim legacy data*, `POST /api/ownership-claim`) lets exactly
+  one signed-in account import that deployment's existing SQLite projects and
+  tags into their own workspace, proven to be the operator by also supplying
+  the deployment's `DASHBOARD_PASSWORD`. The source SQLite data is only ever
+  read, never modified, and a second claim attempt always fails.
+- **Only Projects, Favorites, Dashboard and Settings are reachable.** Every
+  other domain — AI workspace, uploads, prompts, automations, GitHub sync,
+  notes, notifications, integrations, tools — still reads and writes the
+  SQLite-only tables described in §6, which were never given a workspace
+  column. Reaching them in accounts mode would show every signed-in user the
+  same shared, unscoped data regardless of workspace, so `proxy.ts` 404s them
+  outright rather than exposing them half-scoped (§7, §11). They get ported
+  for real in a later phase.
 
 ---
 
@@ -243,6 +284,14 @@ Migrations live in `drizzle/` and are generated with `npm run db:generate`. They
 also run automatically on first request (`src/db/bootstrap.ts`), so a fresh
 clone or a fresh Railway volume works with no manual step.
 
+**Hosted accounts mode (§2b) has its own, entirely separate Postgres schema**
+(`src/db/schema.pg.ts`, migrations in `drizzle-pg/`, `npm run db:generate:pg` /
+`db:migrate:pg`) — Auth.js's own tables, `workspace`/`workspace_member`/
+`workspace_invitation`, and workspace-scoped `project`/`tag`/`project_tag`/
+`activity_event` tables mirroring the SQLite ones above but with a
+`workspace_id` column. Desktop and single-password hosted mode never connect
+to Postgres at all. Full reasoning in ARCHITECTURE.md's `src/db/` section.
+
 ---
 
 ## 7. Security model
@@ -260,7 +309,16 @@ cannot silently publish the library.
 when the browser reports the request as cross-site (`Sec-Fetch-Site`, or an
 `Origin` whose host does not match). Only positively cross-site requests are
 refused — a client sending neither header is not a browser and supplied the
-password itself.
+password itself. The same check applies in accounts mode too.
+
+**Hosted, accounts mode (§2b).** Three checks, each independent and each
+re-enforced below `proxy.ts` rather than trusted from it alone (a real
+vulnerability class in this exact framework, not theoretical caution): a
+valid Auth.js session is required for every page and API call except Auth.js's
+own routes; only an explicit allowlist of pages/routes is reachable at all
+(§2b, §11); and every mutating Projects route re-derives the caller's role
+from `workspace_member` fresh (`requireRole()`) rather than trusting session
+or cookie state. Full reasoning in ARCHITECTURE.md §7b.
 
 **Renderer isolation.** `contextIsolation: true`, `sandbox: true`,
 `nodeIntegration: false`. The preload bridge exposes a minimal surface, outbound
@@ -354,10 +412,15 @@ See `.env.example`. Most settings are optional; hosted production requires
 | `UPLOADS_DIR` | `./data/uploads` | Uploaded files |
 | `GITHUB_TOKEN` | — | Personal access token for live repository data |
 | `GITHUB_CLIENT_ID` | — | OAuth app client id, enabling the device flow |
-| `DASHBOARD_PASSWORD` | — | **Required** for any hosted deployment |
+| `DASHBOARD_PASSWORD` | — | **Required** for any single-password hosted deployment |
 | `DASHBOARD_LOCAL` | — | `1` bypasses auth; set by the desktop shell only |
 | `DASHBOARD_DISABLE_SCHEDULER` | — | `1` turns automations off (used by tests) |
 | `DESKTOP_BUILD` | — | `1` switches Next to standalone output |
+| `DATABASE_URL` | — | Postgres connection string; enables hosted accounts mode (§2b) |
+| `AUTH_MODE` | — | `accounts` requires sign-in instead of `DASHBOARD_PASSWORD`; needs `DATABASE_URL` |
+| `AUTH_SECRET` | — | **Required** once `AUTH_MODE=accounts` — signs Auth.js's internal tokens |
+| `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` | — | GitHub OAuth sign-in (accounts mode) |
+| `EMAIL_SERVER` / `EMAIL_FROM` | — | SMTP for magic-link sign-in; unset logs the link instead |
 
 Desktop data lives in the standard per-user directory
 (`~/Library/Application Support/Command Center/data`,
@@ -377,6 +440,11 @@ Honest inventory of what is not finished:
   pages, intentionally removed from the sidebar rather than deleted.
 - **Updates are checked, not installed** — the repository is private, and
   auto-update would mean shipping a token inside the installer.
+- **Hosted accounts mode only ported the Projects domain.** Uploads, prompts,
+  AI conversations, automations, GitHub sync, notes, notifications, tools and
+  integrations are desktop/single-password-only for now — genuinely
+  unreachable in accounts mode (§2b, §7) rather than half-scoped, until each
+  gets ported for real in a later phase.
 
 ---
 
