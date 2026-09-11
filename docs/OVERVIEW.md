@@ -394,10 +394,29 @@ CRUD flows against a real production server, including `withFreshPage` checks in
 a new browser context — cold-cache, cross-page navigation is the only shape that
 reproduces production-only `<Link>` prefetch bugs (see ARCHITECTURE.md §7c).
 
-**CI**: `.github/workflows/desktop.yml` builds installers on hosted runners —
-manually from the Actions tab, or for every `v*` tag. Installers cannot be
-cross-built, so each platform runs on its own runner, and macOS is arm64 only
-because better-sqlite3 downloads a prebuilt binary for the *building* machine.
+**CI**: `.github/workflows/ci.yml` runs typecheck, lint, and the full test
+suite (including Postgres and a Windows unit-test job) on every pull
+request — the same commands as the table above, so a failure is
+reproducible locally with one command. `.github/workflows/desktop.yml`
+builds installers on hosted runners — manually from the Actions tab, or for
+every `v*` tag. Installers cannot be cross-built, so each platform runs on
+its own runner, and macOS is arm64 only because better-sqlite3 downloads a
+prebuilt binary for the *building* machine.
+
+**GitHub Actions budget (temporary policy, in effect until lifted):** this
+repo has been close to its included Actions minutes for the month, so until
+told otherwise, prefer running the table above locally over pushing to see
+if CI passes, and batch related work into meaningful pushes rather than
+many small ones. `ci.yml` is already built around this: it triggers on pull
+requests only (no duplicate run on the `main` push after merge), cancels a
+superseded run for the same PR, skips the expensive jobs entirely on
+changes that can't affect build/test output via a `plan` job, and checks
+one Node version per normal PR (`workflow_dispatch` unlocks the full matrix
+on demand). Keep these properties when editing the workflow, and never
+remove a required status check, security check, or deployment safeguard to
+save minutes — trim scheduling and duplication instead, and don't work
+around this by purchasing minutes, raising spending limits, or changing
+repository visibility.
 
 ---
 
