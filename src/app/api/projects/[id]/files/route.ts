@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { ensureDatabaseReady } from "@/db/bootstrap";
-import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
+import { projectRepository } from "@/db/repositories";
 import { addProjectFiles, listProjectFiles } from "@/core/files/service";
+import { resolveWorkspaceAndUserForRequest } from "@/core/workspaces/current-workspace";
+import { AuthorizationError, authorizationErrorResponse, requireRole } from "@/core/workspaces/authorization";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +16,29 @@ export async function GET(_request: Request, { params }: Context) {
 }
 
 /** POST — multipart upload of one or more files onto a project. */
-export async function POST(request: Request, { params }: Context) {
+export async function POST(request: NextRequest, { params }: Context) {
   ensureDatabaseReady();
+  const resolved = await resolveWorkspaceAndUserForRequest(request);
+  if (!resolved) {
+    return NextResponse.json(
+      { error: "Sign-in required." },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const { workspaceId, userId } = resolved;
+
+  if (userId) {
+    try {
+      await requireRole(workspaceId, userId, "member");
+    } catch (error) {
+      if (error instanceof AuthorizationError) return authorizationErrorResponse(error);
+      throw error;
+    }
+  }
+
   const { id } = await params;
 
-  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
+  const project = await projectRepository.findById(workspaceId, id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
@@ -45,7 +65,7 @@ export async function POST(request: Request, { params }: Context) {
     .map(({ filename, error }) => ({ filename, error }));
 
   // Only touch the project's timestamp if something was actually attached.
-  if (saved.length > 0) await projectRepository.update(LOCAL_WORKSPACE_ID, id, {});
+  if (saved.length > 0) await projectRepository.update(workspaceId, id, {});
 
   /*
    * A partly-successful batch is reported as success with the failures listed,

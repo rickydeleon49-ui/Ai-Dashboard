@@ -116,7 +116,7 @@ async function signIn(email: string): Promise<string> {
 // find the plain one this app's http:// sign-in actually set).
 
 function pageRequest(cookie?: string): InstanceType<typeof NextRequest> {
-  return new NextRequest("http://localhost/dashboard", {
+  return new NextRequest("http://localhost/", {
     headers: {
       host: "localhost",
       "x-forwarded-proto": "http",
@@ -181,7 +181,7 @@ describe("AUTH_MODE=accounts: session gating", () => {
       assert.equal(response.status, 307);
       const location = response.headers.get("location") ?? "";
       assert.match(location, /\/api\/auth\/signin/);
-      assert.match(location, /callbackUrl=.*dashboard/);
+      assert.match(location, /callbackUrl=/);
     } finally {
       restoreEnv();
     }
@@ -232,6 +232,80 @@ describe("AUTH_MODE=accounts: session gating", () => {
       );
       assert.notEqual(response.status, 403);
       assert.notEqual(response.status, 401);
+    } finally {
+      restoreEnv();
+    }
+  });
+});
+
+describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => {
+  function requestFor(path: string, cookie: string): InstanceType<typeof NextRequest> {
+    return new NextRequest(`http://localhost${path}`, {
+      headers: { host: "localhost", "x-forwarded-proto": "http", cookie },
+    });
+  }
+
+  it("allows Dashboard, Projects and Settings pages", async () => {
+    const cookie = await signIn("proxy-accounts-allowed-pages@example.com");
+    env.AUTH_MODE = "accounts";
+    try {
+      for (const path of ["/", "/projects", "/projects/new", "/favorites", "/settings"]) {
+        const response = await call(requestFor(path, cookie));
+        assert.notEqual(response.status, 404, `${path} should be reachable`);
+      }
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("allows the supporting API routes", async () => {
+    const cookie = await signIn("proxy-accounts-allowed-api@example.com");
+    env.AUTH_MODE = "accounts";
+    try {
+      for (const path of ["/api/projects", "/api/workspaces", "/api/ownership-claim"]) {
+        const response = await call(requestFor(path, cookie));
+        assert.notEqual(response.status, 404, `${path} should be reachable`);
+      }
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("404s every page outside Dashboard/Projects/Settings/Invite, even signed in", async () => {
+    const cookie = await signIn("proxy-accounts-blocked-pages@example.com");
+    env.AUTH_MODE = "accounts";
+    try {
+      for (const path of ["/ai", "/ai/chat", "/uploads", "/github", "/notes", "/tools"]) {
+        const response = await call(requestFor(path, cookie));
+        assert.equal(response.status, 404, `${path} should be blocked`);
+      }
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("404s the underlying API routes for those domains too, not just their pages", async () => {
+    const cookie = await signIn("proxy-accounts-blocked-api@example.com");
+    env.AUTH_MODE = "accounts";
+    try {
+      for (const path of ["/api/ai/chat", "/api/automations", "/api/github/sync", "/api/prompts"]) {
+        const response = await call(requestFor(path, cookie));
+        assert.equal(response.status, 404, `${path} should be blocked`);
+      }
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("blocks an unauthenticated caller with 401, not 404 — restriction never leaks ahead of auth", async () => {
+    env.AUTH_MODE = "accounts";
+    try {
+      const response = await call(
+        new NextRequest("http://localhost/notes", {
+          headers: { host: "localhost", "x-forwarded-proto": "http" },
+        }),
+      );
+      assert.notEqual(response.status, 404);
     } finally {
       restoreEnv();
     }

@@ -9,6 +9,7 @@ import {
   GitPullRequest,
   Github,
   Lock,
+  LogIn,
   Pencil,
   Star as StarIcon,
   Unlock,
@@ -24,15 +25,22 @@ import {
   OpenProjectButton,
 } from "@/components/projects/project-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
-import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
-import { listProjectActivity } from "@/core/activity/service";
+import { EmptyState } from "@/components/ui/empty-state";
+import { projectRepository } from "@/db/repositories";
+import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
+import { listProjectActivity, type ActivityItem } from "@/core/activity/service";
 import { listProjectFiles } from "@/core/files/service";
 import { ProjectFiles } from "@/components/projects/project-files";
 import { LocalActions } from "@/components/projects/local-actions";
 import { SOURCE_META, STATUS_META, TYPE_META, languageColor } from "@/core/projects/labels";
 import { githubLinks } from "@/core/github/types";
-import type { Project } from "@/core/projects/types";
+import type { Project, ProjectFile } from "@/core/projects/types";
 import { formatCompact, formatDate, formatRelative } from "@/lib/utils";
+
+/** True in hosted multi-user mode — see the note on `activity`/`files` below. */
+function isAccountsMode(): boolean {
+  return process.env.AUTH_MODE === "accounts" && Boolean(process.env.DATABASE_URL);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +71,8 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
+  const workspaceId = await resolveWorkspaceIdForPage();
+  const project = workspaceId ? await projectRepository.findById(workspaceId, id) : null;
   return { title: project?.name ?? "Project" };
 }
 
@@ -80,13 +89,28 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await projectRepository.findById(LOCAL_WORKSPACE_ID, id);
+  const workspaceId = await resolveWorkspaceIdForPage();
+  if (!workspaceId) {
+    // Practically unreachable: proxy.ts already requires a session in
+    // accounts mode, and sign-in always creates a personal workspace.
+    return (
+      <EmptyState
+        icon={LogIn}
+        title="Sign-in required"
+        description="Sign in to see this project."
+      />
+    );
+  }
+  const project = await projectRepository.findById(workspaceId, id);
   if (!project) notFound();
 
-  const [activity, files] = await Promise.all([
-    listProjectActivity(project.id, 15),
-    listProjectFiles(project.id),
-  ]);
+  // Activity and file attachments are still SQLite-only, unscoped by
+  // workspace (see proxy.ts's ACCOUNTS_MODE_ALLOWED_PAGES comment) — a
+  // Postgres project's id never matches any SQLite row, so calling these
+  // in accounts mode would just be a wasted, always-empty query.
+  const [activity, files]: [ActivityItem[], ProjectFile[]] = isAccountsMode()
+    ? [[], []]
+    : await Promise.all([listProjectActivity(project.id, 15), listProjectFiles(project.id)]);
   const status = STATUS_META[project.status];
   const gh = githubMeta(project);
   const repoUrl = project.repositoryUrl ?? gh?.htmlUrl ?? null;

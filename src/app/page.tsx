@@ -6,6 +6,7 @@ import {
   FolderGit2,
   Github,
   Layers,
+  LogIn,
   Star,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -17,23 +18,39 @@ import { QuickActions } from "@/components/dashboard/quick-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { ProjectRowList } from "@/components/dashboard/project-row-list";
 import { ProjectGrid } from "@/components/projects/project-card";
-import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
-import { listRecentActivity } from "@/core/activity/service";
+import { projectRepository } from "@/db/repositories";
+import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
+import { listRecentActivity, type ActivityItem } from "@/core/activity/service";
 import { STATUS_META } from "@/core/projects/labels";
 import { PROJECT_STATUSES } from "@/core/projects/types";
 
 export const dynamic = "force-dynamic";
 
+/** SQLite-only, unscoped by workspace — see proxy.ts's route-allowlist comment. */
+function isAccountsMode(): boolean {
+  return process.env.AUTH_MODE === "accounts" && Boolean(process.env.DATABASE_URL);
+}
+
 export default async function DashboardPage() {
-  const [stats, activeProjects, recentlyOpened, favorites, allRecent, activity] =
-    await Promise.all([
-      projectRepository.stats(LOCAL_WORKSPACE_ID),
-      projectRepository.list(LOCAL_WORKSPACE_ID, { status: "active", sort: "updated", limit: 8 }),
-      projectRepository.list(LOCAL_WORKSPACE_ID, { sort: "opened", limit: 6 }),
-      projectRepository.list(LOCAL_WORKSPACE_ID, { favorite: true, sort: "updated", limit: 6 }),
-      projectRepository.list(LOCAL_WORKSPACE_ID, { sort: "updated", limit: 8 }),
-      listRecentActivity(10),
-    ]);
+  const workspaceId = await resolveWorkspaceIdForPage();
+  if (!workspaceId) {
+    // Practically unreachable: proxy.ts already requires a session in
+    // accounts mode, and sign-in always creates a personal workspace.
+    return (
+      <EmptyState icon={LogIn} title="Sign-in required" description="Sign in to see your dashboard." />
+    );
+  }
+
+  const [stats, activeProjects, recentlyOpened, favorites, allRecent, activity] = await Promise.all([
+    projectRepository.stats(workspaceId),
+    projectRepository.list(workspaceId, { status: "active", sort: "updated", limit: 8 }),
+    projectRepository.list(workspaceId, { sort: "opened", limit: 6 }),
+    projectRepository.list(workspaceId, { favorite: true, sort: "updated", limit: 6 }),
+    projectRepository.list(workspaceId, { sort: "updated", limit: 8 }),
+    isAccountsMode() ? Promise.resolve<ActivityItem[]>([]) : listRecentActivity(10),
+  ]);
+
+  const accountsMode = isAccountsMode();
 
   const tiles: Stat[] = [
     {
@@ -50,21 +67,28 @@ export default async function DashboardPage() {
       icon: CircleDot,
       hint: "In progress now",
     },
-    {
-      label: "GitHub",
-      value: stats.github,
-      href: "/github",
-      icon: Github,
-      // Counts repositories linked as projects, not everything in the sync cache.
-      hint: "Added to dashboard",
-    },
-    {
-      label: "Uploaded",
-      value: stats.uploaded,
-      href: "/uploads",
-      icon: FileUp,
-      hint: "Imported projects",
-    },
+    // GitHub sync and uploads are still SQLite-only, unscoped by workspace
+    // (see proxy.ts's route-allowlist comment) — their pages are blocked in
+    // accounts mode, so these tiles would link straight to a 404 there.
+    ...(accountsMode
+      ? []
+      : [
+          {
+            label: "GitHub",
+            value: stats.github,
+            href: "/github",
+            icon: Github,
+            // Counts repositories linked as projects, not everything in the sync cache.
+            hint: "Added to dashboard",
+          },
+          {
+            label: "Uploaded",
+            value: stats.uploaded,
+            href: "/uploads",
+            icon: FileUp,
+            hint: "Imported projects",
+          },
+        ]),
     {
       label: "Favorites",
       value: stats.favorites,
@@ -100,10 +124,12 @@ export default async function DashboardPage() {
               <Link href="/projects/new" className={buttonClasses("primary", "lg")}>
                 New project
               </Link>
-              <Link href="/github" className={buttonClasses("secondary", "lg")}>
-                <Github className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Connect GitHub
-              </Link>
+              {accountsMode ? null : (
+                <Link href="/github" className={buttonClasses("secondary", "lg")}>
+                  <Github className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Connect GitHub
+                </Link>
+              )}
             </div>
           }
         />
