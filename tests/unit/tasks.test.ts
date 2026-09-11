@@ -189,3 +189,131 @@ describe("tasks (SQLite)", () => {
     await assert.rejects(() => taskRepository.list("some-other-workspace", projectId));
   });
 });
+
+describe("task dependencies + blocked state (SQLite)", () => {
+  async function makeTask(title: string) {
+    return taskRepository.create(LOCAL_WORKSPACE_ID, { projectId, title });
+  }
+
+  it("a task with no dependencies is not blocked", async () => {
+    const task = await makeTask("Solo");
+    assert.equal(task.blocked, false);
+  });
+
+  it("a task becomes blocked once it depends on an unfinished task", async () => {
+    const blocker = await makeTask("Blocker");
+    const dependent = await makeTask("Dependent");
+
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, dependent.id, blocker.id);
+
+    const found = await taskRepository.findById(LOCAL_WORKSPACE_ID, dependent.id);
+    assert.equal(found?.blocked, true);
+  });
+
+  it("unblocks once the blocking task is done, and re-blocks if reopened", async () => {
+    const blocker = await makeTask("Blocker 2");
+    const dependent = await makeTask("Dependent 2");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, dependent.id, blocker.id);
+
+    await taskRepository.update(LOCAL_WORKSPACE_ID, blocker.id, { status: "done" });
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, dependent.id))?.blocked, false);
+
+    await taskRepository.update(LOCAL_WORKSPACE_ID, blocker.id, { status: "todo" });
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, dependent.id))?.blocked, true);
+  });
+
+  it("a cancelled blocker also unblocks its dependent", async () => {
+    const blocker = await makeTask("Blocker 3");
+    const dependent = await makeTask("Dependent 3");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, dependent.id, blocker.id);
+
+    await taskRepository.update(LOCAL_WORKSPACE_ID, blocker.id, { status: "cancelled" });
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, dependent.id))?.blocked, false);
+  });
+
+  it("listBlockers and listDependents report the right direction", async () => {
+    const blocker = await makeTask("Blocker 4");
+    const dependent = await makeTask("Dependent 4");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, dependent.id, blocker.id);
+
+    const blockers = await taskRepository.listBlockers(LOCAL_WORKSPACE_ID, dependent.id);
+    assert.deepEqual(
+      blockers.map((t) => t.id),
+      [blocker.id],
+    );
+
+    const dependents = await taskRepository.listDependents(LOCAL_WORKSPACE_ID, blocker.id);
+    assert.deepEqual(
+      dependents.map((t) => t.id),
+      [dependent.id],
+    );
+  });
+
+  it("rejects a task depending on itself", async () => {
+    const { DependencyCycleError } = await import("../../src/core/tasks/errors");
+    const task = await makeTask("Self");
+    await assert.rejects(
+      () => taskRepository.addDependency(LOCAL_WORKSPACE_ID, task.id, task.id),
+      (error: unknown) => {
+        assert.ok(error instanceof DependencyCycleError);
+        return true;
+      },
+    );
+  });
+
+  it("rejects a direct two-node cycle (A depends on B, B depends on A)", async () => {
+    const { DependencyCycleError } = await import("../../src/core/tasks/errors");
+    const a = await makeTask("A");
+    const b = await makeTask("B");
+
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await assert.rejects(
+      () => taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, a.id),
+      (error: unknown) => {
+        assert.ok(error instanceof DependencyCycleError);
+        return true;
+      },
+    );
+  });
+
+  it("rejects a transitive three-node cycle (A→B→C, then C→A)", async () => {
+    const { DependencyCycleError } = await import("../../src/core/tasks/errors");
+    const a = await makeTask("Transitive A");
+    const b = await makeTask("Transitive B");
+    const c = await makeTask("Transitive C");
+
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, c.id);
+
+    await assert.rejects(
+      () => taskRepository.addDependency(LOCAL_WORKSPACE_ID, c.id, a.id),
+      (error: unknown) => {
+        assert.ok(error instanceof DependencyCycleError);
+        return true;
+      },
+    );
+  });
+
+  it("adding the same edge twice is a no-op, not an error", async () => {
+    const a = await makeTask("Idempotent A");
+    const b = await makeTask("Idempotent B");
+
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+
+    const blockers = await taskRepository.listBlockers(LOCAL_WORKSPACE_ID, a.id);
+    assert.equal(blockers.length, 1);
+  });
+
+  it("removeDependency clears the edge, and is a no-op if it never existed", async () => {
+    const a = await makeTask("Remove A");
+    const b = await makeTask("Remove B");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+
+    await taskRepository.removeDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id))?.blocked, false);
+
+    // Second removal of the same (now-gone) edge must not throw.
+    await taskRepository.removeDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+  });
+});

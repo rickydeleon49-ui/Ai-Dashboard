@@ -246,3 +246,137 @@ describe("PostgresTaskRepository: CRUD + workspace isolation", () => {
     assert.equal((await taskRepo.findById(workspaceId, parent.id))?.milestoneId, milestone.id);
   });
 });
+
+describe("PostgresTaskRepository: dependencies + blocked state", () => {
+  it("a task becomes blocked once it depends on an unfinished task, and unblocks when done", async () => {
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Blocked Basic");
+    const blocker = await repo.create(workspaceId, { projectId, title: "Blocker" });
+    const dependent = await repo.create(workspaceId, { projectId, title: "Dependent" });
+    assert.equal(dependent.blocked, false);
+
+    await repo.addDependency(workspaceId, dependent.id, blocker.id);
+    assert.equal((await repo.findById(workspaceId, dependent.id))?.blocked, true);
+
+    await repo.update(workspaceId, blocker.id, { status: "done" });
+    assert.equal((await repo.findById(workspaceId, dependent.id))?.blocked, false);
+  });
+
+  it("listBlockers and listDependents report the right direction, scoped to the workspace", async () => {
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Blockers Direction");
+    const blocker = await repo.create(workspaceId, { projectId, title: "Blocker" });
+    const dependent = await repo.create(workspaceId, { projectId, title: "Dependent" });
+    await repo.addDependency(workspaceId, dependent.id, blocker.id);
+
+    const blockers = await repo.listBlockers(workspaceId, dependent.id);
+    assert.deepEqual(
+      blockers.map((t) => t.id),
+      [blocker.id],
+    );
+    const dependents = await repo.listDependents(workspaceId, blocker.id);
+    assert.deepEqual(
+      dependents.map((t) => t.id),
+      [dependent.id],
+    );
+  });
+
+  it("rejects self-dependency, a direct cycle, and a transitive cycle", async () => {
+    const { DependencyCycleError } = await import("../../src/core/tasks/errors");
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Cycle Rejection");
+
+    const self = await repo.create(workspaceId, { projectId, title: "Self" });
+    await assert.rejects(
+      () => repo.addDependency(workspaceId, self.id, self.id),
+      (error: unknown) => {
+        assert.ok(error instanceof DependencyCycleError);
+        return true;
+      },
+    );
+
+    const a = await repo.create(workspaceId, { projectId, title: "A" });
+    const b = await repo.create(workspaceId, { projectId, title: "B" });
+    await repo.addDependency(workspaceId, a.id, b.id);
+    await assert.rejects(
+      () => repo.addDependency(workspaceId, b.id, a.id),
+      (error: unknown) => {
+        assert.ok(error instanceof DependencyCycleError);
+        return true;
+      },
+    );
+
+    const x = await repo.create(workspaceId, { projectId, title: "X" });
+    const y = await repo.create(workspaceId, { projectId, title: "Y" });
+    const z = await repo.create(workspaceId, { projectId, title: "Z" });
+    await repo.addDependency(workspaceId, x.id, y.id);
+    await repo.addDependency(workspaceId, y.id, z.id);
+    await assert.rejects(
+      () => repo.addDependency(workspaceId, z.id, x.id),
+      (error: unknown) => {
+        assert.ok(error instanceof DependencyCycleError);
+        return true;
+      },
+    );
+  });
+
+  it("adding the same edge twice is a no-op; removeDependency clears it and is idempotent", async () => {
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Idempotent Edges");
+    const a = await repo.create(workspaceId, { projectId, title: "A" });
+    const b = await repo.create(workspaceId, { projectId, title: "B" });
+
+    await repo.addDependency(workspaceId, a.id, b.id);
+    await repo.addDependency(workspaceId, a.id, b.id);
+    assert.equal((await repo.listBlockers(workspaceId, a.id)).length, 1);
+
+    await repo.removeDependency(workspaceId, a.id, b.id);
+    assert.equal((await repo.findById(workspaceId, a.id))?.blocked, false);
+    await repo.removeDependency(workspaceId, a.id, b.id);
+  });
+
+  it("two workspaces' dependency graphs never interact", async () => {
+    const repo = new PostgresTaskRepository();
+    const x = await makeWorkspaceWithProject("Dependency Isolation X");
+    const y = await makeWorkspaceWithProject("Dependency Isolation Y");
+
+    const xA = await repo.create(x.workspaceId, { projectId: x.projectId, title: "A" });
+    const xB = await repo.create(x.workspaceId, { projectId: x.projectId, title: "B" });
+    await repo.addDependency(x.workspaceId, xA.id, xB.id);
+
+    // Workspace Y has its own, independent pair — a real cycle within Y
+    // alone must still be caught on Y's own terms.
+    const yA = await repo.create(y.workspaceId, { projectId: y.projectId, title: "A" });
+    const yB = await repo.create(y.workspaceId, { projectId: y.projectId, title: "B" });
+    await repo.addDependency(y.workspaceId, yA.id, yB.id);
+
+    // X's real task ids, presented under Y's workspace scope: neither task
+    // exists in Y, so this must be refused outright — not silently write a
+    // cross-workspace edge, and not treat X's graph as reachable from Y.
+    await assert.rejects(() => repo.addDependency(y.workspaceId, xA.id, xB.id));
+
+    // The attempt above must not have written anything into Y's graph.
+    assert.deepEqual(await repo.listBlockers(y.workspaceId, xA.id), []);
+  });
+
+  it("a race adding both directions of the same pair concurrently: exactly one wins", async () => {
+    const { DependencyCycleError } = await import("../../src/core/tasks/errors");
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Concurrent Race");
+    const a = await repo.create(workspaceId, { projectId, title: "A" });
+    const b = await repo.create(workspaceId, { projectId, title: "B" });
+
+    const results = await Promise.allSettled([
+      repo.addDependency(workspaceId, a.id, b.id),
+      repo.addDependency(workspaceId, b.id, a.id),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    assert.equal(fulfilled.length, 1, "exactly one direction must win");
+    assert.equal(rejected.length, 1, "the other must be rejected as a cycle");
+    assert.ok(
+      rejected[0]?.status === "rejected" && rejected[0].reason instanceof DependencyCycleError,
+    );
+  });
+});

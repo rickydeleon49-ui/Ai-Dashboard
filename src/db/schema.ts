@@ -157,6 +157,30 @@ export const tasks = sqliteTable(
   ],
 );
 
+/**
+ * A "must complete before" edge between two tasks in the same project.
+ * `taskId` is blocked until `dependsOnTaskId` reaches a done/cancelled
+ * status — see `DrizzleTaskRepository`'s own note on how "blocked" is
+ * computed (at read time, never stored) and how a cycle is rejected
+ * before this table is ever written to.
+ */
+export const taskDependencies = sqliteTable(
+  "task_dependencies",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    dependsOnTaskId: text("depends_on_task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.dependsOnTaskId] }),
+    index("task_dependencies_depends_on_idx").on(t.dependsOnTaskId),
+  ],
+);
+
 /** Phase 3: uploaded ZIPs, documents, scripts and assets. */
 export const projectFiles = sqliteTable(
   "project_files",
@@ -392,6 +416,7 @@ export type NotificationRow = typeof notifications.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type MilestoneRow = typeof milestones.$inferSelect;
 export type TaskRow = typeof tasks.$inferSelect;
+export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;
 export type NoteRow = typeof notes.$inferSelect;

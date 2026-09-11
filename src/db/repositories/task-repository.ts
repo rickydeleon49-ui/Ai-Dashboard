@@ -28,4 +28,18 @@ export interface TaskRepository {
   create(workspaceId: string, input: TaskCreateInput): Promise<Task>;
   update(workspaceId: string, id: string, input: TaskUpdateInput): Promise<Task | null>;
   delete(workspaceId: string, id: string): Promise<boolean>;
+
+  /** Tasks `taskId` depends on — must reach done/cancelled before it can. */
+  listBlockers(workspaceId: string, taskId: string): Promise<Task[]>;
+  /** Tasks that depend on `taskId` — blocked until it reaches done/cancelled. */
+  listDependents(workspaceId: string, taskId: string): Promise<Task[]>;
+  /**
+   * Records that `taskId` cannot be done until `dependsOnTaskId` is.
+   * Idempotent (adding the same edge twice is a no-op). Rejects with
+   * `DependencyCycleError` (see `core/tasks/errors.ts`) — including for
+   * `taskId === dependsOnTaskId` — without writing anything.
+   */
+  addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void>;
+  /** Idempotent — removing an edge that doesn't exist is a no-op. */
+  removeDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void>;
 }

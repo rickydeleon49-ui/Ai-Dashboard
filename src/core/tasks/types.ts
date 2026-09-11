@@ -61,15 +61,27 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /**
+   * True iff this task has at least one dependency (see
+   * `TaskRepository.addDependency`) whose own status isn't done/cancelled.
+   * Always computed fresh at read time from `task_dependencies` — never
+   * stored — so it can never drift out of sync with the dependency graph
+   * or the blocker's own status. Not settable via create/update input.
+   */
+  blocked: boolean;
 }
 
-export type TaskCreateInput = Partial<Omit<Task, "id">> & {
+export type TaskCreateInput = Partial<Omit<Task, "id" | "blocked">> & {
   projectId: string;
   title: string;
 };
 
-/** Fields a caller may change. `projectId` and `createdAt` are immutable. */
-export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt">>;
+/**
+ * Fields a caller may change. `projectId`, `createdAt` and `blocked` are
+ * immutable — `blocked` only ever changes as a side effect of
+ * `addDependency`/`removeDependency` or a dependency's own status changing.
+ */
+export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt" | "blocked">>;
 
 export interface TaskQuery {
   status?: TaskStatus | "all";

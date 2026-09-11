@@ -43,6 +43,13 @@
       "when": 1789109829019,
       "tag": "0005_violet_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789110731404,
+      "tag": "0006_lame_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

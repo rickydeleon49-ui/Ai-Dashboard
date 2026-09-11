@@ -397,3 +397,35 @@ export const tasks = pgTable(
     ),
   ],
 );
+
+/**
+ * A "must complete before" edge between two tasks. `taskId` is blocked
+ * until `dependsOnTaskId` reaches a done/cancelled status — see
+ * `PostgresTaskRepository`'s own note on how "blocked" is computed (at
+ * read time, never stored) and how a cycle is rejected before this table
+ * is ever written to. `workspaceId` is denormalized the same way
+ * `project_tag.workspaceId` is — both tasks already belong to the same
+ * workspace by construction, but every query can filter on this column
+ * directly rather than trusting a join to have scoped things correctly.
+ */
+export const taskDependencies = pgTable(
+  "task_dependency",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    dependsOnTaskId: text("depends_on_task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.dependsOnTaskId] }),
+    index("task_dependency_depends_on_idx").on(t.dependsOnTaskId),
+    index("task_dependency_workspace_idx").on(t.workspaceId),
+    check("task_dependency_no_self_check", sql`${t.taskId} != ${t.dependsOnTaskId}`),
+  ],
+);

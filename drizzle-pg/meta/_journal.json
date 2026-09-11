@@ -43,6 +43,13 @@
       "when": 1789109838275,
       "tag": "0005_tricky_ultimates",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789110736729,
+      "tag": "0006_sleepy_excalibur",
+      "breakpoints": true
     }
   ]
 }
