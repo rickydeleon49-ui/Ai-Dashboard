@@ -429,3 +429,33 @@ export const taskDependencies = pgTable(
     check("task_dependency_no_self_check", sql`${t.taskId} != ${t.dependsOnTaskId}`),
   ],
 );
+
+/**
+ * A note in a project's knowledge base (Phase 2, release B). Workspace-scoped
+ * from day one, unlike SQLite's version of this table — see
+ * `knowledgeDocuments` in `schema.ts` and `core/knowledge/types.ts` for the
+ * domain type both map to. Flat, plain text, no folders/hierarchy or version
+ * history in this first slice.
+ */
+export const knowledgeDocuments = pgTable(
+  "knowledge_document",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+    category: text("category"),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("knowledge_document_project_idx").on(t.projectId),
+    index("knowledge_document_workspace_category_idx").on(t.workspaceId, t.category),
+  ],
+);

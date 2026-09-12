@@ -50,6 +50,13 @@
       "when": 1789110736729,
       "tag": "0006_sleepy_excalibur",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789176735972,
+      "tag": "0007_blue_annihilus",
+      "breakpoints": true
     }
   ]
 }

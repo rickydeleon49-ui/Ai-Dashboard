@@ -50,6 +50,13 @@
       "when": 1789110731404,
       "tag": "0006_lame_sheva_callister",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789176700964,
+      "tag": "0007_regular_redwing",
+      "breakpoints": true
     }
   ]
 }

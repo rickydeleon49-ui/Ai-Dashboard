@@ -181,6 +181,31 @@ export const taskDependencies = sqliteTable(
   ],
 );
 
+/**
+ * A note in a project's knowledge base (Phase 2, release B) — flat, plain
+ * text, no folders/hierarchy or version history in this first slice. See
+ * `core/knowledge/types.ts` for the domain type this maps to.
+ */
+export const knowledgeDocuments = sqliteTable(
+  "knowledge_documents",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+    category: text("category"),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [
+    index("knowledge_documents_project_idx").on(t.projectId),
+    index("knowledge_documents_category_idx").on(t.category),
+  ],
+);
+
 /** Phase 3: uploaded ZIPs, documents, scripts and assets. */
 export const projectFiles = sqliteTable(
   "project_files",
@@ -417,6 +442,7 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type MilestoneRow = typeof milestones.$inferSelect;
 export type TaskRow = typeof tasks.$inferSelect;
 export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
+export type KnowledgeDocumentRow = typeof knowledgeDocuments.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;
 export type NoteRow = typeof notes.$inferSelect;
