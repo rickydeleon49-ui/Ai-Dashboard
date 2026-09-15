@@ -157,6 +157,55 @@ export const tasks = sqliteTable(
   ],
 );
 
+/**
+ * A "must complete before" edge between two tasks in the same project.
+ * `taskId` is blocked until `dependsOnTaskId` reaches a done/cancelled
+ * status — see `DrizzleTaskRepository`'s own note on how "blocked" is
+ * computed (at read time, never stored) and how a cycle is rejected
+ * before this table is ever written to.
+ */
+export const taskDependencies = sqliteTable(
+  "task_dependencies",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    dependsOnTaskId: text("depends_on_task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.dependsOnTaskId] }),
+    index("task_dependencies_depends_on_idx").on(t.dependsOnTaskId),
+  ],
+);
+
+/**
+ * A note in a project's knowledge base (Phase 2, release B) — flat, plain
+ * text, no folders/hierarchy or version history in this first slice. See
+ * `core/knowledge/types.ts` for the domain type this maps to.
+ */
+export const knowledgeDocuments = sqliteTable(
+  "knowledge_documents",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+    category: text("category"),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [
+    index("knowledge_documents_project_idx").on(t.projectId),
+    index("knowledge_documents_category_idx").on(t.category),
+  ],
+);
+
 /** Phase 3: uploaded ZIPs, documents, scripts and assets. */
 export const projectFiles = sqliteTable(
   "project_files",
@@ -392,6 +441,8 @@ export type NotificationRow = typeof notifications.$inferSelect;
 export type ProjectRow = typeof projects.$inferSelect;
 export type MilestoneRow = typeof milestones.$inferSelect;
 export type TaskRow = typeof tasks.$inferSelect;
+export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
+export type KnowledgeDocumentRow = typeof knowledgeDocuments.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;
 export type NoteRow = typeof notes.$inferSelect;

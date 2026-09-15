@@ -245,11 +245,20 @@ describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => 
     });
   }
 
-  it("allows Dashboard, Projects and Settings pages", async () => {
+  it("allows Dashboard, Projects, Settings and My Work pages", async () => {
     const cookie = await signIn("proxy-accounts-allowed-pages@example.com");
     env.AUTH_MODE = "accounts";
     try {
-      for (const path of ["/", "/projects", "/projects/new", "/favorites", "/settings"]) {
+      for (const path of [
+        "/",
+        "/projects",
+        "/projects/new",
+        "/projects/some-id/tasks",
+        "/projects/some-id/knowledge",
+        "/favorites",
+        "/settings",
+        "/my-work",
+      ]) {
         const response = await call(requestFor(path, cookie));
         assert.notEqual(response.status, 404, `${path} should be reachable`);
       }
@@ -258,11 +267,20 @@ describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => 
     }
   });
 
-  it("allows the supporting API routes", async () => {
+  it("allows the supporting API routes, including tasks and my-work", async () => {
     const cookie = await signIn("proxy-accounts-allowed-api@example.com");
     env.AUTH_MODE = "accounts";
     try {
-      for (const path of ["/api/projects", "/api/workspaces", "/api/ownership-claim"]) {
+      for (const path of [
+        "/api/projects",
+        "/api/workspaces",
+        "/api/ownership-claim",
+        "/api/tasks/some-id",
+        "/api/tasks/some-id/dependencies",
+        "/api/my-work",
+        "/api/projects/some-id/knowledge",
+        "/api/projects/some-id/knowledge/some-doc-id",
+      ]) {
         const response = await call(requestFor(path, cookie));
         assert.notEqual(response.status, 404, `${path} should be reachable`);
       }

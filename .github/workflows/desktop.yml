@@ -88,7 +88,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: command-center-${{ matrix.id }}
-          retention-days: 30
+          # A tag push also publishes these to the GitHub Release (see the
+          # publish job below), which is the durable copy — this workflow
+          # artifact only needs to live long enough for a manual
+          # workflow_dispatch download or for `publish` to pick it up.
+          retention-days: 7
           if-no-files-found: error
           path: |
             release/*.exe

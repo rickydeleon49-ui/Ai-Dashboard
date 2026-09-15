@@ -85,6 +85,29 @@ export async function resolveWorkspaceIdForPage(): Promise<string | null> {
 }
 
 /**
+ * `resolveWorkspaceAndUserForRequest` for a Server Component page — what a
+ * read-only page needs when it has to filter by the caller's own identity
+ * (My Work's "assigned to me"), not just their workspace. There is no
+ * write-capable page equivalent because pages never mutate directly; only
+ * route handlers call `requireRole()`.
+ */
+export async function resolveWorkspaceAndUserForPage(): Promise<{
+  workspaceId: string;
+  userId: string | null;
+} | null> {
+  if (process.env.AUTH_MODE !== "accounts" || !process.env.DATABASE_URL) {
+    return { workspaceId: LOCAL_WORKSPACE_ID, userId: null };
+  }
+  const [{ auth }, { cookies }] = await Promise.all([import("@/auth"), import("next/headers")]);
+  const session = await auth();
+  const userId = session?.user?.id ?? null;
+  const cookieStore = await cookies();
+  const workspaceId = await resolveWorkspaceId(userId, cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value);
+  if (!workspaceId) return null;
+  return { workspaceId, userId };
+}
+
+/**
  * Like `resolveWorkspaceIdForRequest`, but for a mutating route: also
  * returns the resolved userId (null outside accounts mode) so the caller
  * can additionally call `requireRole()`. `resolveWorkspaceId` already

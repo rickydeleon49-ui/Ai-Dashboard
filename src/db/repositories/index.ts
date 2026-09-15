@@ -7,6 +7,9 @@ import type { MilestoneRepository } from "./milestone-repository";
 import { DrizzleTaskRepository } from "./drizzle-task-repository";
 import { PostgresTaskRepository } from "./postgres-task-repository";
 import type { TaskRepository } from "./task-repository";
+import { DrizzleKnowledgeDocumentRepository } from "./drizzle-knowledge-document-repository";
+import { PostgresKnowledgeDocumentRepository } from "./postgres-knowledge-document-repository";
+import type { KnowledgeDocumentRepository } from "./knowledge-document-repository";
 
 /**
  * Composition root for persistence.
@@ -30,7 +33,12 @@ export const taskRepository: TaskRepository = process.env.DATABASE_URL
   ? new PostgresTaskRepository()
   : new DrizzleTaskRepository();
 
+export const knowledgeDocumentRepository: KnowledgeDocumentRepository = process.env.DATABASE_URL
+  ? new PostgresKnowledgeDocumentRepository()
+  : new DrizzleKnowledgeDocumentRepository();
+
 export type { ProjectRepository } from "./project-repository";
 export type { MilestoneRepository } from "./milestone-repository";
 export type { TaskRepository } from "./task-repository";
+export type { KnowledgeDocumentRepository } from "./knowledge-document-repository";
 export { LOCAL_WORKSPACE_ID } from "./project-repository";

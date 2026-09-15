@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { Page } from "playwright";
-import { newPage, pageErrors, start, stop, withFreshPage } from "./helpers";
+import { baseURL, newPage, pageErrors, start, stop, withFreshPage } from "./helpers";
 
 let page: Page;
 
@@ -37,6 +37,7 @@ const ROUTES = [
   ["/tools", "Tools"],
   ["/integrations", "Integrations"],
   ["/settings", "Settings"],
+  ["/my-work", "My Work"],
 ] as const;
 
 describe("routes", () => {
@@ -82,6 +83,38 @@ describe("routes", () => {
     }
 
     assert.deepEqual(failures, [], "pages must hydrate without errors");
+  });
+
+  it("/projects/:id/tasks renders (Phase 2, Release A)", async () => {
+    const created = await page.request.post(`${baseURL}/api/projects`, {
+      data: { name: "Route Smoke Project", source: "manual", type: "software", status: "active" },
+    });
+    assert.equal(created.status(), 201, await created.text());
+    const { project } = (await created.json()) as { project: { id: string } };
+
+    const response = await page.goto(`/projects/${project.id}/tasks`, { waitUntil: "domcontentloaded" });
+    assert.ok(response, "no response for /projects/:id/tasks");
+    assert.equal(response.status(), 200);
+
+    await page.waitForSelector("h1", { timeout: 15_000 });
+    const heading = (await page.textContent("h1"))?.trim();
+    assert.ok(heading && heading.length > 0, "/projects/:id/tasks rendered no heading");
+  });
+
+  it("/projects/:id/knowledge renders (Phase 2, Release B)", async () => {
+    const created = await page.request.post(`${baseURL}/api/projects`, {
+      data: { name: "Route Smoke Project Knowledge", source: "manual", type: "software", status: "active" },
+    });
+    assert.equal(created.status(), 201, await created.text());
+    const { project } = (await created.json()) as { project: { id: string } };
+
+    const response = await page.goto(`/projects/${project.id}/knowledge`, { waitUntil: "domcontentloaded" });
+    assert.ok(response, "no response for /projects/:id/knowledge");
+    assert.equal(response.status(), 200);
+
+    await page.waitForSelector("h1", { timeout: 15_000 });
+    const heading = (await page.textContent("h1"))?.trim();
+    assert.ok(heading && heading.length > 0, "/projects/:id/knowledge rendered no heading");
   });
 
   it("returns 404 for a route that does not exist", async () => {

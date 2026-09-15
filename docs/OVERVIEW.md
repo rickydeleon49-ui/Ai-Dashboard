@@ -60,6 +60,41 @@ ten runtime dependencies.
   shell string. In a browser there is no bridge, so the path renders as plain
   text rather than offering a button that cannot work.
 
+### Milestones, tasks & My Work (`/projects/:id/tasks`, `/my-work`)
+
+- **Per-project planning**: milestones and tasks, one level of subtasking (the
+  schema allows more, the UI renders one), status and priority, due dates — a
+  plain list (milestones as grouping headers, tasks nested under them), not a
+  board or calendar; those need Table/Board/Calendar primitives this app
+  doesn't have yet.
+- **Dependencies**: a task can depend on any other task in the same workspace.
+  Adding one that would create a cycle (directly or transitively) is rejected;
+  a task with an unfinished dependency shows as **Blocked** — computed fresh
+  from the dependency graph on every read, never stored, so it can never drift
+  out of sync.
+- **My Work** (`/my-work`) — every task across every project in your current
+  workspace, filtered to your own assignment in hosted accounts mode (there is
+  no assignee concept on desktop, so it's every task in the one workspace that
+  exists there); filterable by status, priority and project, with a quick
+  status-change control per row.
+- The project detail page's **Milestones & tasks** card is the real "project
+  overview" this covers: task/done/overdue/blocked counts and upcoming
+  milestones. GitHub issues/PRs, deployment status, uptime and business
+  metrics are a later release's work, not this one's.
+
+### Knowledge base (`/projects/:id/knowledge`)
+
+- A flat, per-project list of plain-text documents — title, content, an
+  optional free-text category, and a **pinned** flag that keeps a document
+  at the top of the list. No folders/hierarchy, no markdown rendering, no
+  version history in this first slice.
+- **Search** across title, content and category — the content is the point
+  of a document, so it's covered too, not just the title (same reasoning
+  as the prompt library's own search).
+- The project detail page's **Knowledge base** card shows the document
+  count plus pinned/recently-updated titles, linking into the full list —
+  same shape as the Milestones & tasks card above.
+
 ### Dashboard (`/`)
 
 Totals and status breakdown, active work, recently opened, favourites, an
@@ -132,14 +167,17 @@ see ARCHITECTURE.md §7b).
   tags into their own workspace, proven to be the operator by also supplying
   the deployment's `DASHBOARD_PASSWORD`. The source SQLite data is only ever
   read, never modified, and a second claim attempt always fails.
-- **Only Projects, Favorites, Dashboard and Settings are reachable.** Every
-  other domain — AI workspace, uploads, prompts, automations, GitHub sync,
-  notes, notifications, integrations, tools — still reads and writes the
+- **Only Projects, Favorites, Dashboard, Settings, Milestones/Tasks,
+  Knowledge base and My Work are reachable.** Every other domain — AI
+  workspace, uploads, prompts, automations, GitHub sync, notes,
+  notifications, integrations, tools — still reads and writes the
   SQLite-only tables described in §6, which were never given a workspace
-  column. Reaching them in accounts mode would show every signed-in user the
-  same shared, unscoped data regardless of workspace, so `proxy.ts` 404s them
-  outright rather than exposing them half-scoped (§7, §11). They get ported
-  for real in a later phase.
+  column. Reaching them in accounts mode would show every signed-in user
+  the same shared, unscoped data regardless of workspace, so `proxy.ts`
+  404s them outright rather than exposing them half-scoped (§7, §11). They
+  get ported for real in a later phase. Knowledge base needed no new
+  `proxy.ts` entry at all — every route is nested under `/projects`/
+  `/api/projects`, which the allowlist already covers.
 
 ---
 
@@ -185,10 +223,14 @@ src/
     ui/               Button, Badge, Card, Field, EmptyState, PageHeader, PhasePage
     layout/           AppShell, Sidebar, CommandPalette, ThemeToggle, DesktopBridge
     projects/         Card, filters, forms, actions, files, local actions
+    tasks/            project tasks board, My Work filters/list
+    knowledge/        document card, filters, form
     dashboard/        StatTiles, QuickActions, ActivityFeed, ProjectRowList
     prompts/ github/ automation/ settings/
   core/
     projects/         types · schema (Zod) · labels · query
+    tasks/            milestone/task types · schema (Zod) · labels · errors
+    knowledge/        knowledge document types · schema (Zod)
     github/           provider interface · REST · demo · device flow · service
     automation/       tasks · scheduler · service · notifications
     files/ storage/   upload service + StorageDriver (local-disk implementation)
@@ -240,6 +282,10 @@ event. The client component then refreshes the route.
 | Area | Endpoints |
 | --- | --- |
 | Projects | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projects/:id/open` |
+| Milestones | `GET/POST /projects/:id/milestones`, `GET/PATCH/DELETE /projects/:id/milestones/:milestoneId` |
+| Tasks | `GET/POST /projects/:id/tasks`, `GET/PATCH/DELETE /tasks/:id`, `GET/POST/DELETE /tasks/:id/dependencies` |
+| My Work | `GET /my-work` |
+| Knowledge base | `GET/POST /projects/:id/knowledge`, `GET/PATCH/DELETE /projects/:id/knowledge/:docId` |
 | Files | `GET/POST /projects/:id/files`, `GET/DELETE /files/:id` |
 | Prompts | `GET/POST /prompts`, `GET/PATCH/DELETE /prompts/:id` |
 | GitHub | `POST /github/sync`, `POST/DELETE /github/link`, `GET/POST /github/device` |
@@ -259,7 +305,10 @@ projects ──┬── project_tags ── tags
            ├── project_files            uploads (named on disk by generated id)
            ├── activity_events          the feed — append-only history
            ├── notes
-           └── github_repositories.linked_project_id
+           ├── github_repositories.linked_project_id
+           ├── knowledge_documents      flat, plain text, pinned flag
+           └── milestones ── tasks ── task_dependencies (task_id, depends_on_task_id)
+                              └── tasks (parent_task_id — one level of subtasking)
 
 settings        key/value: GitHub token, token origin, OAuth client id
 automations     one row per registered task: interval, enabled, last run/status
@@ -279,6 +328,12 @@ Three things are worth knowing:
    `isDemo` flag so cleanup can never delete real cached repositories.
 3. **`activity_events` and `notifications` are deliberately separate.** One is a
    log of what happened; the other is a short list of what you have not seen.
+4. **A task's `blocked` flag is never stored.** It's computed at read time from
+   `task_dependencies` — whether any direct dependency isn't done/cancelled —
+   so it can't drift out of sync with the graph or a blocker's own status.
+5. **`knowledge_documents` is flat on purpose.** No parent/folder column —
+   grouping is by free-text `category` only, not a tree; hierarchy is
+   explicitly deferred, not an oversight (see ARCHITECTURE.md §9).
 
 Migrations live in `drizzle/` and are generated with `npm run db:generate`. They
 also run automatically on first request (`src/db/bootstrap.ts`), so a fresh
@@ -288,9 +343,10 @@ clone or a fresh Railway volume works with no manual step.
 (`src/db/schema.pg.ts`, migrations in `drizzle-pg/`, `npm run db:generate:pg` /
 `db:migrate:pg`) — Auth.js's own tables, `workspace`/`workspace_member`/
 `workspace_invitation`, and workspace-scoped `project`/`tag`/`project_tag`/
-`activity_event` tables mirroring the SQLite ones above but with a
-`workspace_id` column. Desktop and single-password hosted mode never connect
-to Postgres at all. Full reasoning in ARCHITECTURE.md's `src/db/` section.
+`activity_event`/`milestone`/`task`/`task_dependency`/`knowledge_document`
+tables mirroring the SQLite ones above but with a `workspace_id` column.
+Desktop and single-password hosted mode never connect to Postgres at all.
+Full reasoning in ARCHITECTURE.md's `src/db/` section.
 
 ---
 
@@ -394,10 +450,29 @@ CRUD flows against a real production server, including `withFreshPage` checks in
 a new browser context — cold-cache, cross-page navigation is the only shape that
 reproduces production-only `<Link>` prefetch bugs (see ARCHITECTURE.md §7c).
 
-**CI**: `.github/workflows/desktop.yml` builds installers on hosted runners —
-manually from the Actions tab, or for every `v*` tag. Installers cannot be
-cross-built, so each platform runs on its own runner, and macOS is arm64 only
-because better-sqlite3 downloads a prebuilt binary for the *building* machine.
+**CI**: `.github/workflows/ci.yml` runs typecheck, lint, and the full test
+suite (including Postgres and a Windows unit-test job) on every pull
+request — the same commands as the table above, so a failure is
+reproducible locally with one command. `.github/workflows/desktop.yml`
+builds installers on hosted runners — manually from the Actions tab, or for
+every `v*` tag. Installers cannot be cross-built, so each platform runs on
+its own runner, and macOS is arm64 only because better-sqlite3 downloads a
+prebuilt binary for the *building* machine.
+
+**GitHub Actions budget (temporary policy, in effect until lifted):** this
+repo has been close to its included Actions minutes for the month, so until
+told otherwise, prefer running the table above locally over pushing to see
+if CI passes, and batch related work into meaningful pushes rather than
+many small ones. `ci.yml` is already built around this: it triggers on pull
+requests only (no duplicate run on the `main` push after merge), cancels a
+superseded run for the same PR, skips the expensive jobs entirely on
+changes that can't affect build/test output via a `plan` job, and checks
+one Node version per normal PR (`workflow_dispatch` unlocks the full matrix
+on demand). Keep these properties when editing the workflow, and never
+remove a required status check, security check, or deployment safeguard to
+save minutes — trim scheduling and duplication instead, and don't work
+around this by purchasing minutes, raising spending limits, or changing
+repository visibility.
 
 ---
 
@@ -440,11 +515,20 @@ Honest inventory of what is not finished:
   pages, intentionally removed from the sidebar rather than deleted.
 - **Updates are checked, not installed** — the repository is private, and
   auto-update would mean shipping a token inside the installer.
-- **Hosted accounts mode only ported the Projects domain.** Uploads, prompts,
-  AI conversations, automations, GitHub sync, notes, notifications, tools and
-  integrations are desktop/single-password-only for now — genuinely
-  unreachable in accounts mode (§2b, §7) rather than half-scoped, until each
-  gets ported for real in a later phase.
+- **Hosted accounts mode only ported Projects, Milestones/Tasks and Knowledge
+  base.** Uploads, prompts, AI conversations, automations, GitHub sync, notes,
+  notifications, tools and integrations are desktop/single-password-only for
+  now — genuinely unreachable in accounts mode (§2b, §7) rather than
+  half-scoped, until each gets ported for real in a later phase.
+- **Knowledge base documents are flat, plain text, with no version
+  history.** No folders/hierarchy, no markdown rendering, no revisions —
+  a deliberate first-slice scope cut (ARCHITECTURE.md §9), not an
+  oversight.
+- **No assignee picker or display.** A task's `assigneeId` is a real column
+  and the API accepts it, but there's no UI for it — resolving a workspace
+  member's id to a name needs a members-list endpoint that returns more than
+  `userId`+role (`core/workspaces/service.ts`'s `listMembers()` doesn't), and
+  showing a raw id would be worse than not showing one.
 
 ---
 
@@ -455,6 +539,9 @@ Honest inventory of what is not finished:
 | A sidebar section | One entry in `config/navigation.ts` + a route file |
 | A quick action | One entry in `config/quick-actions.ts` |
 | A project field | `core/projects/types.ts` → `db/schema.ts` → `core/projects/schema.ts` → `npm run db:generate` |
+| A milestone/task field | `core/tasks/types.ts` → `db/schema.ts` (SQLite) + `db/schema.pg.ts` (Postgres) → `core/tasks/schema.ts` → `npm run db:generate` + `db:generate:pg` |
+| A knowledge document field | `core/knowledge/types.ts` → `db/schema.ts` (SQLite) + `db/schema.pg.ts` (Postgres) → `core/knowledge/schema.ts` → `npm run db:generate` + `db:generate:pg` |
+| A new per-project domain | Follow the milestones/tasks or knowledge-base pattern: SQLite table (no `workspace_id`) + Postgres table (`workspace_id` not null) → a `*Repository` interface taking `workspaceId` first → Drizzle + Postgres implementations → wire into `db/repositories/index.ts` → API routes under `app/api/projects/[id]/...` |
 | An experimental field | Put it in `metadata`; no migration |
 | A status or project type | The const array in `types.ts` + an entry in `labels.ts` |
 | A scheduled automation | One entry in `core/automation/tasks.ts`; the row is created on read |

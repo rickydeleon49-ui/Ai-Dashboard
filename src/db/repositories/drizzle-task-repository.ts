@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, sql, type SQL } from "drizzle-orm";
 import { db } from "../client";
-import { tasks } from "../schema";
+import { taskDependencies, tasks } from "../schema";
 import type { TaskRow } from "../schema";
 import { LOCAL_WORKSPACE_ID } from "./project-repository";
 import type { TaskRepository } from "./task-repository";
@@ -12,7 +12,10 @@ import type {
   TaskStatus,
   TaskUpdateInput,
 } from "@/core/tasks/types";
+import { DependencyCycleError } from "@/core/tasks/errors";
 import { createId } from "@/lib/ids";
+
+const DONE_STATUSES: string[] = ["done", "cancelled"];
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -24,7 +27,7 @@ function nowIso(): string {
  * (if anything) is actually stored in the column. See the column's own
  * comment in `db/schema.ts`.
  */
-function toDomain(row: TaskRow): Task {
+function toDomain(row: TaskRow, blocked: boolean): Task {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -39,6 +42,7 @@ function toDomain(row: TaskRow): Task {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
+    blocked,
   };
 }
 
@@ -53,9 +57,25 @@ function assertLocalWorkspace(workspaceId: string): void {
 }
 
 /**
- * Shared by `list` and `listForWorkspace` — everything except the
- * project-id filter, which only the former needs.
+ * Which of `taskIds` are currently blocked — have at least one dependency
+ * (see `task_dependencies`) whose own status isn't done/cancelled. This is
+ * necessarily correct for *transitive* blocking too without a recursive
+ * query: if B blocks A and B is itself blocked (by C), B's own status can
+ * only be todo/in_progress (not done), which alone is enough to mark A
+ * blocked — there's no need to also know *why* B isn't done.
  */
+function loadBlockedSet(taskIds: string[]): Set<string> {
+  if (taskIds.length === 0) return new Set();
+  const rows = db
+    .select({ taskId: taskDependencies.taskId })
+    .from(taskDependencies)
+    .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+    .where(and(inArray(taskDependencies.taskId, taskIds), notInArray(tasks.status, DONE_STATUSES)))
+    .all();
+  return new Set(rows.map((r) => r.taskId));
+}
+
+/** Shared by `list` and `listForWorkspace` — everything except the project-id filter. */
 function queryConditions(query: TaskQuery): SQL[] {
   const conditions: SQL[] = [];
   if (query.status && query.status !== "all") conditions.push(eq(tasks.status, query.status));
@@ -108,7 +128,8 @@ export class DrizzleTaskRepository implements TaskRepository {
     if (query.limit) statement = statement.limit(query.limit);
 
     const rows = statement.all();
-    return rows.map(toDomain);
+    const blocked = loadBlockedSet(rows.map((r) => r.id));
+    return rows.map((row) => toDomain(row, blocked.has(row.id)));
   }
 
   async listForWorkspace(workspaceId: string, query: TaskQuery = {}): Promise<Task[]> {
@@ -124,13 +145,15 @@ export class DrizzleTaskRepository implements TaskRepository {
     if (query.limit) statement = statement.limit(query.limit);
 
     const rows = statement.all();
-    return rows.map(toDomain);
+    const blocked = loadBlockedSet(rows.map((r) => r.id));
+    return rows.map((row) => toDomain(row, blocked.has(row.id)));
   }
 
   async findById(workspaceId: string, id: string): Promise<Task | null> {
     assertLocalWorkspace(workspaceId);
     const row = db.select().from(tasks).where(eq(tasks.id, id)).get();
-    return row ? toDomain(row) : null;
+    if (!row) return null;
+    return toDomain(row, loadBlockedSet([id]).has(id));
   }
 
   async create(workspaceId: string, input: TaskCreateInput): Promise<Task> {
@@ -197,5 +220,73 @@ export class DrizzleTaskRepository implements TaskRepository {
     if (!existing) return false;
     db.delete(tasks).where(eq(tasks.id, id)).run();
     return true;
+  }
+
+  async listBlockers(workspaceId: string, taskId: string): Promise<Task[]> {
+    assertLocalWorkspace(workspaceId);
+    const rows = db
+      .select({ task: tasks })
+      .from(taskDependencies)
+      .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+      .where(eq(taskDependencies.taskId, taskId))
+      .all();
+    const blocked = loadBlockedSet(rows.map((r) => r.task.id));
+    return rows.map((r) => toDomain(r.task, blocked.has(r.task.id)));
+  }
+
+  async listDependents(workspaceId: string, taskId: string): Promise<Task[]> {
+    assertLocalWorkspace(workspaceId);
+    const rows = db
+      .select({ task: tasks })
+      .from(taskDependencies)
+      .innerJoin(tasks, eq(tasks.id, taskDependencies.taskId))
+      .where(eq(taskDependencies.dependsOnTaskId, taskId))
+      .all();
+    const blocked = loadBlockedSet(rows.map((r) => r.task.id));
+    return rows.map((r) => toDomain(r.task, blocked.has(r.task.id)));
+  }
+
+  async addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void> {
+    assertLocalWorkspace(workspaceId);
+    if (taskId === dependsOnTaskId) throw new DependencyCycleError();
+
+    db.transaction((tx) => {
+      // Would `dependsOnTaskId` already (transitively) depend on `taskId`?
+      // If so, taskId -> dependsOnTaskId would close a cycle. Walking from
+      // dependsOnTaskId along its own "depends on" edges and checking
+      // whether taskId is reachable answers exactly that. A single
+      // connection (better-sqlite3, desktop) already serializes every
+      // write through this transaction — no extra locking needed the way
+      // PostgresTaskRepository needs it for concurrent hosted writers.
+      const cycle = tx.get<{ found: number }>(sql`
+        WITH RECURSIVE reachable(id) AS (
+          SELECT depends_on_task_id AS id FROM task_dependencies WHERE task_id = ${dependsOnTaskId}
+          UNION
+          SELECT td.depends_on_task_id AS id FROM task_dependencies td
+          JOIN reachable r ON td.task_id = r.id
+        )
+        SELECT 1 AS found FROM reachable WHERE id = ${taskId} LIMIT 1
+      `);
+      if (cycle) throw new DependencyCycleError();
+
+      tx.insert(taskDependencies).values({ taskId, dependsOnTaskId }).onConflictDoNothing().run();
+      return true;
+    });
+  }
+
+  async removeDependency(
+    workspaceId: string,
+    taskId: string,
+    dependsOnTaskId: string,
+  ): Promise<void> {
+    assertLocalWorkspace(workspaceId);
+    db.delete(taskDependencies)
+      .where(
+        and(
+          eq(taskDependencies.taskId, taskId),
+          eq(taskDependencies.dependsOnTaskId, dependsOnTaskId),
+        ),
+      )
+      .run();
   }
 }

@@ -26,15 +26,18 @@ import {
 } from "@/components/projects/project-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { EmptyState } from "@/components/ui/empty-state";
-import { projectRepository } from "@/db/repositories";
+import { knowledgeDocumentRepository, milestoneRepository, projectRepository, taskRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import { listProjectActivity, type ActivityItem } from "@/core/activity/service";
 import { listProjectFiles } from "@/core/files/service";
 import { ProjectFiles } from "@/components/projects/project-files";
 import { LocalActions } from "@/components/projects/local-actions";
 import { SOURCE_META, STATUS_META, TYPE_META, languageColor } from "@/core/projects/labels";
+import { MILESTONE_STATUS_META } from "@/core/tasks/labels";
 import { githubLinks } from "@/core/github/types";
 import type { Project, ProjectFile } from "@/core/projects/types";
+import type { Milestone, Task } from "@/core/tasks/types";
+import type { KnowledgeDocument } from "@/core/knowledge/types";
 import { formatCompact, formatDate, formatRelative } from "@/lib/utils";
 
 /** True in hosted multi-user mode — see the note on `activity`/`files` below. */
@@ -111,6 +114,11 @@ export default async function ProjectDetailPage({
   const [activity, files]: [ActivityItem[], ProjectFile[]] = isAccountsMode()
     ? [[], []]
     : await Promise.all([listProjectActivity(project.id, 15), listProjectFiles(project.id)]);
+  const [milestones, tasks, knowledgeDocuments]: [Milestone[], Task[], KnowledgeDocument[]] = await Promise.all([
+    milestoneRepository.list(workspaceId, project.id),
+    taskRepository.list(workspaceId, project.id),
+    knowledgeDocumentRepository.list(workspaceId, project.id),
+  ]);
   const status = STATUS_META[project.status];
   const gh = githubMeta(project);
   const repoUrl = project.repositoryUrl ?? gh?.htmlUrl ?? null;
@@ -261,6 +269,12 @@ export default async function ProjectDetailPage({
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          {/* Milestones & tasks */}
+          <MilestonesTasksCard projectId={project.id} milestones={milestones} tasks={tasks} />
+
+          {/* Knowledge base */}
+          <KnowledgeBaseCard projectId={project.id} documents={knowledgeDocuments} />
+
           {/* GitHub repository panel */}
           {gh ? (
             <Card>
@@ -399,6 +413,155 @@ export default async function ProjectDetailPage({
         </div>
       </div>
     </div>
+  );
+}
+
+const DONE_TASK_STATUSES = new Set(["done", "cancelled"]);
+
+/**
+ * The grounded slice of "project overview" this release delivers — real
+ * counts from the milestones/tasks domain (Phase 2, Release A), not a
+ * placeholder. GitHub issues/PRs, deployment status, uptime and business
+ * metrics are explicitly out of scope for this release; see the release
+ * plan's own "explicitly deferred" list.
+ */
+function MilestonesTasksCard({
+  projectId,
+  milestones,
+  tasks,
+}: {
+  projectId: string;
+  milestones: Milestone[];
+  tasks: Task[];
+}) {
+  const done = tasks.filter((t) => DONE_TASK_STATUSES.has(t.status)).length;
+  const overdue = tasks.filter(
+    (t) => t.dueDate && !DONE_TASK_STATUSES.has(t.status) && new Date(t.dueDate) < new Date(),
+  ).length;
+  const blocked = tasks.filter((t) => t.blocked).length;
+  const upcomingMilestones = milestones
+    .filter((m) => m.status === "open")
+    .sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    })
+    .slice(0, 3);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Milestones &amp; tasks</CardTitle>
+        <Link
+          href={`/projects/${projectId}/tasks`}
+          className="text-[12px] text-muted transition-colors hover:text-fg"
+        >
+          Open
+        </Link>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Detail label="Tasks">{tasks.length}</Detail>
+          <Detail label="Done">
+            {done}/{tasks.length}
+          </Detail>
+          <Detail label="Overdue">
+            <span className={overdue > 0 ? "text-red-400" : undefined}>{overdue}</span>
+          </Detail>
+          <Detail label="Blocked">
+            <span className={blocked > 0 ? "text-amber-300" : undefined}>{blocked}</span>
+          </Detail>
+        </div>
+
+        {upcomingMilestones.length > 0 ? (
+          <div className="space-y-1.5 border-t border-line pt-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
+              Upcoming milestones
+            </p>
+            <ul className="space-y-1">
+              {upcomingMilestones.map((m) => (
+                <li key={m.id} className="flex items-center gap-2 text-[13px]">
+                  <Link
+                    href={`/projects/${projectId}/tasks`}
+                    className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)]"
+                  >
+                    {m.title}
+                  </Link>
+                  <Badge className={MILESTONE_STATUS_META[m.status].className}>
+                    {MILESTONE_STATUS_META[m.status].label}
+                  </Badge>
+                  {m.dueDate ? (
+                    <span className="shrink-0 text-[11.5px] text-faint">{formatDate(m.dueDate)}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : tasks.length === 0 && milestones.length === 0 ? (
+          <p className="text-[13px] text-faint">
+            No milestones or tasks yet. Break this project down to track real progress.
+          </p>
+        ) : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * Doc count plus pinned/recently-updated titles, linking into the full
+ * knowledge base — same shape as `MilestonesTasksCard` above (Phase 2,
+ * Release B).
+ */
+function KnowledgeBaseCard({
+  projectId,
+  documents,
+}: {
+  projectId: string;
+  documents: KnowledgeDocument[];
+}) {
+  const highlighted = [...documents]
+    .sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    })
+    .slice(0, 5);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Knowledge base</CardTitle>
+        <Link
+          href={`/projects/${projectId}/knowledge`}
+          className="text-[12px] text-muted transition-colors hover:text-fg"
+        >
+          Open
+        </Link>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <Detail label="Documents">{documents.length}</Detail>
+
+        {highlighted.length > 0 ? (
+          <ul className="space-y-1 border-t border-line pt-3">
+            {highlighted.map((doc) => (
+              <li key={doc.id} className="flex items-center gap-2 text-[13px]">
+                <Link
+                  href={`/projects/${projectId}/knowledge/${doc.id}/edit`}
+                  className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)]"
+                >
+                  {doc.title}
+                </Link>
+                {doc.category ? <Badge>{doc.category}</Badge> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[13px] text-faint">
+            No documents yet. Keep notes, runbooks and decisions somewhere findable.
+          </p>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 
