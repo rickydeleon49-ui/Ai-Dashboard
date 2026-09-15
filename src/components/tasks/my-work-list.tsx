@@ -39,12 +39,15 @@ function MyWorkRow({ task, projectName }: { task: Task; projectName: string }) {
 
   async function changeStatus(status: string) {
     setSaving(true);
-    await fetch(`/api/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setSaving(false);
+    try {
+      await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+    } finally {
+      setSaving(false);
+    }
     router.refresh();
   }
 

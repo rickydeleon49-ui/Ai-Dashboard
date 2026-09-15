@@ -10,7 +10,7 @@
  * editing, or mid-create) is genuinely shared across milestone groups and
  * their tasks, not independent per row.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -588,9 +588,26 @@ function TaskDependencies({
     setLoaded(true);
   }
 
-  if (!loaded) {
-    void load();
-  }
+  // Fetched once per mount via an effect, not in the render body: calling
+  // load() there re-fires on every re-render until the first request
+  // resolves, since `loaded` doesn't flip until then — a re-render from
+  // unrelated state (another row's edit/expand toggle) would fire a
+  // duplicate concurrent GET. The `active` guard (same pattern as
+  // `local-ai-workspace.tsx`'s own project-files effect) drops a response
+  // that resolves after a newer request has already superseded it.
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/tasks/${taskId}/dependencies`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { blockers: Task[] } | null) => {
+        if (!active || !body) return;
+        setBlockers(body.blockers);
+        setLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [taskId]);
 
   async function addDependency(dependsOnTaskId: string) {
     if (!dependsOnTaskId) return;
