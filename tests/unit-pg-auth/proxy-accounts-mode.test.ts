@@ -254,6 +254,7 @@ describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => 
         "/projects",
         "/projects/new",
         "/projects/some-id/tasks",
+        "/projects/some-id/knowledge",
         "/favorites",
         "/settings",
         "/my-work",
@@ -277,6 +278,8 @@ describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => 
         "/api/tasks/some-id",
         "/api/tasks/some-id/dependencies",
         "/api/my-work",
+        "/api/projects/some-id/knowledge",
+        "/api/projects/some-id/knowledge/some-doc-id",
       ]) {
         const response = await call(requestFor(path, cookie));
         assert.notEqual(response.status, 404, `${path} should be reachable`);

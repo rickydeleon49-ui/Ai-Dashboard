@@ -26,7 +26,7 @@ import {
 } from "@/components/projects/project-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { EmptyState } from "@/components/ui/empty-state";
-import { milestoneRepository, projectRepository, taskRepository } from "@/db/repositories";
+import { knowledgeDocumentRepository, milestoneRepository, projectRepository, taskRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import { listProjectActivity, type ActivityItem } from "@/core/activity/service";
 import { listProjectFiles } from "@/core/files/service";
@@ -37,6 +37,7 @@ import { MILESTONE_STATUS_META } from "@/core/tasks/labels";
 import { githubLinks } from "@/core/github/types";
 import type { Project, ProjectFile } from "@/core/projects/types";
 import type { Milestone, Task } from "@/core/tasks/types";
+import type { KnowledgeDocument } from "@/core/knowledge/types";
 import { formatCompact, formatDate, formatRelative } from "@/lib/utils";
 
 /** True in hosted multi-user mode — see the note on `activity`/`files` below. */
@@ -113,9 +114,10 @@ export default async function ProjectDetailPage({
   const [activity, files]: [ActivityItem[], ProjectFile[]] = isAccountsMode()
     ? [[], []]
     : await Promise.all([listProjectActivity(project.id, 15), listProjectFiles(project.id)]);
-  const [milestones, tasks]: [Milestone[], Task[]] = await Promise.all([
+  const [milestones, tasks, knowledgeDocuments]: [Milestone[], Task[], KnowledgeDocument[]] = await Promise.all([
     milestoneRepository.list(workspaceId, project.id),
     taskRepository.list(workspaceId, project.id),
+    knowledgeDocumentRepository.list(workspaceId, project.id),
   ]);
   const status = STATUS_META[project.status];
   const gh = githubMeta(project);
@@ -269,6 +271,9 @@ export default async function ProjectDetailPage({
         <div className="space-y-4 lg:col-span-2">
           {/* Milestones & tasks */}
           <MilestonesTasksCard projectId={project.id} milestones={milestones} tasks={tasks} />
+
+          {/* Knowledge base */}
+          <KnowledgeBaseCard projectId={project.id} documents={knowledgeDocuments} />
 
           {/* GitHub repository panel */}
           {gh ? (
@@ -498,6 +503,63 @@ function MilestonesTasksCard({
             No milestones or tasks yet. Break this project down to track real progress.
           </p>
         ) : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * Doc count plus pinned/recently-updated titles, linking into the full
+ * knowledge base — same shape as `MilestonesTasksCard` above (Phase 2,
+ * Release B).
+ */
+function KnowledgeBaseCard({
+  projectId,
+  documents,
+}: {
+  projectId: string;
+  documents: KnowledgeDocument[];
+}) {
+  const highlighted = [...documents]
+    .sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    })
+    .slice(0, 5);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Knowledge base</CardTitle>
+        <Link
+          href={`/projects/${projectId}/knowledge`}
+          className="text-[12px] text-muted transition-colors hover:text-fg"
+        >
+          Open
+        </Link>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <Detail label="Documents">{documents.length}</Detail>
+
+        {highlighted.length > 0 ? (
+          <ul className="space-y-1 border-t border-line pt-3">
+            {highlighted.map((doc) => (
+              <li key={doc.id} className="flex items-center gap-2 text-[13px]">
+                <Link
+                  href={`/projects/${projectId}/knowledge/${doc.id}/edit`}
+                  className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)]"
+                >
+                  {doc.title}
+                </Link>
+                {doc.category ? <Badge>{doc.category}</Badge> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[13px] text-faint">
+            No documents yet. Keep notes, runbooks and decisions somewhere findable.
+          </p>
+        )}
       </CardBody>
     </Card>
   );

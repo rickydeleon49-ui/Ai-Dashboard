@@ -501,6 +501,33 @@ a GitHub issues/PRs/releases client, deployment/uptime monitoring, a
 durable hosted job system, and AI-generated summaries with a review/
 approval workflow. Each is a later release's work.
 
+**Command Center Phase 2, Release B — Project knowledge base (shipped, its
+own "Release B" plan — see `core/knowledge/`).** A flat, per-project list
+of plain-text documents (title, content, optional free-text category, a
+`pinned` flag) — the next Phase 2 slice after Release A, picked as a
+self-contained release that reuses the exact same repository/API/UI
+pattern with no new infrastructure. `KnowledgeDocumentRepository` mirrors
+`MilestoneRepository`'s own shape exactly (mandatory `workspaceId` first
+arg, a Drizzle implementation guarded by `assertLocalWorkspace()`, a
+genuinely workspace-scoped Postgres implementation); search across
+title/content/category follows `core/prompts/service.ts`'s own search
+reasoning (the content is the point, so it's covered too, not just the
+title). Unlike Release A, this release needed **no `proxy.ts` or
+`config/navigation.ts` changes**: every route is nested under a project
+(`/projects/:id/knowledge`, `/api/projects/:id/knowledge`), so the
+existing `/projects`/`/api/projects` prefix allowlist entries already
+cover it, and the feature is reached from the project detail page rather
+than the sidebar — same as `/projects/:id/tasks`. Ends at one working
+flow: create a document → edit it → search/filter by category → pin it →
+the project overview card reflects it.
+
+Deliberately deferred, this release's own explicit scope cut: folders/
+hierarchy, markdown rendering, version history, workspace-wide (cross-
+project) search, attachments (the existing `uploads`/`files` domain is
+SQLite-only and unscoped in accounts mode, same limitation as several
+domains named in Release A's own plan), and any linking between documents
+and tasks/milestones. Each is later work, not an oversight.
+
 ### Where the work happens
 
 The desktop build is not a wrapper around a static page: it forks a real Next

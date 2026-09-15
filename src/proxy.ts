@@ -167,7 +167,10 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
  * `/projects` prefix below. Milestones and tasks (Phase 2, Release A) are
  * workspace-scoped for real in accounts mode too, the same as Projects
  * (see PostgresMilestoneRepository/PostgresTaskRepository), so they're
- * ported here rather than hidden.
+ * ported here rather than hidden. Same story for `/projects/:id/knowledge`
+ * (Phase 2, Release B — see PostgresKnowledgeDocumentRepository): no
+ * separate entry needed, and no `/api/knowledge` entry below either,
+ * since `/api/projects/:id/knowledge` already matches `/api/projects`.
  *
  * Everything else (AI workspace, uploads, prompts, automations, GitHub
  * sync, notes, notifications, integrations, tools) still reads and writes
