@@ -36,15 +36,28 @@ export function MyWorkList({
 function MyWorkRow({ task, projectName }: { task: Task; projectName: string }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function changeStatus(status: string) {
     setSaving(true);
+    setError(null);
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      const response = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
+      if (!response.ok) {
+        // The select reverts on its own: `value` is bound to `task.status`
+        // from props, and router.refresh() below re-fetches it. Surfacing
+        // why matters most for the 409 a still-blocked task's "Done" gets.
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(body?.error ?? "Could not change status.");
+        setTimeout(() => setError(null), 5000);
+      }
+    } catch {
+      setError("Could not reach the server.");
+      setTimeout(() => setError(null), 5000);
     } finally {
       setSaving(false);
     }
@@ -54,47 +67,53 @@ function MyWorkRow({ task, projectName }: { task: Task; projectName: string }) {
   const overdue = isOverdue(task);
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2">
-      <Select
-        value={task.status}
-        disabled={saving}
-        onChange={(e) => changeStatus(e.target.value)}
-        className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
-      >
-        {TASK_STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {TASK_STATUS_META[s].label}
-          </option>
-        ))}
-      </Select>
+    <div className="rounded-lg border border-line bg-surface">
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <Select
+          value={task.status}
+          disabled={saving}
+          onChange={(e) => changeStatus(e.target.value)}
+          className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
+        >
+          {TASK_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {TASK_STATUS_META[s].label}
+            </option>
+          ))}
+        </Select>
 
-      <Link
-        href={`/projects/${task.projectId}/tasks`}
-        className={cn(
-          "min-w-0 flex-1 truncate text-[13px] text-fg transition-colors hover:text-[var(--accent-text)]",
-          DONE_STATUSES.has(task.status) && "text-faint line-through",
-        )}
-      >
-        {task.title}
-      </Link>
+        <Link
+          href={`/projects/${task.projectId}/tasks`}
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] text-fg transition-colors hover:text-[var(--accent-text)]",
+            DONE_STATUSES.has(task.status) && "text-faint line-through",
+          )}
+        >
+          {task.title}
+        </Link>
 
-      <span className="shrink-0 truncate text-[11.5px] text-faint">{projectName}</span>
+        <span className="shrink-0 truncate text-[11.5px] text-faint">{projectName}</span>
 
-      <Badge className={cn("shrink-0", TASK_PRIORITY_META[task.priority].className)}>
-        {TASK_PRIORITY_META[task.priority].label}
-      </Badge>
+        <Badge className={cn("shrink-0", TASK_PRIORITY_META[task.priority].className)}>
+          {TASK_PRIORITY_META[task.priority].label}
+        </Badge>
 
-      {task.blocked ? (
-        <Badge className="shrink-0 text-amber-300 bg-amber-400/10 ring-amber-400/25">Blocked</Badge>
+        {task.blocked ? (
+          <Badge className="shrink-0 text-amber-300 bg-amber-400/10 ring-amber-400/25">Blocked</Badge>
+        ) : null}
+
+        {task.dueDate ? (
+          <span className={cn("shrink-0 text-[11.5px]", overdue ? "text-red-400" : "text-faint")}>
+            {formatDate(task.dueDate)}
+          </span>
+        ) : null}
+
+        {saving ? <Loader2 className="h-3 w-3 shrink-0 animate-spin text-faint" strokeWidth={2} /> : null}
+      </div>
+
+      {error ? (
+        <p className="border-t border-line px-2.5 py-1.5 text-[11.5px] text-red-400">{error}</p>
       ) : null}
-
-      {task.dueDate ? (
-        <span className={cn("shrink-0 text-[11.5px]", overdue ? "text-red-400" : "text-faint")}>
-          {formatDate(task.dueDate)}
-        </span>
-      ) : null}
-
-      {saving ? <Loader2 className="h-3 w-3 shrink-0 animate-spin text-faint" strokeWidth={2} /> : null}
     </div>
   );
 }

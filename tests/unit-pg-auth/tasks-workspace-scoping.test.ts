@@ -458,6 +458,38 @@ describe("Task dependencies API", () => {
     assert.equal(((await aReadAfter.json()) as { task: { blocked: boolean } }).task.blocked, false);
   });
 
+  it("rejects marking a blocked task done, with 409, but still allows cancelling it", async () => {
+    const cookie = await signIn("deps-blocked-done@example.com");
+    const project = await createProject(cookie, "Deps Blocked Done Project");
+    const dependent = await createTask(cookie, project.id, "Dependent");
+    const blocker = await createTask(cookie, project.id, "Blocker");
+
+    const addResponse = await taskDependenciesRoute.POST(
+      apiRequest("POST", `/api/tasks/${dependent.id}/dependencies`, { cookie, body: { dependsOnTaskId: blocker.id } }),
+      { params: Promise.resolve({ id: dependent.id }) },
+    );
+    assert.equal(addResponse.status, 201);
+
+    const doneResponse = await taskRoute.PATCH(
+      apiRequest("PATCH", `/api/tasks/${dependent.id}`, { cookie, body: { status: "done" } }),
+      { params: Promise.resolve({ id: dependent.id }) },
+    );
+    assert.equal(doneResponse.status, 409);
+
+    const stillBlocked = await taskRoute.GET(apiRequest("GET", `/api/tasks/${dependent.id}`, { cookie }), {
+      params: Promise.resolve({ id: dependent.id }),
+    });
+    const { task: read } = (await stillBlocked.json()) as { task: { status: string; blocked: boolean } };
+    assert.equal(read.status, "todo");
+    assert.equal(read.blocked, true);
+
+    const cancelResponse = await taskRoute.PATCH(
+      apiRequest("PATCH", `/api/tasks/${dependent.id}`, { cookie, body: { status: "cancelled" } }),
+      { params: Promise.resolve({ id: dependent.id }) },
+    );
+    assert.equal(cancelResponse.status, 200);
+  });
+
   it("rejects a dependency that would create a cycle, with 409", async () => {
     const cookie = await signIn("deps-cycle@example.com");
     const project = await createProject(cookie, "Deps Cycle Project");

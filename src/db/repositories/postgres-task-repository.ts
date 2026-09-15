@@ -21,7 +21,7 @@ import type {
   TaskStatus,
   TaskUpdateInput,
 } from "@/core/tasks/types";
-import { DependencyCycleError } from "@/core/tasks/errors";
+import { DependencyCycleError, TaskBlockedError } from "@/core/tasks/errors";
 import { createId } from "@/lib/ids";
 import type { TaskRepository } from "./task-repository";
 
@@ -52,7 +52,9 @@ function toDomain(row: TaskRow, blocked: boolean): Task {
  * Which of `taskIds` are currently blocked — have at least one dependency
  * whose own status isn't done/cancelled. See `DrizzleTaskRepository`'s own
  * copy of this note for why checking only *direct* blockers correctly
- * captures transitive blocking too, with no recursive query needed here.
+ * captures transitive blocking too, with no recursive query needed here —
+ * and why that depends on `update()` below refusing to move a blocked task
+ * to `done`.
  */
 async function loadBlockedSet(workspaceId: string, taskIds: string[]): Promise<Set<string>> {
   if (taskIds.length === 0) return new Set();
@@ -212,6 +214,12 @@ export class PostgresTaskRepository implements TaskRepository {
     if (input.dueDate !== undefined) patch.dueDate = input.dueDate ? new Date(input.dueDate) : null;
 
     if (input.status !== undefined) {
+      const movingToDone = input.status === "done" && existing.status !== "done";
+      if (movingToDone) {
+        const blocked = await loadBlockedSet(workspaceId, [id]);
+        if (blocked.has(id)) throw new TaskBlockedError();
+      }
+
       patch.status = input.status;
       const nowDone = input.status === "done" || input.status === "cancelled";
       const wasDone = existing.status === "done" || existing.status === "cancelled";
