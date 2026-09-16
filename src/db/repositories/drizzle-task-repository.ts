@@ -12,7 +12,7 @@ import type {
   TaskStatus,
   TaskUpdateInput,
 } from "@/core/tasks/types";
-import { DependencyCycleError } from "@/core/tasks/errors";
+import { DependencyCycleError, TaskBlockedError } from "@/core/tasks/errors";
 import { createId } from "@/lib/ids";
 
 const DONE_STATUSES: string[] = ["done", "cancelled"];
@@ -59,10 +59,13 @@ function assertLocalWorkspace(workspaceId: string): void {
 /**
  * Which of `taskIds` are currently blocked — have at least one dependency
  * (see `task_dependencies`) whose own status isn't done/cancelled. This is
- * necessarily correct for *transitive* blocking too without a recursive
- * query: if B blocks A and B is itself blocked (by C), B's own status can
- * only be todo/in_progress (not done), which alone is enough to mark A
- * blocked — there's no need to also know *why* B isn't done.
+ * correct for *transitive* blocking too without a recursive query: if B
+ * blocks A and B is itself blocked (by C), B's own status can only be
+ * todo/in_progress (not done), which alone is enough to mark A blocked —
+ * there's no need to also know *why* B isn't done. That only holds because
+ * `update()` below refuses to move a task to `done` while it is itself
+ * blocked (see `TaskBlockedError`) — without that guard, a directly
+ * force-completed B would make A wrongly report unblocked.
  */
 function loadBlockedSet(taskIds: string[]): Set<string> {
   if (taskIds.length === 0) return new Set();
@@ -202,6 +205,9 @@ export class DrizzleTaskRepository implements TaskRepository {
     // See create()'s own note — assigneeId is never persisted on desktop.
 
     if (input.status !== undefined) {
+      const movingToDone = input.status === "done" && existing.status !== "done";
+      if (movingToDone && loadBlockedSet([id]).has(id)) throw new TaskBlockedError();
+
       patch.status = input.status;
       const nowDone = input.status === "done" || input.status === "cancelled";
       const wasDone = existing.status === "done" || existing.status === "cancelled";

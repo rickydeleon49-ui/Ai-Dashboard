@@ -231,6 +231,39 @@ describe("task dependencies + blocked state (SQLite)", () => {
     assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, dependent.id))?.blocked, false);
   });
 
+  it("rejects moving a blocked task to done, so transitive blocking can't be bypassed", async () => {
+    const { TaskBlockedError } = await import("../../src/core/tasks/errors");
+    // A depends on B, B depends on C (still open). B is itself blocked, so
+    // completing it directly would make A wrongly report unblocked — see
+    // loadBlockedSet's own comment on why this must be rejected.
+    const a = await makeTask("Transitive A");
+    const b = await makeTask("Transitive B");
+    const c = await makeTask("Transitive C");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, c.id);
+
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, b.id))?.blocked, true);
+    await assert.rejects(
+      () => taskRepository.update(LOCAL_WORKSPACE_ID, b.id, { status: "done" }),
+      (error: unknown) => {
+        assert.ok(error instanceof TaskBlockedError);
+        return true;
+      },
+    );
+
+    // Nothing was written — B is still blocked, A still (correctly) unblocked-by-B's-status is moot since B never became done.
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, b.id))?.status, "todo");
+  });
+
+  it("still allows cancelling a blocked task", async () => {
+    const dependent = await makeTask("Cancel Dependent");
+    const blocker = await makeTask("Cancel Blocker");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, dependent.id, blocker.id);
+
+    const cancelled = await taskRepository.update(LOCAL_WORKSPACE_ID, dependent.id, { status: "cancelled" });
+    assert.equal(cancelled?.status, "cancelled");
+  });
+
   it("listBlockers and listDependents report the right direction", async () => {
     const blocker = await makeTask("Blocker 4");
     const dependent = await makeTask("Dependent 4");

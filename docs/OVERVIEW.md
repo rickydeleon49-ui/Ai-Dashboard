@@ -331,6 +331,12 @@ Three things are worth knowing:
 4. **A task's `blocked` flag is never stored.** It's computed at read time from
    `task_dependencies` — whether any direct dependency isn't done/cancelled —
    so it can't drift out of sync with the graph or a blocker's own status.
+   Checking only the *direct* dependency correctly captures transitive
+   blocking too (if B blocks A and B is itself blocked by C, B's status can
+   only be todo/in_progress) — but only because `TaskRepository.update()`
+   refuses to move a task to `done` while it is itself blocked (409
+   `TaskBlockedError`); without that guard a force-completed B would make A
+   wrongly report unblocked. Cancelling a blocked task is still allowed.
 5. **`knowledge_documents` is flat on purpose.** No parent/folder column —
    grouping is by free-text `category` only, not a tree; hierarchy is
    explicitly deferred, not an oversight (see ARCHITECTURE.md §9).

@@ -320,6 +320,34 @@ describe("PostgresTaskRepository: dependencies + blocked state", () => {
     );
   });
 
+  it("rejects moving a blocked task to done, so transitive blocking can't be bypassed", async () => {
+    const { TaskBlockedError } = await import("../../src/core/tasks/errors");
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Transitive Done Rejection");
+
+    // A depends on B, B depends on C (still open). B is itself blocked, so
+    // completing it directly would make A wrongly report unblocked.
+    const a = await repo.create(workspaceId, { projectId, title: "A" });
+    const b = await repo.create(workspaceId, { projectId, title: "B" });
+    const c = await repo.create(workspaceId, { projectId, title: "C" });
+    await repo.addDependency(workspaceId, a.id, b.id);
+    await repo.addDependency(workspaceId, b.id, c.id);
+
+    assert.equal((await repo.findById(workspaceId, b.id))?.blocked, true);
+    await assert.rejects(
+      () => repo.update(workspaceId, b.id, { status: "done" }),
+      (error: unknown) => {
+        assert.ok(error instanceof TaskBlockedError);
+        return true;
+      },
+    );
+    assert.equal((await repo.findById(workspaceId, b.id))?.status, "todo");
+
+    // Cancelling a blocked task is still allowed.
+    const cancelled = await repo.update(workspaceId, b.id, { status: "cancelled" });
+    assert.equal(cancelled?.status, "cancelled");
+  });
+
   it("adding the same edge twice is a no-op; removeDependency clears it and is idempotent", async () => {
     const repo = new PostgresTaskRepository();
     const { workspaceId, projectId } = await makeWorkspaceWithProject("Idempotent Edges");

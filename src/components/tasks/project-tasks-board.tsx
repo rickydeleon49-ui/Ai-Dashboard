@@ -450,12 +450,21 @@ function TaskRow({
   onChanged: () => void;
 }) {
   const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function changeStatus(status: string) {
     setStatusSaving(true);
-    await postJson(`/api/tasks/${task.id}`, "PATCH", { status });
+    setStatusError(null);
+    const result = await postJson(`/api/tasks/${task.id}`, "PATCH", { status });
     setStatusSaving(false);
+    if (!result.ok) {
+      // The select reverts on its own: `value` is bound to `task.status`
+      // from props, and onChanged() below re-fetches it. Surfacing why
+      // matters most for the 409 a still-blocked task's "Done" now gets.
+      setStatusError(result.error ?? "Could not change status.");
+      setTimeout(() => setStatusError(null), 5000);
+    }
     onChanged();
   }
 
@@ -551,6 +560,10 @@ function TaskRow({
           </button>
         </div>
       </div>
+
+      {statusError ? (
+        <p className="border-t border-line px-3 py-1.5 text-[11.5px] text-red-400">{statusError}</p>
+      ) : null}
 
       {expanded ? (
         <div className="space-y-3 border-t border-line px-3 py-2.5">

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { milestoneRepository, taskRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { taskUpdateSchema } from "@/core/tasks/schema";
+import { TaskBlockedError } from "@/core/tasks/errors";
 import {
   resolveWorkspaceAndUserForRequest,
   resolveWorkspaceIdForRequest,
@@ -96,7 +97,15 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     }
   }
 
-  const task = await taskRepository.update(workspaceId, id, parsed.data);
+  let task;
+  try {
+    task = await taskRepository.update(workspaceId, id, parsed.data);
+  } catch (error) {
+    if (error instanceof TaskBlockedError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
   if (!task) return notFoundResponse();
   return NextResponse.json({ task });
 }
