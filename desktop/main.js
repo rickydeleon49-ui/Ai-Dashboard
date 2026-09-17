@@ -9,7 +9,9 @@
  *   1. Storage lives in the OS user-data directory, not the working directory.
  *   2. Outbound links (Open GitHub, Open Project) go to the real browser.
  */
-const { app, BrowserWindow, Menu, shell, dialog, ipcMain, safeStorage } = require("electron");
+const electron = require("electron");
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain, safeStorage, session } =
+  typeof electron === "object" && electron !== null ? electron : {};
 const { fork, spawn } = require("node:child_process");
 const { editorCandidates, terminalCandidates, launchFirst } = require("./launch");
 const { createOllamaSupervisor } = require("./ollama");
@@ -19,6 +21,9 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
+// Cryptographically random secret generated once per application launch
+let desktopSecret = crypto.randomBytes(32).toString("hex");
+
 /*
  * Development attaches to `next dev`; a packaged app starts the bundled server.
  *
@@ -27,7 +32,7 @@ const path = require("node:path");
  * test of the desktop shell would silently exercise the dev path instead and
  * then block on an error dialog when no dev server answers.
  */
-const isDev = process.env.DESKTOP_BUNDLED === "1" ? false : !app.isPackaged;
+const isDev = process.env.DESKTOP_BUNDLED === "1" ? false : !(app && app.isPackaged);
 
 /**
  * Where the packaged Next standalone server lives.
@@ -225,6 +230,7 @@ async function startServer(env) {
       // password a public deployment requires. Safe because the server binds
       // 127.0.0.1 on a random port and nothing off this machine can reach it.
       DASHBOARD_LOCAL: "1",
+      DESKTOP_INTERNAL_SECRET: desktopSecret,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
@@ -270,6 +276,7 @@ async function recoverFromServerCrash() {
 
   try {
     baseUrl = await startServer(serverEnv ?? {});
+    setupDesktopHeaderInjection(baseUrl);
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(baseUrl);
     }
@@ -295,10 +302,151 @@ function stopServer() {
 }
 
 // ---------------------------------------------------------------------------
-// Window
+// Window & Header Injection
 // ---------------------------------------------------------------------------
 
+let currentServerOrigin = null;
+
+function setupDesktopHeaderInjection(serverUrl) {
+  try {
+    const serverOrigin = new URL(serverUrl).origin;
+    currentServerOrigin = serverOrigin;
+
+    if (session?.defaultSession?.webRequest) {
+      session.defaultSession.webRequest.onBeforeSendHeaders(
+        { urls: [`${serverOrigin}/*`] },
+        (details, callback) => {
+          try {
+            const reqOrigin = new URL(details.url).origin;
+            if (reqOrigin === currentServerOrigin && desktopSecret) {
+              details.requestHeaders["x-dashboard-desktop-secret"] = desktopSecret;
+            }
+          } catch {
+            // ignore malformed URLs
+          }
+          callback({ requestHeaders: details.requestHeaders });
+        },
+      );
+    }
+  } catch (error) {
+    console.error("[desktop] Failed to setup header injection:", error);
+  }
+}
+
+/**
+ * Strictly validates that a path or URL points to the local bundled server.
+ *
+ * Rules:
+ * 1. Must be a string.
+ * 2. Rejects protocol-relative URLs (e.g. "//evil.com", "/\\evil.com", "\\evil.com").
+ * 3. Relative paths (starting with "/" and not "//") are resolved against baseUrl.
+ * 4. Absolute URLs are parsed with `new URL()`.
+ *    - Scheme must match baseUrl's scheme (typically "http:").
+ *    - Hostname must match baseUrl's hostname (e.g. "127.0.0.1" or "localhost").
+ *    - Port must match baseUrl's port.
+ *    - Must NOT have credentials (username or password).
+ * 5. Anything failing this check throws an Error before any network I/O.
+ */
+function validateAndResolveInternalUrl(pathOrUrl, currentBaseUrl = baseUrl) {
+  if (typeof pathOrUrl !== "string") {
+    throw new TypeError("Invalid request URL: path must be a string");
+  }
+
+  // Reject protocol-relative URLs or backslash bypasses
+  if (
+    pathOrUrl.startsWith("//") ||
+    pathOrUrl.startsWith("/\\") ||
+    pathOrUrl.startsWith("\\\\") ||
+    pathOrUrl.startsWith("\\/")
+  ) {
+    throw new Error(`Refusing internal fetch with protocol-relative URL: ${pathOrUrl}`);
+  }
+
+  let serverUrl;
+  try {
+    serverUrl = new URL(currentBaseUrl);
+  } catch {
+    throw new Error(`Invalid base server URL: ${currentBaseUrl}`);
+  }
+
+  let targetUrl;
+
+  // Relative path (preferred)
+  if (pathOrUrl.startsWith("/")) {
+    try {
+      targetUrl = new URL(pathOrUrl, serverUrl);
+    } catch {
+      throw new Error(`Malformed relative path: ${pathOrUrl}`);
+    }
+  } else {
+    // Must be an absolute URL
+    try {
+      targetUrl = new URL(pathOrUrl);
+    } catch {
+      throw new Error(`Malformed or non-relative request URL: ${pathOrUrl}`);
+    }
+  }
+
+  // Reject credential-bearing URLs (e.g. http://user:pass@127.0.0.1:3000)
+  if (targetUrl.username || targetUrl.password) {
+    throw new Error(`Refusing internal fetch with credentials in URL: ${pathOrUrl}`);
+  }
+
+  // Exact origin match: scheme, hostname, and port
+  if (targetUrl.protocol !== serverUrl.protocol) {
+    throw new Error(
+      `Refusing internal fetch to non-same-origin scheme (${targetUrl.protocol} !== ${serverUrl.protocol}): ${pathOrUrl}`
+    );
+  }
+
+  if (targetUrl.hostname !== serverUrl.hostname) {
+    throw new Error(
+      `Refusing internal fetch to non-same-origin host (${targetUrl.hostname} !== ${serverUrl.hostname}): ${pathOrUrl}`
+    );
+  }
+
+  if (targetUrl.port !== serverUrl.port) {
+    throw new Error(
+      `Refusing internal fetch to non-same-origin port (${targetUrl.port} !== ${serverUrl.port}): ${pathOrUrl}`
+    );
+  }
+
+  return targetUrl.href;
+}
+
+/**
+ * Private main-process fetch helper for requests sent to the bundled server.
+ * Node's global `fetch` does not pass through Chromium's `session.webRequest`,
+ * so this helper validates exact origin match and injects the launch secret into headers.
+ * The secret is never exposed to renderer JavaScript, HTML, URLs, logs, or IPC.
+ */
+async function internalFetch(pathOrUrl, options = {}) {
+  const resolvedUrl = validateAndResolveInternalUrl(pathOrUrl);
+
+  const headers = new Headers(options.headers || {});
+  if (desktopSecret) {
+    headers.set("x-dashboard-desktop-secret", desktopSecret);
+  }
+
+  return fetch(resolvedUrl, {
+    ...options,
+    headers,
+  });
+}
+
+const isTestEnv =
+  process.env.NODE_ENV === "test" ||
+  process.env.DESKTOP_TEST_MODE === "1" ||
+  Boolean(process.env.TEST);
+
+if (typeof app !== "undefined" && app && isTestEnv && !app.isPackaged) {
+  app.internalFetchForTesting = internalFetch;
+}
+
 function createWindow() {
+  if (baseUrl) {
+    setupDesktopHeaderInjection(baseUrl);
+  }
   const state = loadWindowState();
 
   mainWindow = new BrowserWindow({
@@ -466,7 +614,7 @@ function buildMenu() {
  * message unless preloading was explicitly asked for.
  */
 async function startupConfig() {
-  const response = await fetch(`${baseUrl}/api/ai/startup`);
+  const response = await internalFetch("/api/ai/startup");
   if (!response.ok) throw new Error(`startup config returned ${response.status}`);
   return response.json();
 }
@@ -501,7 +649,7 @@ async function initialiseLocalAi() {
   // Preloading is a separate, opt-in step and never blocks the window: the user
   // can be typing in the workspace while the weights are still being read.
   if (config.preloadModel && config.model && ollamaState.state !== "failed") {
-    fetch(`${baseUrl}/api/ai/preload`, { method: "POST" }).catch((error) =>
+    internalFetch("/api/ai/preload", { method: "POST" }).catch((error) =>
       console.error(`[ai] preload failed: ${error.message}`),
     );
   }
@@ -564,6 +712,22 @@ function registerLocalAi() {
  */
 
 const ACTIONS = new Set(["folder", "reveal", "editor", "terminal"]);
+
+/** Asks the bundled server for a project. Returns null when there is none. */
+async function fetchProject(id) {
+  const response = await internalFetch(`/api/projects/${encodeURIComponent(id)}`);
+  if (!response.ok) return null;
+  const body = await response.json();
+  return body.project ?? null;
+}
+
+/** Expands a leading ~ and resolves to an absolute path. */
+function resolveLocalPath(localPath) {
+  const expanded = localPath.startsWith("~")
+    ? path.join(os.homedir(), localPath.slice(1))
+    : localPath;
+  return path.resolve(expanded);
+}
 
 function registerLocalActions() {
   ipcMain.handle("desktop:open-local", async (_event, payload) => {
@@ -634,76 +798,109 @@ function registerLocalActions() {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-app.setName("Command Center");
+if (app) {
+  app.setName("Command Center");
 
-// A second launch should focus the existing window, not open a second database.
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
-  app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-
-  app.whenReady().then(async () => {
-    const paths = resolveUserPaths();
-
-    try {
-      if (isDev) {
-        // Development attaches to `next dev`, so edits hot-reload as usual.
-        baseUrl = process.env.DESKTOP_DEV_URL ?? "http://localhost:3000";
-        await waitForServer(baseUrl, 60_000);
-      } else {
-        const encryptionKey = resolveEncryptionKey();
-        baseUrl = await startServer({
-          DATABASE_PATH: paths.DATABASE_PATH,
-          UPLOADS_DIR: paths.UPLOADS_DIR,
-          ...(encryptionKey ? { SETTINGS_ENCRYPTION_KEY: encryptionKey } : {}),
-        });
+  // A second launch should focus the existing window, not open a second database.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+  } else {
+    app.on("second-instance", () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
       }
-    } catch (error) {
-      dialog.showErrorBox(
-        "Command Center could not start",
-        `${error.message}\n\n${
-          isDev
-            ? "In development, run `npm run dev` first — the desktop shell attaches to it."
-            : ""
-        }`,
-      );
-      app.quit();
-      return;
-    }
-
-    buildMenu();
-    registerLocalActions();
-    registerLocalAi();
-    createWindow();
-
-    // After the window, not before: the AI service coming up is not something
-    // the user should wait behind a blank screen for.
-    void initialiseLocalAi();
-
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  });
 
-  app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
-  });
+    app.whenReady().then(async () => {
+      const paths = resolveUserPaths();
 
-  app.on("before-quit", () => {
-    quitting = true;
-    stopServer();
-    // Only ever stops an instance this application started. An Ollama that was
-    // already running when Command Center opened is left alone.
-    ollama?.stopIfOwned();
-  });
-  app.on("will-quit", () => {
-    quitting = true;
-    stopServer();
-    ollama?.stopIfOwned();
-  });
+      try {
+        if (isDev) {
+          // Development attaches to `next dev`, so edits hot-reload as usual.
+          baseUrl = process.env.DESKTOP_DEV_URL ?? "http://localhost:3000";
+          await waitForServer(baseUrl, 60_000);
+        } else {
+          const encryptionKey = resolveEncryptionKey();
+          baseUrl = await startServer({
+            DATABASE_PATH: paths.DATABASE_PATH,
+            UPLOADS_DIR: paths.UPLOADS_DIR,
+            ...(encryptionKey ? { SETTINGS_ENCRYPTION_KEY: encryptionKey } : {}),
+          });
+        }
+      } catch (error) {
+        dialog.showErrorBox(
+          "Command Center could not start",
+          `${error.message}\n\n${
+            isDev
+              ? "In development, run `npm run dev` first — the desktop shell attaches to it."
+              : ""
+          }`,
+        );
+        app.quit();
+        return;
+      }
+
+      buildMenu();
+      registerLocalActions();
+      registerLocalAi();
+      createWindow();
+
+      // After the window, not before: the AI service coming up is not something
+      // the user should wait behind a blank screen for.
+      void initialiseLocalAi();
+
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    });
+
+    app.on("window-all-closed", () => {
+      if (process.platform !== "darwin") app.quit();
+    });
+
+    app.on("before-quit", () => {
+      quitting = true;
+      stopServer();
+      // Only ever stops an instance this application started. An Ollama that was
+      // already running when Command Center opened is left alone.
+      ollama?.stopIfOwned();
+    });
+    app.on("will-quit", () => {
+      quitting = true;
+      stopServer();
+      ollama?.stopIfOwned();
+    });
+  }
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    validateInternalUrlForTesting: validateAndResolveInternalUrl,
+    recoverFromServerCrash,
+    ...(isTestEnv
+      ? {
+          internalFetch,
+          setupDesktopHeaderInjection,
+          getCurrentServerOrigin: () => currentServerOrigin,
+          matchesDesktopSecretForTesting: (candidate) => {
+            if (typeof candidate !== "string" || !desktopSecret) return false;
+            const bufA = Buffer.from(candidate);
+            const bufB = Buffer.from(desktopSecret);
+            return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+          },
+          setDesktopSecretForTesting: (secret) => {
+            desktopSecret = secret;
+          },
+          setBaseUrlForTesting: (url) => {
+            baseUrl = url;
+            try {
+              currentServerOrigin = new URL(url).origin;
+            } catch {
+              currentServerOrigin = null;
+            }
+          },
+        }
+      : {}),
+  };
 }

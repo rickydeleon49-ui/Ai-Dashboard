@@ -65,7 +65,7 @@ const buildDataDir = await mkdtemp(path.join(tmpdir(), "command-center-build-"))
 console.log("• building Next.js (standalone output)");
 // Run the binary through the current Node executable: no shell, so there is no
 // argument-quoting difference between Windows and everything else.
-const build = spawnSync(process.execPath, [resolveNextBin(), "build"], {
+const build = spawnSync(process.execPath, [resolveNextBin(), "build", "--webpack"], {
   stdio: "inherit",
   env: {
     ...process.env,

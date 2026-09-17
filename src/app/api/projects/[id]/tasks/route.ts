@@ -8,6 +8,11 @@ import {
   resolveWorkspaceIdForRequest,
 } from "@/core/workspaces/current-workspace";
 import { AuthorizationError, authorizationErrorResponse, requireRole } from "@/core/workspaces/authorization";
+import {
+  InvalidAssigneeError,
+  InvalidParentTaskError,
+  TaskLockTimeoutError,
+} from "@/core/tasks/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -119,8 +124,27 @@ export async function POST(request: NextRequest, { params }: Context) {
     if (!parent || parent.projectId !== id) {
       return NextResponse.json({ error: "Parent task not found in this project" }, { status: 422 });
     }
+    if (parent.parentTaskId !== null) {
+      return NextResponse.json(
+        { error: "A parent task must be a top-level task; subtasks cannot be nested" },
+        { status: 422 },
+      );
+    }
   }
 
-  const task = await taskRepository.create(workspaceId, { ...parsed.data, projectId: id });
-  return NextResponse.json({ task }, { status: 201 });
+  try {
+    const task = await taskRepository.create(workspaceId, { ...parsed.data, projectId: id });
+    return NextResponse.json({ task }, { status: 201 });
+  } catch (error) {
+    if (error instanceof TaskLockTimeoutError) {
+      return NextResponse.json(
+        { error: error.message, retryable: true },
+        { status: 503, headers: { "Retry-After": "1" } },
+      );
+    }
+    if (error instanceof InvalidParentTaskError || error instanceof InvalidAssigneeError) {
+      return NextResponse.json({ error: error.message }, { status: 422 });
+    }
+    throw error;
+  }
 }

@@ -26,7 +26,7 @@
  * no-op outcome without the flag.
  */
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { cleanup, migrate } from "../helpers/db.pg";
 
 process.env.AUTH_SECRET = "test-secret-for-automated-tests-only-not-real";
@@ -34,13 +34,17 @@ process.env.AUTH_SECRET = "test-secret-for-automated-tests-only-not-real";
 let handlers: typeof import("../../src/auth").handlers;
 let NextRequest: typeof import("next/server").NextRequest;
 
-before(async () => {
-  await migrate();
-  ({ handlers } = await import("../../src/auth"));
-  ({ NextRequest } = await import("next/server"));
-});
+const SNAPSHOT_KEYS = [
+  "NODE_ENV",
+  "AUTH_MODE",
+  "DATABASE_URL",
+  "AUTH_SECRET",
+  "AUTH_LOG_MAGIC_LINK",
+  "EMAIL_SERVER",
+] as const;
 
-after(() => cleanup());
+const env = process.env as Record<string, string | undefined>;
+let envSnapshot: Record<string, string | undefined>;
 
 /** Runs fn while capturing console.log lines, since that's where the magic link goes when no real mail server is configured. */
 async function withCapturedLogs<T>(fn: () => Promise<T>): Promise<[T, string[]]> {
@@ -77,6 +81,30 @@ function cookieJar() {
 }
 
 describe("Auth.js against real Postgres", () => {
+  before(async () => {
+    await migrate();
+    ({ handlers } = await import("../../src/auth"));
+    ({ NextRequest } = await import("next/server"));
+  });
+
+  after(() => cleanup());
+
+  beforeEach(() => {
+    envSnapshot = {};
+    for (const k of SNAPSHOT_KEYS) {
+      envSnapshot[k] = env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of SNAPSHOT_KEYS) {
+      if (envSnapshot[k] === undefined) {
+        delete env[k];
+      } else {
+        env[k] = envSnapshot[k];
+      }
+    }
+  });
   it("exposes both configured providers", async () => {
     const response = await handlers.GET(new NextRequest("http://localhost/api/auth/providers"));
     const body = (await response.json()) as Record<string, { type: string }>;
@@ -170,5 +198,86 @@ describe("Auth.js against real Postgres", () => {
       new NextRequest("http://localhost/api/auth/session", { headers: { cookie: jar.header() } }),
     );
     assert.equal(await sessionAfterResponse.json(), null);
+  });
+
+  it("fails sign-in in production when EMAIL_SERVER is absent without logging tokens", async () => {
+    env.NODE_ENV = "production";
+    delete process.env.EMAIL_SERVER;
+    delete process.env.AUTH_LOG_MAGIC_LINK;
+
+    const jar = cookieJar();
+    const csrfResponse = await handlers.GET(new NextRequest("http://localhost/api/auth/csrf"));
+    jar.absorb(csrfResponse);
+    const { csrfToken } = (await csrfResponse.json()) as { csrfToken: string };
+
+    const signinBody = new URLSearchParams({
+      email: "production-user@example.com",
+      csrfToken,
+      callbackUrl: "http://localhost/",
+    });
+
+    const [signinResponse, logs] = await withCapturedLogs<Response>(() =>
+      handlers.POST(
+        new NextRequest("http://localhost/api/auth/signin/nodemailer", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            cookie: jar.header(),
+          },
+          body: signinBody.toString(),
+        }),
+      ),
+    );
+
+    // In production without EMAIL_SERVER, Auth.js redirects to error URL
+    assert.equal(signinResponse.status, 302);
+    const location = signinResponse.headers.get("location") ?? "";
+    assert.match(location, /\/api\/auth\/(error|signin)/);
+
+    // Location header must never leak verification tokens or sensitive email
+    assert.equal(
+      location.includes("token="),
+      false,
+      "location header must never contain a token query param",
+    );
+    assert.equal(
+      location.includes("production-user@example.com"),
+      false,
+      "location header must never contain email address",
+    );
+
+    // Cookies must never carry a token value
+    const cookies = signinResponse.headers.getSetCookie();
+    let tokenInCookies = false;
+    for (const cookie of cookies) {
+      if (/token=[a-zA-Z0-9_-]{16,}/.test(cookie)) {
+        tokenInCookies = true;
+      }
+    }
+    assert.equal(tokenInCookies, false, "Set-Cookie headers must not leak verification tokens");
+
+    // Verify no tokens, callback URLs, email, or magic link text appear in any captured console output
+    const sensitivePatterns = [
+      /magic link/i,
+      /token=/i,
+      /callback\/nodemailer/i,
+      /production-user@example\.com/i,
+      /(?:http|https):\/\/[^\s]+\/api\/auth\/callback/i,
+    ];
+
+    let leakedCount = 0;
+    for (const line of logs) {
+      for (const pattern of sensitivePatterns) {
+        if (pattern.test(line)) {
+          leakedCount++;
+        }
+      }
+    }
+
+    assert.equal(
+      leakedCount,
+      0,
+      `no tokens, magic links, callback URLs, or emails should be present across ${logs.length} captured log lines`,
+    );
   });
 });

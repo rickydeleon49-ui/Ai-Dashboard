@@ -27,3 +27,41 @@ export class TaskBlockedError extends Error {
     this.name = "TaskBlockedError";
   }
 }
+
+/**
+ * Thrown when a task's parentTaskId violates hierarchy invariants:
+ * - A parent task must be a top-level task (not a child itself).
+ * - A task with existing children cannot become a child.
+ * - Self-parenting and parent cycles are forbidden.
+ * - A parent task must exist within the same workspace and project.
+ */
+export class InvalidParentTaskError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidParentTaskError";
+  }
+}
+
+/**
+ * Thrown when an assigneeId is not an active member of the task's workspace,
+ * or when an assignee is specified in a mode (such as desktop SQLite) that
+ * does not support task assignments.
+ */
+export class InvalidAssigneeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidAssigneeError";
+  }
+}
+
+/**
+ * Thrown when a concurrent transaction times out waiting for the workspace-scoped
+ * advisory lock during dependency graph or hierarchy mutations.
+ * Indicates a temporary concurrency conflict that is safe to retry.
+ */
+export class TaskLockTimeoutError extends Error {
+  constructor(message = "Task mutation timed out waiting for workspace lock; please retry.") {
+    super(message);
+    this.name = "TaskLockTimeoutError";
+  }
+}

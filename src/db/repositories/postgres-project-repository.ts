@@ -53,8 +53,18 @@ function toDomain(row: ProjectRow, tagNames: string[]): Project {
  * LOCAL_WORKSPACE_ID's own comment in ./project-repository).
  */
 export class PostgresProjectRepository implements ProjectRepository {
+  private readonly executor?: any;
+
+  constructor(executor?: any) {
+    this.executor = executor;
+  }
+
+  private get db(): ReturnType<typeof getPgDb> {
+    return (this.executor ?? getPgDb()) as ReturnType<typeof getPgDb>;
+  }
+
   async list(workspaceId: string, query: ProjectQuery = {}): Promise<Project[]> {
-    const db = getPgDb();
+    const db = this.db;
     const conditions = [eq(projects.workspaceId, workspaceId)];
 
     if (!query.includeArchived) {
@@ -139,7 +149,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async listSummaries(workspaceId: string, limit = 500): Promise<ProjectSummary[]> {
-    const db = getPgDb();
+    const db = this.db;
     return db
       .select({
         id: projects.id,
@@ -154,7 +164,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async findById(workspaceId: string, id: string): Promise<Project | null> {
-    const db = getPgDb();
+    const db = this.db;
     const [row] = await db
       .select()
       .from(projects)
@@ -170,7 +180,7 @@ export class PostgresProjectRepository implements ProjectRepository {
     source: string,
     externalId: string,
   ): Promise<Project | null> {
-    const db = getPgDb();
+    const db = this.db;
     const [row] = await db
       .select()
       .from(projects)
@@ -188,7 +198,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async create(workspaceId: string, input: ProjectCreateInput): Promise<Project> {
-    const db = getPgDb();
+    const db = this.db;
     const id = createId("prj");
     const now = new Date();
     const tagNames = input.tags ?? [];
@@ -230,7 +240,7 @@ export class PostgresProjectRepository implements ProjectRepository {
     id: string,
     input: ProjectUpdateInput,
   ): Promise<Project | null> {
-    const db = getPgDb();
+    const db = this.db;
     const [existing] = await db
       .select()
       .from(projects)
@@ -316,7 +326,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async delete(workspaceId: string, id: string): Promise<boolean> {
-    const db = getPgDb();
+    const db = this.db;
     const [existing] = await db
       .select()
       .from(projects)
@@ -331,7 +341,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async markOpened(workspaceId: string, id: string): Promise<Project | null> {
-    const db = getPgDb();
+    const db = this.db;
     const [existing] = await db
       .select()
       .from(projects)
@@ -348,7 +358,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async stats(workspaceId: string): Promise<ProjectStats> {
-    const db = getPgDb();
+    const db = this.db;
     const rows = await db
       .select({
         source: projects.source,
@@ -402,7 +412,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async allTags(workspaceId: string): Promise<TagCount[]> {
-    const db = getPgDb();
+    const db = this.db;
     // Postgres's count(...) is a bigint, which node-postgres returns as a
     // string rather than risk silent precision loss on a JS number — cast
     // to int here (a tag's project count will never approach that range)
@@ -429,7 +439,7 @@ export class PostgresProjectRepository implements ProjectRepository {
     const map = new Map<string, string[]>();
     if (projectIds.length === 0) return map;
 
-    const db = getPgDb();
+    const db = this.db;
     const rows = await db
       .select({ projectId: projectTags.projectId, name: tags.name })
       .from(projectTags)
@@ -451,7 +461,7 @@ export class PostgresProjectRepository implements ProjectRepository {
     projectId: string,
     tagNames: string[],
   ): Promise<void> {
-    const db = getPgDb();
+    const db = this.db;
     await db
       .delete(projectTags)
       .where(and(eq(projectTags.workspaceId, workspaceId), eq(projectTags.projectId, projectId)));
@@ -486,7 +496,7 @@ export class PostgresProjectRepository implements ProjectRepository {
     message: string,
     metadata: Record<string, unknown> = {},
   ): Promise<void> {
-    const db = getPgDb();
+    const db = this.db;
     await db.insert(activityEvents).values({
       id: createId("act"),
       workspaceId,

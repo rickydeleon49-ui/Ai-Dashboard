@@ -6,36 +6,53 @@ import { APP_ICON, APP_NAME, NAVIGATION } from "@/config/navigation";
 import type { ProjectStats } from "@/core/projects/types";
 import { cn } from "@/lib/utils";
 
+const ACCOUNTS_ALLOWED_PREFIXES = ["/", "/projects", "/my-work", "/favorites", "/settings"];
+
+function isItemAllowedInAccounts(href: string): boolean {
+  return ACCOUNTS_ALLOWED_PREFIXES.some(
+    (p) => href === p || (p !== "/" && href.startsWith(`${p}/`)),
+  );
+}
+
 /**
  * Primary navigation, rendered from `NAVIGATION`.
  *
  * Counts are passed down from the server layout so the sidebar stays a pure
  * presentational component with no data fetching of its own.
+ * In accounts mode, hide counts or controls for domains that have not yet been ported.
  */
 export function SidebarNav({
   stats,
+  accountsMode = false,
   onNavigate,
 }: {
   stats: ProjectStats;
+  accountsMode?: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
 
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
-      {NAVIGATION.map((group) => (
-        <div key={group.label}>
-          <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.09em] text-faint">
-            {group.label}
-          </p>
-          <ul className="space-y-0.5">
-            {group.items.map((item) => {
-              // "/" must match exactly; every other route matches its subtree.
-              const active =
-                item.href === "/"
-                  ? pathname === "/"
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
-              const count = item.countKey ? stats[item.countKey] : undefined;
+      {NAVIGATION.map((group) => {
+        const items = accountsMode
+          ? group.items.filter((item) => isItemAllowedInAccounts(item.href))
+          : group.items;
+        if (items.length === 0) return null;
+
+        return (
+          <div key={group.label}>
+            <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.09em] text-faint">
+              {group.label}
+            </p>
+            <ul className="space-y-0.5">
+              {items.map((item) => {
+                // "/" must match exactly; every other route matches its subtree.
+                const active =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const count = item.countKey ? stats[item.countKey] : undefined;
 
               return (
                 <li key={item.href}>
@@ -77,9 +94,10 @@ export function SidebarNav({
                 </li>
               );
             })}
-          </ul>
-        </div>
-      ))}
+            </ul>
+          </div>
+        );
+      })}
     </nav>
   );
 }

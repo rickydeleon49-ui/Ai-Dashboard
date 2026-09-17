@@ -17,11 +17,13 @@ export function AppShell({
   stats,
   paletteProjects,
   unreadNotifications,
+  accountsMode = false,
   children,
 }: {
   stats: ProjectStats;
   paletteProjects: PaletteProject[];
   unreadNotifications: number;
+  accountsMode?: boolean;
   children: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -31,7 +33,7 @@ export function AppShell({
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--sidebar-width)] flex-col border-r border-line bg-[var(--bg-elevated)] lg:flex">
         <SidebarBrand />
-        <SidebarNav stats={stats} />
+        <SidebarNav stats={stats} accountsMode={accountsMode} />
         <div className="border-t border-line px-3 py-3">
           <ThemeToggle />
         </div>
@@ -60,7 +62,11 @@ export function AppShell({
                 <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
             </div>
-            <SidebarNav stats={stats} onNavigate={() => setDrawerOpen(false)} />
+            <SidebarNav
+              stats={stats}
+              accountsMode={accountsMode}
+              onNavigate={() => setDrawerOpen(false)}
+            />
             <div className="border-t border-line px-3 py-3">
               <ThemeToggle />
             </div>
@@ -83,21 +89,23 @@ export function AppShell({
             <CommandPalette projects={paletteProjects} />
           </div>
 
-          <Link
-            href="/notifications"
-            aria-label={
-              unreadNotifications > 0
-                ? `Notifications, ${unreadNotifications} unread`
-                : "Notifications"
-            }
-            title="Notifications"
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
-          >
-            <Bell className="h-4 w-4" strokeWidth={1.75} />
-            {unreadNotifications > 0 ? (
-              <span className="absolute right-1 top-1 flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-            ) : null}
-          </Link>
+          {accountsMode ? null : (
+            <Link
+              href="/notifications"
+              aria-label={
+                unreadNotifications > 0
+                  ? `Notifications, ${unreadNotifications} unread`
+                  : "Notifications"
+              }
+              title="Notifications"
+              className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
+            >
+              <Bell className="h-4 w-4" strokeWidth={1.75} />
+              {unreadNotifications > 0 ? (
+                <span className="absolute right-1 top-1 flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+              ) : null}
+            </Link>
+          )}
 
           <Link href="/projects/new" className={buttonClasses("primary", "md")}>
             <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />

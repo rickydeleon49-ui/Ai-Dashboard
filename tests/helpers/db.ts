@@ -1,10 +1,9 @@
 /**
  * A throwaway database per test file.
  *
- * DATABASE_PATH and UPLOADS_DIR must be set before anything imports the client,
- * because it opens the connection at module load. Callers therefore import this
- * module first and use its dynamic `load` helpers rather than importing the
- * application modules at the top of the file.
+ * DATABASE_PATH and UPLOADS_DIR are configured before callers import or query
+ * application modules so the lazy SQLite connection and uploads storage resolve
+ * to this test run's isolated temporary directory.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +20,8 @@ export async function cleanup(): Promise<void> {
   // Closed before the directory holding it is removed: Windows cannot delete
   // a file an open handle still references, so skipping this turns every
   // cleanup into an EPERM there instead of a no-op.
+  const { stopScheduler } = await import("../../src/core/automation/scheduler");
+  stopScheduler();
   const { closeConnection } = await import("../../src/db/client");
   closeConnection();
   rmSync(root, { recursive: true, force: true });
@@ -28,6 +29,18 @@ export async function cleanup(): Promise<void> {
 
 /** Applies the schema. Imported lazily so the env above is already in place. */
 export async function migrate(): Promise<void> {
-  const { runMigrations } = await import("../../src/db/migrate");
-  runMigrations();
+  const { withLegacySqliteAccess } = await import("../../src/db/client");
+  await withLegacySqliteAccess(async () => {
+    const { runMigrations } = await import("../../src/db/migrate");
+    runMigrations();
+  });
+}
+
+/**
+ * Scopes explicit temporary access to the test legacy SQLite database.
+ * Used by ownership migration integration suites while PostgreSQL is active.
+ */
+export async function withLegacySqlite<T>(fn: () => Promise<T> | T): Promise<T> {
+  const { withLegacySqliteAccess } = await import("../../src/db/client");
+  return withLegacySqliteAccess(fn);
 }

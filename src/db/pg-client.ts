@@ -50,6 +50,17 @@ export function getPgDb(): NodePgDatabase<typeof schema> {
 
 export { schema as pgSchema };
 
+/** Runs a function using a dedicated client from the pool (e.g. for advisory locks). */
+export async function withPgClient<T>(fn: (client: import("pg").PoolClient) => Promise<T>): Promise<T> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    return await fn(client);
+  } finally {
+    client.release();
+  }
+}
+
 /** Closes the pool. Tests use this so a throwaway database can be dropped afterward. */
 export async function closePgPool(): Promise<void> {
   if (globalForDb.__dashboardPgPool) {

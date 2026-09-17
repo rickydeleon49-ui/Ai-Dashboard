@@ -49,6 +49,7 @@ before(async () => {
       GITHUB_TOKEN: "",
       // Exercise the bundled-server path rather than attaching to `next dev`.
       DESKTOP_BUNDLED: "1",
+      DESKTOP_TEST_MODE: "1",
     },
   });
 
@@ -156,5 +157,41 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
     });
     await window.waitForSelector("h1", { timeout: 30_000 });
     assert.match((await window.textContent("h1")) ?? "", /project/i);
+  });
+
+  it("does not expose the internal desktop secret in renderer DOM or JS environment", async () => {
+    const leakCheck = await window.evaluate(() => {
+      const html = document.documentElement.outerHTML;
+      const win = window as unknown as Record<string, unknown>;
+      return {
+        hasSecretInHtml: /DESKTOP_INTERNAL_SECRET|x-dashboard-desktop-secret/i.test(html),
+        hasSecretInWindow: Object.keys(win).some((k) => /secret/i.test(k)),
+        hasSecretInUrl: (globalThis as unknown as { location: Location }).location.href.includes("secret"),
+      };
+    });
+
+    assert.equal(leakCheck.hasSecretInHtml, false, "HTML must never contain the launch secret");
+    assert.equal(leakCheck.hasSecretInWindow, false, "Window object must never contain the launch secret");
+    assert.equal(leakCheck.hasSecretInUrl, false, "URL must never contain the launch secret");
+  });
+
+  it("proves packaged internal requests to /api/ai/startup succeed via main process internalFetch and fail without secret", async () => {
+    // 1. External fetch without launch secret must fail (401)
+    const serverUrl = window.url();
+    const origin = new URL(serverUrl).origin;
+    const directRes = await fetch(`${origin}/api/ai/startup`);
+    assert.equal(directRes.status, 401, "Direct request without secret must be rejected with 401");
+
+    // 2. Main process call using internalFetch succeeds (200)
+    const internalSuccess = await app!.evaluate(async ({ app: electronApp }) => {
+      const fetchFn = (electronApp as unknown as { internalFetchForTesting: (path: string) => Promise<Response> }).internalFetchForTesting;
+      const res = await fetchFn("/api/ai/startup");
+      const json = (await res.json()) as { enabled?: boolean };
+      return { status: res.status, ok: res.ok, enabled: json.enabled !== undefined };
+    });
+
+    assert.equal(internalSuccess.status, 200, "internalFetch must attach the secret and return 200");
+    assert.equal(internalSuccess.ok, true);
+    assert.equal(internalSuccess.enabled, true);
   });
 });

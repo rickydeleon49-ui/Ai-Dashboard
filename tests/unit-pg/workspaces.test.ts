@@ -9,6 +9,7 @@ import { cleanup, migrate } from "../helpers/db.pg";
 
 let db: typeof import("../../src/db/pg-client").getPgDb;
 let users: typeof import("../../src/db/schema.pg").users;
+let workspacesTable: typeof import("../../src/db/schema.pg").workspaces;
 let workspaceMembers: typeof import("../../src/db/schema.pg").workspaceMembers;
 let workspaces: typeof import("../../src/core/workspaces/service");
 let LastOwnerError: typeof import("../../src/core/workspaces/service").LastOwnerError;
@@ -16,7 +17,7 @@ let LastOwnerError: typeof import("../../src/core/workspaces/service").LastOwner
 before(async () => {
   await migrate();
   ({ getPgDb: db } = await import("../../src/db/pg-client"));
-  ({ users, workspaceMembers } = await import("../../src/db/schema.pg"));
+  ({ users, workspaces: workspacesTable, workspaceMembers } = await import("../../src/db/schema.pg"));
   workspaces = await import("../../src/core/workspaces/service");
   ({ LastOwnerError } = workspaces);
 });
@@ -34,7 +35,8 @@ async function makeUser(email?: string): Promise<string> {
 }
 
 beforeEach(async () => {
-  // Each test starts from a clean slate; workspaces cascade from users.
+  // Each test starts from a clean slate.
+  await db().delete(workspacesTable);
   await db().delete(users);
   userCounter = 0;
 });

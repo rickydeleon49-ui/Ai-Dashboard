@@ -3,22 +3,14 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { getConnection, getCredentialSource } from "@/core/github/service";
-import { describeSecret, SETTING_KEYS } from "@/core/settings/service";
 import { GitHubTokenForm } from "@/components/settings/github-token-form";
 import { GitHubConnect } from "@/components/settings/github-connect";
-import {
-  getClientId,
-  getClientIdSource,
-  isDeviceFlowConfigured,
-} from "@/core/github/device-flow";
 import { GitHubClientIdForm } from "@/components/settings/github-client-id-form";
 import { UpdateCheck } from "@/components/settings/update-check";
 import { APP_VERSION } from "@/config/app";
 import { projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 import { LocalAiSettings } from "@/components/settings/local-ai-settings";
-import { getAiOverview } from "@/core/ai/service";
 import { WorkspaceManager } from "@/components/settings/workspace-manager";
 import {
   CURRENT_WORKSPACE_COOKIE,
@@ -38,13 +30,10 @@ export const metadata = { title: "Settings" };
  * workspace_id. In accounts mode they'd be the same page for every
  * signed-in user regardless of role or workspace, which for GitHub's token
  * specifically is a real "any signed-in viewer can see the operator's
- * secret" problem, not just clutter — so this deployment mode hides them
  * rather than exposing them half-scoped, matching proxy.ts's route
  * allowlist for the same domains.
  */
-function isAccountsMode(): boolean {
-  return process.env.AUTH_MODE === "accounts" && Boolean(process.env.DATABASE_URL);
-}
+import { isAccountsMode } from "@/lib/auth-mode";
 
 /**
  * Hosted multi-user mode only (AUTH_MODE=accounts) — desktop and today's
@@ -119,17 +108,27 @@ export default async function SettingsPage() {
       // and merely hidden, since getAiOverview in particular does real
       // local-network work (checking for a local Ollama) this deployment
       // shape never has.
-      accountsMode ? null : getConnection(),
-      accountsMode ? null : getCredentialSource(),
-      accountsMode ? null : getAiOverview(),
+      accountsMode ? null : import("@/core/github/service").then((m) => m.getConnection()),
+      accountsMode ? null : import("@/core/github/service").then((m) => m.getCredentialSource()),
+      accountsMode ? null : import("@/core/ai/service").then((m) => m.getAiOverview()),
       getWorkspacesSection(),
       shouldShowClaimOwnership(),
     ]);
 
-  const tokenStatus = describeSecret(SETTING_KEYS.githubToken);
-  const canConnect = isDeviceFlowConfigured();
-  const clientId = getClientId();
-  const clientIdSource = getClientIdSource();
+  const tokenStatus = accountsMode
+    ? { present: false, hint: null }
+    : (await import("@/core/settings/service")).describeSecret(
+        (await import("@/core/settings/service")).SETTING_KEYS.githubToken,
+      );
+  const canConnect = accountsMode
+    ? false
+    : (await import("@/core/github/device-flow")).isDeviceFlowConfigured();
+  const clientId = accountsMode
+    ? ""
+    : (await import("@/core/github/device-flow")).getClientId();
+  const clientIdSource = accountsMode
+    ? ("none" as const)
+    : (await import("@/core/github/device-flow")).getClientIdSource();
 
   return (
     <div className="space-y-5">

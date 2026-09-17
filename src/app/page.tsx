@@ -20,16 +20,12 @@ import { ProjectRowList } from "@/components/dashboard/project-row-list";
 import { ProjectGrid } from "@/components/projects/project-card";
 import { projectRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
-import { listRecentActivity, type ActivityItem } from "@/core/activity/service";
+import type { ActivityItem } from "@/core/activity/service";
 import { STATUS_META } from "@/core/projects/labels";
 import { PROJECT_STATUSES } from "@/core/projects/types";
+import { isAccountsMode } from "@/lib/auth-mode";
 
 export const dynamic = "force-dynamic";
-
-/** SQLite-only, unscoped by workspace — see proxy.ts's route-allowlist comment. */
-function isAccountsMode(): boolean {
-  return process.env.AUTH_MODE === "accounts" && Boolean(process.env.DATABASE_URL);
-}
 
 export default async function DashboardPage() {
   const workspaceId = await resolveWorkspaceIdForPage();
@@ -47,7 +43,9 @@ export default async function DashboardPage() {
     projectRepository.list(workspaceId, { sort: "opened", limit: 6 }),
     projectRepository.list(workspaceId, { favorite: true, sort: "updated", limit: 6 }),
     projectRepository.list(workspaceId, { sort: "updated", limit: 8 }),
-    isAccountsMode() ? Promise.resolve<ActivityItem[]>([]) : listRecentActivity(10),
+    isAccountsMode()
+      ? Promise.resolve<ActivityItem[]>([])
+      : import("@/core/activity/service").then((m) => m.listRecentActivity(10)),
   ]);
 
   const accountsMode = isAccountsMode();

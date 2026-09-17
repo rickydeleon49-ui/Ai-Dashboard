@@ -1,0 +1,41 @@
+# Cheap post-merge smoke check on main branch.
+#
+# Runs a fast, lightweight verification when a PR is merged into main:
+# typecheck, lint, and core unit tests. This ensures that merge conflicts,
+# out-of-order PR merges, or base branch drift are caught immediately
+# without running expensive full browser matrices or installer builds.
+name: Post-Merge Smoke
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: post-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Post-Merge Smoke Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --fetch-retries 5 --fetch-retry-mintimeout 20000 --fetch-retry-maxtimeout 120000
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit

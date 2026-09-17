@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
 import type { NextAuthRequest } from "next-auth";
 import { safeEqual } from "@/lib/safe-equal";
+import { isAccountsMode } from "@/lib/auth-mode";
 
 /**
  * Access control for the whole application.
@@ -201,6 +202,13 @@ const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
 
 /** True for an exact match or anything nested under it (e.g. `/projects/new`). */
 function isAllowedInAccountsMode(pathname: string): boolean {
+  // Project files are not yet workspace-scoped in accounts mode; block them outright.
+  if (
+    pathname.match(/^\/api\/projects\/[^/]+\/files(\/.*)?$/) ||
+    pathname.match(/^\/api\/files(\/.*)?$/)
+  ) {
+    return false;
+  }
   const allowed = pathname.startsWith("/api/")
     ? ACCOUNTS_MODE_ALLOWED_API_PATHS
     : ACCOUNTS_MODE_ALLOWED_PAGES;
@@ -273,48 +281,109 @@ async function handleAccountsMode(request: NextRequest, event: NextFetchEvent) {
   return gate(request, event);
 }
 
+export function isLoopbackAddress(addr: string | null | undefined): boolean {
+  if (!addr) return false;
+  const trimmed = addr.trim().toLowerCase();
+  const host = trimmed.split(":")[0];
+  return (
+    host === "127.0.0.1" ||
+    host === "localhost" ||
+    host === "::1" ||
+    host === "[::1]"
+  );
+}
+
+function desktopUnauthorized(request: NextRequest): NextResponse {
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "Unauthorized." },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  return new NextResponse("Unauthorized.", {
+    status: 401,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+export function validateStartupConfig(): { valid: boolean; error?: string } {
+  if (process.env.DASHBOARD_LOCAL === "1" || process.env.DESKTOP_INTERNAL_SECRET) {
+    if (process.env.AUTH_MODE === "accounts" || Boolean(process.env.DATABASE_URL)) {
+      return {
+        valid: false,
+        error: "Desktop local mode cannot be used with AUTH_MODE=accounts or DATABASE_URL.",
+      };
+    }
+    if (Boolean(process.env.DASHBOARD_PASSWORD?.trim())) {
+      return {
+        valid: false,
+        error: "Desktop local mode cannot be used with DASHBOARD_PASSWORD.",
+      };
+    }
+  }
+  return { valid: true };
+}
+
 export async function proxy(request: NextRequest, event: NextFetchEvent) {
-  // The desktop shell sets this when it forks the bundled server. That server
-  // listens on 127.0.0.1 only, so nothing off the machine can reach it directly —
-  // but loopback binding is not an authorization boundary. A malicious page open
-  // in the same browser can still issue a cross-site request to localhost, so
-  // mutating requests get the same cross-site rejection hosted mode uses below.
-  if (process.env.DASHBOARD_LOCAL === "1") {
+  // 1. Hosted accounts mode takes strict precedence over any local variables or secrets.
+  if (process.env.AUTH_MODE === "accounts" || isAccountsMode()) {
+    return handleAccountsMode(request, event);
+  }
+
+  // 2. Hosted single-password mode takes strict precedence over desktop local mode.
+  const password = process.env.DASHBOARD_PASSWORD?.trim();
+  if (password) {
+    const header = request.headers.get("authorization");
+    if (!header?.startsWith("Basic ")) return unauthorized();
+
+    let decoded: string;
+    try {
+      decoded = atob(header.slice("Basic ".length));
+    } catch {
+      return unauthorized();
+    }
+
+    const supplied = decoded.slice(decoded.indexOf(":") + 1);
+    if (!safeEqual(supplied, password)) return unauthorized();
+
     if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
     return NextResponse.next();
   }
 
-  // An explicit opt-in, independent of NODE_ENV: someone testing accounts
-  // mode locally (`next dev` with AUTH_MODE=accounts) wants the real gating
-  // behavior, not the local-development bypass below.
-  if (process.env.AUTH_MODE === "accounts") return handleAccountsMode(request, event);
+  // 3. Desktop shell mode authenticated via per-launch cryptographic secret.
+  // Requires DESKTOP_INTERNAL_SECRET and constant-time match on x-dashboard-desktop-secret.
+  // Rejects missing secrets, invalid secrets, and forwarded headers.
+  const desktopSecret = process.env.DESKTOP_INTERNAL_SECRET?.trim();
+  if (desktopSecret) {
+    // Reject forwarded headers attempting to impersonate or leak from external proxy
+    const xfh = request.headers.get("x-forwarded-host");
+    if (xfh && !isLoopbackAddress(xfh)) {
+      return desktopUnauthorized(request);
+    }
+    const xff = request.headers.get("x-forwarded-for");
+    if (xff) {
+      for (const ip of xff.split(",")) {
+        if (!isLoopbackAddress(ip)) return desktopUnauthorized(request);
+      }
+    }
 
-  // Local development is equally unreachable and should not need a password.
-  if (process.env.NODE_ENV !== "production") return NextResponse.next();
+    const provided = request.headers.get("x-dashboard-desktop-secret");
+    if (!provided) {
+      return desktopUnauthorized(request);
+    }
+    if (!safeEqual(provided, desktopSecret)) {
+      return desktopUnauthorized(request);
+    }
 
-  const password = process.env.DASHBOARD_PASSWORD?.trim();
-  if (!password) return setupRequired();
-
-  const header = request.headers.get("authorization");
-  if (!header?.startsWith("Basic ")) return unauthorized();
-
-  let decoded: string;
-  try {
-    decoded = atob(header.slice("Basic ".length));
-  } catch {
-    return unauthorized();
+    if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
+    return NextResponse.next();
   }
 
-  // Any username is accepted; the password is the secret. Browsers require a
-  // username field, and inventing a second credential adds nothing here.
-  const supplied = decoded.slice(decoded.indexOf(":") + 1);
-  if (!safeEqual(supplied, password)) return unauthorized();
+  // 4. Local development without password or secret is allowed in dev mode only.
+  if (process.env.NODE_ENV !== "production") return NextResponse.next();
 
-  // Checked after authentication so an unauthenticated caller learns nothing
-  // about which requests would otherwise have been accepted.
-  if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
-
-  return NextResponse.next();
+  // 5. In production without accounts mode, password, or valid desktop secret: fail closed.
+  return setupRequired();
 }
 
 export const config = {
