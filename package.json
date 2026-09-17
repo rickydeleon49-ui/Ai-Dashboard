@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -29,7 +29,7 @@
     "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts",
     "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts",
     "test:unit:pg": "tsx --conditions=react-server --test tests/unit-pg/*.test.ts",
-    "test:unit:pg:auth": "NODE_OPTIONS=\"--require ./tests/helpers/stub-server-only.cjs\" tsx --test tests/unit-pg-auth/*.test.ts"
+    "test:unit:pg:auth": "node tests/helpers/run-pg-auth.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "1.11.3",

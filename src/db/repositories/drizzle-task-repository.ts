@@ -12,7 +12,12 @@ import type {
   TaskStatus,
   TaskUpdateInput,
 } from "@/core/tasks/types";
-import { DependencyCycleError, TaskBlockedError } from "@/core/tasks/errors";
+import {
+  DependencyCycleError,
+  InvalidAssigneeError,
+  InvalidParentTaskError,
+  TaskBlockedError,
+} from "@/core/tasks/errors";
 import { createId } from "@/lib/ids";
 
 const DONE_STATUSES: string[] = ["done", "cancelled"];
@@ -57,25 +62,69 @@ function assertLocalWorkspace(workspaceId: string): void {
 }
 
 /**
- * Which of `taskIds` are currently blocked — have at least one dependency
- * (see `task_dependencies`) whose own status isn't done/cancelled. This is
- * correct for *transitive* blocking too without a recursive query: if B
- * blocks A and B is itself blocked (by C), B's own status can only be
- * todo/in_progress (not done), which alone is enough to mark A blocked —
- * there's no need to also know *why* B isn't done. That only holds because
- * `update()` below refuses to move a task to `done` while it is itself
- * blocked (see `TaskBlockedError`) — without that guard, a directly
- * force-completed B would make A wrongly report unblocked.
+ * Which of `taskIds` are currently blocked — have at least one unfinished
+ * dependency anywhere in the reachable dependency graph along `task_dependencies`.
+ *
+ * Traverses reachable dependencies recursively with a CTE. A task is blocked
+ * if and only if any reachable task in its dependency graph has a status other
+ * than 'done' or 'cancelled'.
  */
 function loadBlockedSet(taskIds: string[]): Set<string> {
   if (taskIds.length === 0) return new Set();
-  const rows = db
-    .select({ taskId: taskDependencies.taskId })
-    .from(taskDependencies)
-    .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
-    .where(and(inArray(taskDependencies.taskId, taskIds), notInArray(tasks.status, DONE_STATUSES)))
-    .all();
-  return new Set(rows.map((r) => r.taskId));
+  const taskIdsList = sql.join(
+    taskIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const rows = db.all<{ task_id: string }>(sql`
+    WITH RECURSIVE reachable(root_id, current_id) AS (
+      SELECT task_id AS root_id, depends_on_task_id AS current_id
+      FROM task_dependencies
+      WHERE task_id IN (${taskIdsList})
+      UNION
+      SELECT r.root_id, td.depends_on_task_id AS current_id
+      FROM task_dependencies td
+      JOIN reachable r ON td.task_id = r.current_id
+    )
+    SELECT DISTINCT r.root_id AS task_id
+    FROM reachable r
+    JOIN tasks t ON t.id = r.current_id
+    WHERE t.status NOT IN ('done', 'cancelled')
+  `);
+  return new Set(rows.map((r) => r.task_id));
+}
+
+function assertValidParentTask(
+  taskId: string | null,
+  parentTaskId: string | null | undefined,
+  projectId: string,
+): void {
+  if (parentTaskId === undefined || parentTaskId === null) return;
+  if (taskId !== null && parentTaskId === taskId) {
+    throw new InvalidParentTaskError("A task cannot be its own parent.");
+  }
+  const parent = db.select().from(tasks).where(eq(tasks.id, parentTaskId)).get();
+  if (!parent) {
+    throw new InvalidParentTaskError("Parent task not found.");
+  }
+  if (parent.projectId !== projectId) {
+    throw new InvalidParentTaskError("Parent task must belong to the same project.");
+  }
+  if (parent.parentTaskId !== null) {
+    throw new InvalidParentTaskError(
+      "A parent task must be a top-level task; subtasks cannot be nested.",
+    );
+  }
+  if (taskId !== null) {
+    const child = db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.parentTaskId, taskId))
+      .limit(1)
+      .get();
+    if (child) {
+      throw new InvalidParentTaskError("A task with subtasks cannot become a subtask.");
+    }
+  }
 }
 
 /** Shared by `list` and `listForWorkspace` — everything except the project-id filter. */
@@ -161,29 +210,30 @@ export class DrizzleTaskRepository implements TaskRepository {
 
   async create(workspaceId: string, input: TaskCreateInput): Promise<Task> {
     assertLocalWorkspace(workspaceId);
+    assertValidParentTask(null, input.parentTaskId, input.projectId);
+
     const id = createId("tsk");
     const timestamp = nowIso();
 
-    db.insert(tasks)
-      .values({
-        id,
-        projectId: input.projectId,
-        milestoneId: input.milestoneId ?? null,
-        parentTaskId: input.parentTaskId ?? null,
-        title: input.title,
-        description: input.description ?? null,
-        status: input.status ?? "todo",
-        priority: input.priority ?? "medium",
-        // assigneeId is intentionally never persisted here — desktop has no
-        // user concept. Silently accepting one would promise something the
-        // next read could never honor.
-        assigneeId: null,
-        dueDate: input.dueDate ?? null,
-        createdAt: input.createdAt ?? timestamp,
-        updatedAt: input.updatedAt ?? timestamp,
-        completedAt: input.completedAt ?? null,
-      })
-      .run();
+    db.transaction(() => {
+      db.insert(tasks)
+        .values({
+          id,
+          projectId: input.projectId,
+          milestoneId: input.milestoneId ?? null,
+          parentTaskId: input.parentTaskId ?? null,
+          title: input.title,
+          description: input.description ?? null,
+          status: input.status ?? "todo",
+          priority: input.priority ?? "medium",
+          assigneeId: null,
+          dueDate: input.dueDate ?? null,
+          createdAt: input.createdAt ?? timestamp,
+          updatedAt: input.updatedAt ?? timestamp,
+          completedAt: input.completedAt ?? null,
+        })
+        .run();
+    });
 
     const created = await this.findById(workspaceId, id);
     if (!created) throw new Error("Failed to read back created task");
@@ -192,8 +242,13 @@ export class DrizzleTaskRepository implements TaskRepository {
 
   async update(workspaceId: string, id: string, input: TaskUpdateInput): Promise<Task | null> {
     assertLocalWorkspace(workspaceId);
+
     const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
     if (!existing) return null;
+
+    if (input.parentTaskId !== undefined) {
+      assertValidParentTask(id, input.parentTaskId, existing.projectId);
+    }
 
     const patch: Partial<TaskRow> = { updatedAt: nowIso() };
     if (input.title !== undefined) patch.title = input.title;
@@ -202,10 +257,9 @@ export class DrizzleTaskRepository implements TaskRepository {
     if (input.parentTaskId !== undefined) patch.parentTaskId = input.parentTaskId;
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
-    // See create()'s own note — assigneeId is never persisted on desktop.
 
     if (input.status !== undefined) {
-      const movingToDone = input.status === "done" && existing.status !== "done";
+      const movingToDone = input.status === "done";
       if (movingToDone && loadBlockedSet([id]).has(id)) throw new TaskBlockedError();
 
       patch.status = input.status;
@@ -216,7 +270,9 @@ export class DrizzleTaskRepository implements TaskRepository {
     }
     if (input.completedAt !== undefined) patch.completedAt = input.completedAt;
 
-    db.update(tasks).set(patch).where(eq(tasks.id, id)).run();
+    db.transaction(() => {
+      db.update(tasks).set(patch).where(eq(tasks.id, id)).run();
+    });
     return this.findById(workspaceId, id);
   }
 
@@ -257,6 +313,15 @@ export class DrizzleTaskRepository implements TaskRepository {
     if (taskId === dependsOnTaskId) throw new DependencyCycleError();
 
     db.transaction((tx) => {
+      const existing = tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(inArray(tasks.id, [taskId, dependsOnTaskId]))
+        .all();
+      if (existing.length < 2) {
+        throw new Error(`Tasks "${taskId}" and "${dependsOnTaskId}" must both exist.`);
+      }
+
       // Would `dependsOnTaskId` already (transitively) depend on `taskId`?
       // If so, taskId -> dependsOnTaskId would close a cycle. Walking from
       // dependsOnTaskId along its own "depends on" edges and checking

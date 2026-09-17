@@ -12,13 +12,14 @@ import { cleanup, migrate } from "../helpers/db.pg";
 let db: typeof import("../../src/db/pg-client").getPgDb;
 let users: typeof import("../../src/db/schema.pg").users;
 let workspaceMembers: typeof import("../../src/db/schema.pg").workspaceMembers;
+let workspacesTable: typeof import("../../src/db/schema.pg").workspaces;
 let workspaces: typeof import("../../src/core/workspaces/service");
 let authz: typeof import("../../src/core/workspaces/authorization");
 
 before(async () => {
   await migrate();
   ({ getPgDb: db } = await import("../../src/db/pg-client"));
-  ({ users, workspaceMembers } = await import("../../src/db/schema.pg"));
+  ({ users, workspaceMembers, workspaces: workspacesTable } = await import("../../src/db/schema.pg"));
   workspaces = await import("../../src/core/workspaces/service");
   authz = await import("../../src/core/workspaces/authorization");
 });
@@ -36,6 +37,7 @@ async function makeUser(): Promise<string> {
 }
 
 beforeEach(async () => {
+  await db().delete(workspacesTable);
   await db().delete(users);
   userCounter = 0;
 });

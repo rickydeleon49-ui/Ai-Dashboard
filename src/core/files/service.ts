@@ -6,6 +6,13 @@ import { projectFiles } from "@/db/schema";
 import { storage } from "@/core/storage";
 import { createId } from "@/lib/ids";
 import type { ProjectFile } from "@/core/projects/types";
+import { isAccountsMode } from "@/lib/auth-mode";
+
+function assertFilesEnabled(): void {
+  if (isAccountsMode()) {
+    throw new Error("File operations are disabled in hosted multi-user accounts mode.");
+  }
+}
 
 /** Refuse any single file larger than this. */
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
@@ -24,6 +31,7 @@ export function formatLimit(bytes: number): string {
 }
 
 export async function listProjectFiles(projectId: string): Promise<ProjectFile[]> {
+  assertFilesEnabled();
   return db
     .select()
     .from(projectFiles)
@@ -33,6 +41,7 @@ export async function listProjectFiles(projectId: string): Promise<ProjectFile[]
 }
 
 export async function findFile(id: string): Promise<ProjectFile | null> {
+  assertFilesEnabled();
   return db.select().from(projectFiles).where(eq(projectFiles.id, id)).get() ?? null;
 }
 
@@ -40,6 +49,7 @@ export async function addProjectFile(
   projectId: string,
   file: File,
 ): Promise<ProjectFile> {
+  assertFilesEnabled();
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new Error(
       `"${file.name}" is larger than the ${formatLimit(MAX_UPLOAD_BYTES)} limit`,
@@ -61,15 +71,32 @@ export async function addProjectFile(
     createdAt: new Date().toISOString(),
   };
 
-  db.insert(projectFiles).values(row).run();
-  return row;
+  try {
+    db.insert(projectFiles).values(row).run();
+    return row;
+  } catch (dbError) {
+    try {
+      await storage.delete(stored.key);
+    } catch (cleanupError) {
+      // Log only a sanitized blob identifier and error type.
+      // Never log file contents, credentials, signed URLs, auth tokens, or complete storage paths.
+      const errorType =
+        cleanupError instanceof Error ? cleanupError.constructor.name : "UnknownError";
+      console.error(
+        `[ERR_FILE_CLEANUP_FAILED] failed to clean up unreferenced file blob after metadata insert failure (correlation_id=${row.id}, error_type=${errorType})`,
+      );
+    }
+    throw dbError;
+  }
 }
 
 export async function readFileContents(file: ProjectFile): Promise<Buffer> {
+  assertFilesEnabled();
   return storage.read(file.storageKey);
 }
 
 export async function deleteProjectFile(id: string): Promise<boolean> {
+  assertFilesEnabled();
   const file = await findFile(id);
   if (!file) return false;
 

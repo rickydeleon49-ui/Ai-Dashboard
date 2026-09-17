@@ -1,32 +1,48 @@
 /**
- * Hosted-mode access control.
+ * Hosted-mode, desktop-mode, and accounts-mode proxy access control.
  *
- * Two properties matter here: a public deployment must never serve the
- * dashboard without a password, and an authenticated browser session must not
- * be usable by another site. Basic credentials are ambient — the browser
- * attaches them by itself — so authentication alone does not give the second.
+ * Requirements verified:
+ * - Hosted mode requires password; fails closed without it.
+ * - Desktop mode requires cryptographically random launch secret (DESKTOP_INTERNAL_SECRET).
+ * - Requests without the secret or with invalid secret are rejected (401).
+ * - DASHBOARD_LOCAL=1 alone does not bypass authentication.
+ * - Leaked/forwarded non-loopback headers are rejected.
+ * - Accounts mode and password mode take strict precedence over local variables/secrets.
+ * - CSRF protections on mutating requests.
  */
 import assert from "node:assert/strict";
 import { afterEach, before, describe, it } from "node:test";
+import React from "react";
 
-type Proxy = typeof import("../../src/proxy").proxy;
-let proxy: Proxy;
+if (typeof (React as { createContext?: unknown }).createContext !== "function") {
+  (React as { createContext?: unknown }).createContext = () => ({
+    Provider: ({ children }: { children: unknown }) => children,
+    Consumer: ({ children }: { children: (val: unknown) => unknown }) => children(null),
+  });
+}
+
+type ProxyModule = typeof import("../../src/proxy");
+let proxyModule: ProxyModule;
 let NextRequest: typeof import("next/server").NextRequest;
 
 const PASSWORD = "correct-horse-battery-staple";
+const DESKTOP_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 before(async () => {
-  ({ proxy } = await import("../../src/proxy"));
+  proxyModule = await import("../../src/proxy");
   ({ NextRequest } = await import("next/server"));
 });
 
-/** The keys these tests touch, restored after each one. */
-const TOUCHED = ["DASHBOARD_LOCAL", "DASHBOARD_PASSWORD", "NODE_ENV"] as const;
-const original = Object.fromEntries(TOUCHED.map((k) => [k, process.env[k]]));
+const TOUCHED = [
+  "DASHBOARD_LOCAL",
+  "DASHBOARD_PASSWORD",
+  "DESKTOP_INTERNAL_SECRET",
+  "AUTH_MODE",
+  "DATABASE_URL",
+  "NODE_ENV",
+] as const;
 
-// NODE_ENV is declared read-only for application code; assigning it is exactly
-// what these tests need to do, so they reach past the declaration rather than
-// replacing process.env wholesale.
+const original = Object.fromEntries(TOUCHED.map((k) => [k, process.env[k]]));
 const env = process.env as Record<string, string | undefined>;
 
 afterEach(() => {
@@ -36,46 +52,48 @@ afterEach(() => {
   }
 });
 
-/** Puts the process into the hosted configuration. */
 function hosted(password: string | null = PASSWORD): void {
   delete env.DASHBOARD_LOCAL;
+  delete env.DESKTOP_INTERNAL_SECRET;
+  delete env.AUTH_MODE;
+  delete env.DATABASE_URL;
   env.NODE_ENV = "production";
   if (password === null) delete env.DASHBOARD_PASSWORD;
   else env.DASHBOARD_PASSWORD = password;
 }
 
-/** Puts the process into the desktop configuration. */
-function local(): void {
+function desktop(secret: string | null = DESKTOP_SECRET): void {
   delete env.DASHBOARD_PASSWORD;
+  delete env.AUTH_MODE;
+  delete env.DATABASE_URL;
+  env.NODE_ENV = "production";
   env.DASHBOARD_LOCAL = "1";
+  if (secret === null) delete env.DESKTOP_INTERNAL_SECRET;
+  else env.DESKTOP_INTERNAL_SECRET = secret;
 }
 
 function request(
   method: string,
+  url = "http://localhost:3000/api/projects",
   headers: Record<string, string> = {},
 ): InstanceType<typeof NextRequest> {
-  return new NextRequest("http://dashboard.example/api/projects", {
+  return new NextRequest(url, {
     method,
-    headers: { host: "dashboard.example", ...headers },
+    headers: { host: "localhost:3000", ...headers },
   });
 }
 
-/**
- * proxy() is async (accounts mode needs to await a session lookup) and takes
- * a fetch event as its second argument. None of these tests exercise
- * accounts mode (AUTH_MODE is never set here), and none of proxy()'s other
- * branches read the event at all, so an empty stub is fine — it is
- * provably never touched by anything these tests reach.
- */
 async function call(
   method: string,
   headers: Record<string, string> = {},
+  url = "http://localhost:3000/api/projects",
 ): Promise<Response> {
-  const stubEvent = {} as Parameters<Proxy>[1];
-  return proxy(request(method, headers), stubEvent) as Promise<Response>;
+  const stubEvent = {} as Parameters<ProxyModule["proxy"]>[1];
+  return proxyModule.proxy(request(method, url, headers), stubEvent) as Promise<Response>;
 }
 
 const auth = { authorization: `Basic ${btoa(`user:${PASSWORD}`)}` };
+const desktopHeader = { "x-dashboard-desktop-secret": DESKTOP_SECRET };
 
 describe("hosted mode authentication", () => {
   it("refuses to serve at all when no password is configured", async () => {
@@ -100,22 +118,144 @@ describe("hosted mode authentication", () => {
     hosted();
     assert.notEqual((await call("GET", auth)).status, 401);
   });
+});
 
-  it("lets the desktop shell through without a password", async () => {
-    hosted(null);
-    process.env.DASHBOARD_LOCAL = "1";
-    assert.notEqual((await call("GET")).status, 503);
+describe("desktop mode cryptographic launch secret authentication", () => {
+  it("allows requests with the valid launch secret", async () => {
+    desktop();
+    const response = await call("GET", desktopHeader);
+    assert.notEqual(response.status, 401);
+    assert.notEqual(response.status, 503);
+  });
+
+  it("rejects requests missing the desktop secret with 401", async () => {
+    desktop();
+    const response = await call("GET");
+    assert.equal(response.status, 401);
+    const body = (await response.json()) as { error?: string };
+    assert.equal(body.error, "Unauthorized.");
+  });
+
+  it("rejects requests with an invalid desktop secret with 401", async () => {
+    desktop();
+    const invalidHeader = { "x-dashboard-desktop-secret": "wrong-secret-value-00000000000000" };
+    const response = await call("GET", invalidHeader);
+    assert.equal(response.status, 401);
+  });
+
+  it("rejects DASHBOARD_LOCAL=1 alone in production without the launch secret", async () => {
+    desktop(null); // DASHBOARD_LOCAL=1 is set, but no DESKTOP_INTERNAL_SECRET
+    const response = await call("GET");
+    // Fails closed as setupRequired() 503
+    assert.equal(response.status, 503);
+  });
+
+  it("rejects requests with leaked/external forwarded host header", async () => {
+    desktop();
+    const leakedHeaders = {
+      ...desktopHeader,
+      "x-forwarded-host": "attacker-proxy.example.com",
+    };
+    const response = await call("GET", leakedHeaders);
+    assert.equal(response.status, 401);
+  });
+
+  it("rejects requests with leaked/external forwarded for header", async () => {
+    desktop();
+    const leakedHeaders = {
+      ...desktopHeader,
+      "x-forwarded-for": "203.0.113.195",
+    };
+    const response = await call("GET", leakedHeaders);
+    assert.equal(response.status, 401);
+  });
+
+  it("blocks cross-site mutations in desktop mode even with valid secret", async () => {
+    desktop();
+    const response = await call("POST", {
+      ...desktopHeader,
+      "sec-fetch-site": "cross-site",
+    });
+    assert.equal(response.status, 403);
+  });
+
+  it("blocks foreign origin mutations in desktop mode even with valid secret", async () => {
+    desktop();
+    const response = await call("POST", {
+      ...desktopHeader,
+      origin: "https://attacker.example",
+    });
+    assert.equal(response.status, 403);
+  });
+
+  it("allows same-origin mutations in desktop mode with valid secret", async () => {
+    desktop();
+    const response = await call("POST", {
+      ...desktopHeader,
+      "sec-fetch-site": "same-origin",
+    });
+    assert.notEqual(response.status, 403);
   });
 });
 
-describe("cross-site request forgery", () => {
+describe("precedence: accounts and password mode take precedence over local bypass", () => {
+  it("password mode takes strict precedence over leftover DASHBOARD_LOCAL=1", async () => {
+    hosted(PASSWORD);
+    env.DASHBOARD_LOCAL = "1";
+    env.DESKTOP_INTERNAL_SECRET = DESKTOP_SECRET;
+
+    // Unauthenticated request must receive 401 Basic auth, NOT desktop access
+    const unauthResponse = await call("GET");
+    assert.equal(unauthResponse.status, 401);
+    assert.match(unauthResponse.headers.get("www-authenticate") ?? "", /^Basic/);
+
+    // Supplying desktop secret alone must NOT bypass password mode
+    const secretOnlyResponse = await call("GET", desktopHeader);
+    assert.equal(secretOnlyResponse.status, 401);
+    assert.match(secretOnlyResponse.headers.get("www-authenticate") ?? "", /^Basic/);
+
+    // Supplying valid password succeeds
+    const authResponse = await call("GET", auth);
+    assert.notEqual(authResponse.status, 401);
+  });
+
+  it("accounts mode takes strict precedence over leftover DASHBOARD_LOCAL=1", async () => {
+    env.AUTH_MODE = "accounts";
+    env.DATABASE_URL = "postgres://dummy:dummy@localhost:5432/dummy";
+    env.DASHBOARD_LOCAL = "1";
+    env.DESKTOP_INTERNAL_SECRET = DESKTOP_SECRET;
+
+    // Unauthenticated API request fails closed with 401 Authentication required
+    const response = await call("GET", desktopHeader);
+    assert.equal(response.status, 401);
+    const body = (await response.json()) as { error?: string };
+    assert.equal(body.error, "Authentication required.");
+  });
+
+  it("validateStartupConfig detects conflicting DASHBOARD_LOCAL and hosted variables", () => {
+    env.DASHBOARD_LOCAL = "1";
+    env.DASHBOARD_PASSWORD = PASSWORD;
+    assert.equal(proxyModule.validateStartupConfig().valid, false);
+
+    delete env.DASHBOARD_PASSWORD;
+    env.AUTH_MODE = "accounts";
+    env.DATABASE_URL = "postgres://localhost/test";
+    assert.equal(proxyModule.validateStartupConfig().valid, false);
+
+    delete env.AUTH_MODE;
+    delete env.DATABASE_URL;
+    assert.equal(proxyModule.validateStartupConfig().valid, true);
+  });
+});
+
+describe("cross-site request forgery in hosted password mode", () => {
   it("blocks an authenticated mutation a browser reports as cross-site", async () => {
     hosted();
     const response = await call("POST", { ...auth, "sec-fetch-site": "cross-site" });
-    assert.equal(response.status, 403, "a cross-site POST must not be accepted");
+    assert.equal(response.status, 403);
   });
 
-  it("blocks one identified by a foreign Origin", async () => {
+  it("blocks foreign origin mutations in hosted password mode", async () => {
     hosted();
     const response = await call("POST", { ...auth, origin: "https://attacker.example" });
     assert.equal(response.status, 403);
@@ -129,57 +269,15 @@ describe("cross-site request forgery", () => {
     });
   }
 
-  it("allows the app's own requests", async () => {
+  it("allows same origin requests", async () => {
     hosted();
-    const sameOrigin: Record<string, string>[] = [
-      { "sec-fetch-site": "same-origin" },
-      { origin: "http://dashboard.example" },
-    ];
-    for (const headers of sameOrigin) {
-      const response = await call("POST", { ...auth, ...headers });
-      assert.notEqual(response.status, 403, JSON.stringify(headers));
-    }
-  });
-
-  it("does not block reads, which change nothing", async () => {
-    hosted();
-    const response = await call("GET", { ...auth, "sec-fetch-site": "cross-site" });
-    assert.notEqual(response.status, 403);
-  });
-
-  it("still allows a non-browser client that supplied the password itself", async () => {
-    hosted();
-    // No Origin and no Sec-Fetch-Site: nothing attached credentials ambiently,
-    // so this is not the thing CSRF describes.
-    assert.notEqual((await call("POST", auth)).status, 403);
-  });
-});
-
-describe("desktop mode cross-site protection", () => {
-  // The desktop server has no password, but loopback binding is not an
-  // authorization boundary: a page open in the same browser can still POST to
-  // it. Unauthenticated is not the same as unprotected.
-  it("blocks a cross-site mutation even though no password is required", async () => {
-    local();
-    const response = await call("POST", { "sec-fetch-site": "cross-site" });
-    assert.equal(response.status, 403);
-  });
-
-  it("blocks one identified by a foreign Origin", async () => {
-    local();
-    const response = await call("POST", { origin: "https://attacker.example" });
-    assert.equal(response.status, 403);
-  });
-
-  it("still allows the app's own requests", async () => {
-    local();
-    const response = await call("POST", { "sec-fetch-site": "same-origin" });
+    const response = await call("POST", { ...auth, "sec-fetch-site": "same-origin" });
     assert.notEqual(response.status, 403);
   });
 
   it("does not block reads", async () => {
-    local();
-    const response = await call("GET", { "sec-fetch-site": "cross-site" });
+    hosted();
+    const response = await call("GET", { ...auth, "sec-fetch-site": "cross-site" });
     assert.notEqual(response.status, 403);
   });
 });

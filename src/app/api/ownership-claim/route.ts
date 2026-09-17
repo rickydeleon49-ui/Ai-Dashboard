@@ -13,6 +13,10 @@ const STATUS_FOR_REASON: Record<OwnershipClaimError["reason"], number> = {
   not_available: 404,
   invalid_password: 401,
   already_claimed: 409,
+  claim_in_progress: 409,
+  claimant_mismatch: 403,
+  workspace_not_owned: 403,
+  workspace_mismatch: 403,
 };
 
 /**

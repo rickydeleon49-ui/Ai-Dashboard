@@ -99,8 +99,7 @@ export const workspaces = pgTable(
     /** 'personal' | 'team' */
     kind: text("kind").notNull(),
     createdBy: text("created_by")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+      .references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
   },
@@ -112,7 +111,7 @@ export const workspaces = pgTable(
     // fails, rather than creating a duplicate.
     uniqueIndex("workspace_personal_owner_idx")
       .on(t.createdBy)
-      .where(sql`${t.kind} = 'personal'`),
+      .where(sql`${t.kind} = 'personal' and ${t.createdBy} is not null`),
   ],
 );
 
@@ -158,8 +157,7 @@ export const workspaceInvitations = pgTable(
     /** sha-256 of the raw token. The raw token is never persisted. */
     tokenHash: text("token_hash").notNull().unique(),
     invitedBy: text("invited_by")
-      .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
     revokedAt: timestamp("revoked_at", { mode: "date" }),
     acceptedAt: timestamp("accepted_at", { mode: "date" }),
@@ -284,17 +282,42 @@ export const projectTags = pgTable(
  * primary key itself, so a second concurrent claim attempt loses outright
  * rather than needing a separate lock.
  */
-export const ownershipClaims = pgTable("ownership_claim", {
-  id: text("id").primaryKey(),
-  claimedBy: text("claimed_by")
-    .notNull()
-    .references(() => users.id),
-  workspaceId: text("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  projectsImported: integer("projects_imported").notNull().default(0),
-  claimedAt: timestamp("claimed_at", { mode: "date" }).notNull().defaultNow(),
-});
+export const OWNERSHIP_CLAIM_STATUSES = [
+  "pending",
+  "running",
+  "partially_completed",
+  "completed",
+  "failed",
+] as const;
+export type OwnershipClaimStatus = (typeof OWNERSHIP_CLAIM_STATUSES)[number];
+
+export const ownershipClaims = pgTable(
+  "ownership_claim",
+  {
+    id: text("id").primaryKey(),
+    claimedBy: text("claimed_by")
+      .notNull()
+      .references(() => users.id),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    projectsImported: integer("projects_imported").notNull().default(0),
+    importedProjectIds: jsonb("imported_project_ids")
+      .notNull()
+      .$type<string[]>()
+      .default([]),
+    lastError: text("last_error"),
+    claimedAt: timestamp("claimed_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "ownership_claim_status_check",
+      sql`${t.status} in ('pending', 'running', 'partially_completed', 'completed', 'failed')`,
+    ),
+  ],
+);
 
 export const activityEvents = pgTable(
   "activity_event",

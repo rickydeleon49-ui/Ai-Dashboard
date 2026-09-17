@@ -14,7 +14,7 @@ export interface Workspace {
   name: string;
   slug: string;
   kind: WorkspaceKind;
-  createdBy: string;
+  createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,7 +42,7 @@ export interface WorkspaceInvitation {
   workspaceId: string;
   email: string;
   role: InvitableRole;
-  invitedBy: string;
+  invitedBy: string | null;
   expiresAt: Date;
   revokedAt: Date | null;
   acceptedAt: Date | null;

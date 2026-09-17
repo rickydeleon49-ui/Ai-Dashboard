@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { cleanup as cleanupPg, migrate as migratePg } from "../helpers/db.pg";
-import { cleanup as cleanupSqlite, migrate as migrateSqlite } from "../helpers/db";
+import { cleanup as cleanupSqlite, migrate as migrateSqlite, withLegacySqlite } from "../helpers/db";
 
 process.env.AUTH_SECRET = "test-secret-for-automated-tests-only-not-real";
 
@@ -183,17 +183,77 @@ describe("POST /api/ownership-claim", () => {
     process.env.DASHBOARD_PASSWORD = "the-real-password";
     const cookie = await signIn("claim-success@example.com");
 
+    // Seed a legacy SQLite project to prove the API route actually migrates from the intended legacy database
+    await withLegacySqlite(async () => {
+      const { DrizzleProjectRepository } = await import(
+        "../../src/db/repositories/drizzle-project-repository"
+      );
+      const { LOCAL_WORKSPACE_ID } = await import(
+        "../../src/db/repositories/project-repository"
+      );
+      await new DrizzleProjectRepository().create(LOCAL_WORKSPACE_ID, {
+        name: "Legacy SQLite App Via API",
+        source: "manual",
+      });
+    });
+
     const first = await claimRoute.POST(
       apiRequest("POST", "/api/ownership-claim", { cookie, body: { password: "the-real-password" } }),
     );
     assert.equal(first.status, 200);
     const body = (await first.json()) as { workspaceId: string; projectsImported: number };
     assert.ok(body.workspaceId);
-    assert.equal(typeof body.projectsImported, "number");
+    assert.equal(body.projectsImported, 1);
+
+    // Verify exception is unavailable after claim completion: ordinary access is refused
+    const { db: sqliteDb } = await import("../../src/db/client");
+    const { projects } = await import("../../src/db/schema");
+    assert.throws(
+      () => sqliteDb.select().from(projects).all(),
+      /SQLite connection refused/,
+    );
 
     const second = await claimRoute.POST(
       apiRequest("POST", "/api/ownership-claim", { cookie, body: { password: "the-real-password" } }),
     );
     assert.equal(second.status, 409);
+  });
+
+  it("returns 403 and does not return workspaceId when another authenticated account tries to resume a partial claim", async () => {
+    process.env.DASHBOARD_PASSWORD = "the-real-password";
+    const { getPgDb } = await import("../../src/db/pg-client");
+    const { ownershipClaims, users, workspaces, workspaceMembers } = await import("../../src/db/schema.pg");
+
+    const db = getPgDb();
+    await db.delete(ownershipClaims);
+
+    // Setup an incomplete claim belonging to User A
+    const userA = "user_victim_a";
+    const wsA = "ws_victim_a";
+    await db.insert(users).values({ id: userA, email: "user_a@example.com" }).onConflictDoNothing();
+    await db.insert(workspaces).values({ id: wsA, name: "Victim WS", slug: "victim-ws", kind: "personal", createdBy: userA }).onConflictDoNothing();
+    await db.insert(workspaceMembers).values({ workspaceId: wsA, userId: userA, role: "owner" }).onConflictDoNothing();
+
+    await db.insert(ownershipClaims).values({
+      id: "singleton",
+      claimedBy: userA,
+      workspaceId: wsA,
+      status: "partially_completed",
+      projectsImported: 1,
+      importedProjectIds: ["prj_1"],
+      claimedAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Attacker User B signs in with valid credentials and supplies correct DASHBOARD_PASSWORD
+    const cookieB = await signIn("attacker-b@example.com");
+    const res = await claimRoute.POST(
+      apiRequest("POST", "/api/ownership-claim", { cookie: cookieB, body: { password: "the-real-password" } }),
+    );
+
+    assert.equal(res.status, 403, "Must return 403 Forbidden for claimant mismatch");
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.workspaceId, undefined, "Must NOT return another user's workspace identifier");
+    assert.match(String(body.error), /original claimant/i);
   });
 });

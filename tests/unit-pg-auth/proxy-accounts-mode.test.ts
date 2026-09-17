@@ -306,7 +306,14 @@ describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => 
     const cookie = await signIn("proxy-accounts-blocked-api@example.com");
     env.AUTH_MODE = "accounts";
     try {
-      for (const path of ["/api/ai/chat", "/api/automations", "/api/github/sync", "/api/prompts"]) {
+      for (const path of [
+        "/api/ai/chat",
+        "/api/automations",
+        "/api/github/sync",
+        "/api/prompts",
+        "/api/projects/prj_123/files",
+        "/api/files/file_123",
+      ]) {
         const response = await call(requestFor(path, cookie));
         assert.equal(response.status, 404, `${path} should be blocked`);
       }

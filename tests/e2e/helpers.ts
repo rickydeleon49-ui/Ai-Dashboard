@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 
+import crypto from "node:crypto";
+
 /*
  * Each test file runs in its own process, so a fixed port makes two files race
  * for it — the second to start fails, intermittently, in whichever file happens
@@ -35,12 +37,16 @@ export let baseURL = "";
 let server: ChildProcess | null = null;
 let browser: Browser | null = null;
 let root = "";
+let e2eSecret = "";
 
 async function waitForServer(timeoutMs = 90_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(baseURL, { redirect: "manual" });
+      const response = await fetch(baseURL, {
+        redirect: "manual",
+        headers: { "x-dashboard-desktop-secret": e2eSecret },
+      });
       if (response.status < 500) return;
     } catch {
       // Not listening yet.
@@ -52,6 +58,7 @@ async function waitForServer(timeoutMs = 90_000): Promise<void> {
 
 export async function start(): Promise<void> {
   root = mkdtempSync(path.join(tmpdir(), "cc-e2e-"));
+  e2eSecret = crypto.randomBytes(32).toString("hex");
 
   const port = Number(process.env.E2E_PORT) || (await freePort());
   baseURL = `http://127.0.0.1:${port}`;
@@ -77,7 +84,8 @@ export async function start(): Promise<void> {
       NODE_ENV: "production",
       DATABASE_PATH: path.join(root, "e2e.db"),
       UPLOADS_DIR: path.join(root, "uploads"),
-      // Skip the hosted-mode password gate; this is the desktop configuration.
+      // Desktop launch secret authentication (Phase 2 hardening)
+      DESKTOP_INTERNAL_SECRET: e2eSecret,
       DASHBOARD_LOCAL: "1",
       // Never let a developer's real token reach the test run.
       GITHUB_TOKEN: "",
@@ -115,12 +123,24 @@ export async function stop(): Promise<void> {
   }
   server = null;
 
-  if (root) rmSync(root, { recursive: true, force: true });
+  if (root) {
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      // Ignore cleanup error if Windows process has not fully exited
+    }
+  }
 }
 
 export async function newPage(): Promise<Page> {
   if (!browser) throw new Error("start() must run first");
-  const context = await browser.newContext({ baseURL, viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 1280, height: 900 },
+    extraHTTPHeaders: {
+      "x-dashboard-desktop-secret": e2eSecret,
+    },
+  });
   const page = await context.newPage();
 
   /*

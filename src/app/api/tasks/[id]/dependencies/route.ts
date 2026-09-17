@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { taskRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { taskDependencyCreateSchema } from "@/core/tasks/schema";
-import { DependencyCycleError } from "@/core/tasks/errors";
+import { DependencyCycleError, TaskLockTimeoutError } from "@/core/tasks/errors";
 import {
   resolveWorkspaceAndUserForRequest,
   resolveWorkspaceIdForRequest,
@@ -93,6 +93,12 @@ export async function POST(request: NextRequest, { params }: Context) {
   } catch (error) {
     if (error instanceof DependencyCycleError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof TaskLockTimeoutError) {
+      return NextResponse.json(
+        { error: error.message, retryable: true },
+        { status: 503, headers: { "Retry-After": "1" } },
+      );
     }
     throw error;
   }

@@ -1,15 +1,14 @@
-import { DrizzleProjectRepository } from "./drizzle-project-repository";
+import { createRequire } from "node:module";
 import { PostgresProjectRepository } from "./postgres-project-repository";
 import type { ProjectRepository } from "./project-repository";
-import { DrizzleMilestoneRepository } from "./drizzle-milestone-repository";
 import { PostgresMilestoneRepository } from "./postgres-milestone-repository";
 import type { MilestoneRepository } from "./milestone-repository";
-import { DrizzleTaskRepository } from "./drizzle-task-repository";
 import { PostgresTaskRepository } from "./postgres-task-repository";
 import type { TaskRepository } from "./task-repository";
-import { DrizzleKnowledgeDocumentRepository } from "./drizzle-knowledge-document-repository";
 import { PostgresKnowledgeDocumentRepository } from "./postgres-knowledge-document-repository";
 import type { KnowledgeDocumentRepository } from "./knowledge-document-repository";
+
+const require = createRequire(import.meta.url);
 
 /**
  * Composition root for persistence.
@@ -20,22 +19,25 @@ import type { KnowledgeDocumentRepository } from "./knowledge-document-repositor
  * still passes an explicit workspaceId; this only decides which backend
  * answers it. Desktop and today's single-password hosted mode never set
  * DATABASE_URL, so they always get the SQLite implementation.
+ *
+ * SQLite repositories are conditionally required only when DATABASE_URL is
+ * absent, ensuring accounts/PostgreSQL mode never imports better-sqlite3 or client.ts.
  */
 export const projectRepository: ProjectRepository = process.env.DATABASE_URL
   ? new PostgresProjectRepository()
-  : new DrizzleProjectRepository();
+  : new (require("./drizzle-project-repository").DrizzleProjectRepository)();
 
 export const milestoneRepository: MilestoneRepository = process.env.DATABASE_URL
   ? new PostgresMilestoneRepository()
-  : new DrizzleMilestoneRepository();
+  : new (require("./drizzle-milestone-repository").DrizzleMilestoneRepository)();
 
 export const taskRepository: TaskRepository = process.env.DATABASE_URL
   ? new PostgresTaskRepository()
-  : new DrizzleTaskRepository();
+  : new (require("./drizzle-task-repository").DrizzleTaskRepository)();
 
 export const knowledgeDocumentRepository: KnowledgeDocumentRepository = process.env.DATABASE_URL
   ? new PostgresKnowledgeDocumentRepository()
-  : new DrizzleKnowledgeDocumentRepository();
+  : new (require("./drizzle-knowledge-document-repository").DrizzleKnowledgeDocumentRepository)();
 
 export type { ProjectRepository } from "./project-repository";
 export type { MilestoneRepository } from "./milestone-repository";

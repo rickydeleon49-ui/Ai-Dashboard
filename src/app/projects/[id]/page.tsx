@@ -28,8 +28,7 @@ import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { EmptyState } from "@/components/ui/empty-state";
 import { knowledgeDocumentRepository, milestoneRepository, projectRepository, taskRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
-import { listProjectActivity, type ActivityItem } from "@/core/activity/service";
-import { listProjectFiles } from "@/core/files/service";
+import type { ActivityItem } from "@/core/activity/service";
 import { ProjectFiles } from "@/components/projects/project-files";
 import { LocalActions } from "@/components/projects/local-actions";
 import { SOURCE_META, STATUS_META, TYPE_META, languageColor } from "@/core/projects/labels";
@@ -39,11 +38,7 @@ import type { Project, ProjectFile } from "@/core/projects/types";
 import type { Milestone, Task } from "@/core/tasks/types";
 import type { KnowledgeDocument } from "@/core/knowledge/types";
 import { formatCompact, formatDate, formatRelative } from "@/lib/utils";
-
-/** True in hosted multi-user mode — see the note on `activity`/`files` below. */
-function isAccountsMode(): boolean {
-  return process.env.AUTH_MODE === "accounts" && Boolean(process.env.DATABASE_URL);
-}
+import { isAccountsMode } from "@/lib/auth-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +108,10 @@ export default async function ProjectDetailPage({
   // in accounts mode would just be a wasted, always-empty query.
   const [activity, files]: [ActivityItem[], ProjectFile[]] = isAccountsMode()
     ? [[], []]
-    : await Promise.all([listProjectActivity(project.id, 15), listProjectFiles(project.id)]);
+    : await Promise.all([
+        import("@/core/activity/service").then((m) => m.listProjectActivity(project.id, 15)),
+        import("@/core/files/service").then((m) => m.listProjectFiles(project.id)),
+      ]);
   const [milestones, tasks, knowledgeDocuments]: [Milestone[], Task[], KnowledgeDocument[]] = await Promise.all([
     milestoneRepository.list(workspaceId, project.id),
     taskRepository.list(workspaceId, project.id),
@@ -354,19 +352,21 @@ export default async function ProjectDetailPage({
             </CardBody>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Files &amp; assets</CardTitle>
-              {files.length > 0 ? (
-                <span className="text-[12px] tabular-nums text-faint">
-                  {files.length}
-                </span>
-              ) : null}
-            </CardHeader>
-            <CardBody>
-              <ProjectFiles projectId={project.id} files={files} />
-            </CardBody>
-          </Card>
+          {isAccountsMode() ? null : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Files &amp; assets</CardTitle>
+                {files.length > 0 ? (
+                  <span className="text-[12px] tabular-nums text-faint">
+                    {files.length}
+                  </span>
+                ) : null}
+              </CardHeader>
+              <CardBody>
+                <ProjectFiles projectId={project.id} files={files} />
+              </CardBody>
+            </Card>
+          )}
 
           {/* Activity */}
           <Card className="overflow-hidden">

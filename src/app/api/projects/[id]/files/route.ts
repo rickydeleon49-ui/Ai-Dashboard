@@ -1,15 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { ensureDatabaseReady } from "@/db/bootstrap";
-import { projectRepository } from "@/db/repositories";
-import { addProjectFiles, listProjectFiles } from "@/core/files/service";
-import { resolveWorkspaceAndUserForRequest } from "@/core/workspaces/current-workspace";
-import { AuthorizationError, authorizationErrorResponse, requireRole } from "@/core/workspaces/authorization";
+import { isAccountsMode } from "@/lib/auth-mode";
 
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Context) {
+  if (isAccountsMode()) {
+    return NextResponse.json(
+      { error: "Not found." },
+      { status: 404, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const { ensureDatabaseReady } = await import("@/db/bootstrap");
+  const { listProjectFiles } = await import("@/core/files/service");
   ensureDatabaseReady();
   const { id } = await params;
   return NextResponse.json({ files: await listProjectFiles(id) });
@@ -17,6 +21,24 @@ export async function GET(_request: Request, { params }: Context) {
 
 /** POST — multipart upload of one or more files onto a project. */
 export async function POST(request: NextRequest, { params }: Context) {
+  if (isAccountsMode()) {
+    return NextResponse.json(
+      { error: "Not found." },
+      { status: 404, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const { ensureDatabaseReady } = await import("@/db/bootstrap");
+  const { projectRepository } = await import("@/db/repositories");
+  const { addProjectFiles } = await import("@/core/files/service");
+  const { resolveWorkspaceAndUserForRequest } = await import(
+    "@/core/workspaces/current-workspace"
+  );
+  const {
+    AuthorizationError,
+    authorizationErrorResponse,
+    requireRole,
+  } = await import("@/core/workspaces/authorization");
+
   ensureDatabaseReady();
   const resolved = await resolveWorkspaceAndUserForRequest(request);
   if (!resolved) {

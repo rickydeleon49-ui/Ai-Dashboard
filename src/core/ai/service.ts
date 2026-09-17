@@ -28,7 +28,7 @@ export type AiRuntime = "desktop" | "development" | "hosted";
 
 export function detectRuntime(): AiRuntime {
   // Set by the desktop shell when it forks the bundled server.
-  if (process.env.DASHBOARD_LOCAL === "1") return "desktop";
+  if (Boolean(process.env.DESKTOP_INTERNAL_SECRET) || process.env.DASHBOARD_LOCAL === "1") return "desktop";
   if (process.env.NODE_ENV !== "production") return "development";
   return "hosted";
 }

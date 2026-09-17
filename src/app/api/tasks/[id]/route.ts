@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { milestoneRepository, taskRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { taskUpdateSchema } from "@/core/tasks/schema";
-import { TaskBlockedError } from "@/core/tasks/errors";
+import {
+  InvalidAssigneeError,
+  InvalidParentTaskError,
+  TaskBlockedError,
+  TaskLockTimeoutError,
+} from "@/core/tasks/errors";
 import {
   resolveWorkspaceAndUserForRequest,
   resolveWorkspaceIdForRequest,
@@ -95,6 +100,12 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     if (!parent || parent.projectId !== existing.projectId) {
       return NextResponse.json({ error: "Parent task not found in this project" }, { status: 422 });
     }
+    if (parent.parentTaskId !== null) {
+      return NextResponse.json(
+        { error: "A parent task must be a top-level task; subtasks cannot be nested" },
+        { status: 422 },
+      );
+    }
   }
 
   let task;
@@ -103,6 +114,15 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   } catch (error) {
     if (error instanceof TaskBlockedError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof TaskLockTimeoutError) {
+      return NextResponse.json(
+        { error: error.message, retryable: true },
+        { status: 503, headers: { "Retry-After": "1" } },
+      );
+    }
+    if (error instanceof InvalidParentTaskError || error instanceof InvalidAssigneeError) {
+      return NextResponse.json({ error: error.message }, { status: 422 });
     }
     throw error;
   }

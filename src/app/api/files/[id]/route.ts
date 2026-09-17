@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureDatabaseReady } from "@/db/bootstrap";
-import {
-  deleteProjectFile,
-  findFile,
-  readFileContents,
-} from "@/core/files/service";
+import { isAccountsMode } from "@/lib/auth-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +7,13 @@ type Context = { params: Promise<{ id: string }> };
 
 /** GET — download a stored file. */
 export async function GET(_request: Request, { params }: Context) {
+  if (isAccountsMode()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const { ensureDatabaseReady } = await import("@/db/bootstrap");
+  const { findFile, readFileContents } = await import("@/core/files/service");
+
   ensureDatabaseReady();
   const { id } = await params;
 
@@ -43,6 +45,13 @@ export async function GET(_request: Request, { params }: Context) {
 }
 
 export async function DELETE(_request: Request, { params }: Context) {
+  if (isAccountsMode()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const { ensureDatabaseReady } = await import("@/db/bootstrap");
+  const { deleteProjectFile } = await import("@/core/files/service");
+
   ensureDatabaseReady();
   const { id } = await params;
   const deleted = await deleteProjectFile(id);

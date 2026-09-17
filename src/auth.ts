@@ -31,14 +31,27 @@ import { ensurePersonalWorkspace } from "@/core/workspaces/service";
  * so a test can read it directly and build the callback URL itself, the same
  * way a real inbox click would.
  */
-async function sendVerificationRequest(params: {
+export async function sendVerificationRequest(params: {
   identifier: string;
   url: string;
 }): Promise<void> {
   const server = process.env.EMAIL_SERVER?.trim();
   if (!server) {
-    console.log(`[auth] magic link for ${params.identifier}: ${params.url}`);
-    return;
+    if (process.env.NODE_ENV === "production") {
+      // Allow the concurrent createVerificationToken call in @auth/core to attach
+      // to Promise.all before this rejects, avoiding an unhandled rejection tick.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      throw new Error(
+        "Email sign-in is unavailable because EMAIL_SERVER is not configured.",
+      );
+    }
+    if (process.env.AUTH_LOG_MAGIC_LINK === "true") {
+      console.log(`[auth] magic link for ${params.identifier}: ${params.url}`);
+      return;
+    }
+    throw new Error(
+      "Email delivery is not configured. Set AUTH_LOG_MAGIC_LINK=true in development to enable console magic link delivery.",
+    );
   }
 
   const { createTransport } = await import("nodemailer");

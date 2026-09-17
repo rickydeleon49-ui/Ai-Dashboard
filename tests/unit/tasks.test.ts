@@ -349,4 +349,206 @@ describe("task dependencies + blocked state (SQLite)", () => {
     // Second removal of the same (now-gone) edge must not throw.
     await taskRepository.removeDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
   });
+
+  it("marks A blocked when A depends on B and B depends on unfinished C", async () => {
+    const a = await makeTask("Case 1 - A");
+    const b = await makeTask("Case 1 - B");
+    const c = await makeTask("Case 1 - C");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, c.id);
+
+    const aLoaded = await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id);
+    assert.equal(aLoaded?.blocked, true);
+  });
+
+  it("re-blocks upstream tasks A and B when C is reopened after A, B, C were completed", async () => {
+    const { TaskBlockedError } = await import("../../src/core/tasks/errors");
+    const a = await makeTask("Case 2 - A");
+    const b = await makeTask("Case 2 - B");
+    const c = await makeTask("Case 2 - C");
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, c.id);
+
+    // Complete C, then B, then A
+    await taskRepository.update(LOCAL_WORKSPACE_ID, c.id, { status: "done" });
+    await taskRepository.update(LOCAL_WORKSPACE_ID, b.id, { status: "done" });
+    await taskRepository.update(LOCAL_WORKSPACE_ID, a.id, { status: "done" });
+
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id))?.blocked, false);
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, b.id))?.blocked, false);
+
+    // Reopen C to todo
+    await taskRepository.update(LOCAL_WORKSPACE_ID, c.id, { status: "todo" });
+
+    // Under the invariant: A and B retain their historical done status, but are dynamically blocked: true
+    const aAfter = await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id);
+    const bAfter = await taskRepository.findById(LOCAL_WORKSPACE_ID, b.id);
+    assert.equal(aAfter?.status, "done");
+    assert.equal(aAfter?.blocked, true);
+    assert.equal(bAfter?.status, "done");
+    assert.equal(bAfter?.blocked, true);
+
+    // Attempting to re-save status done while transitively blocked is rejected
+    await assert.rejects(
+      () => taskRepository.update(LOCAL_WORKSPACE_ID, a.id, { status: "done" }),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskBlockedError);
+        return true;
+      },
+    );
+  });
+
+  it("marks an already-completed task blocked when an unfinished dependency is added to it", async () => {
+    const { TaskBlockedError } = await import("../../src/core/tasks/errors");
+    const a = await makeTask("Case 3 - A");
+    const b = await makeTask("Case 3 - B");
+
+    // Complete A while it has no dependencies
+    await taskRepository.update(LOCAL_WORKSPACE_ID, a.id, { status: "done" });
+    assert.equal((await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id))?.blocked, false);
+
+    // Now add unfinished dependency B to completed task A
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+
+    const aLoaded = await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id);
+    assert.equal(aLoaded?.status, "done");
+    assert.equal(aLoaded?.blocked, true);
+
+    // Moving or confirming done on blocked task A must be rejected
+    await assert.rejects(
+      () => taskRepository.update(LOCAL_WORKSPACE_ID, a.id, { status: "done" }),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskBlockedError);
+        return true;
+      },
+    );
+  });
+
+  it("keeps A blocked when direct dependency B is completed while B is still transitively blocked by C", async () => {
+    const a = await makeTask("Case 4 - A");
+    const b = await makeTask("Case 4 - B");
+    const c = await makeTask("Case 4 - C");
+
+    // Complete B before adding C as dependency to B
+    await taskRepository.update(LOCAL_WORKSPACE_ID, b.id, { status: "done" });
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, c.id);
+
+    // B is status=done but transitively blocked by C. A depends on B.
+    // A must be reported as blocked!
+    const aLoaded = await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id);
+    assert.equal(aLoaded?.blocked, true);
+  });
+
+  it("marks task blocked when multiple branches exist and only one branch is blocked", async () => {
+    const a = await makeTask("Case 5 - Root");
+    const b = await makeTask("Case 5 - Branch 1");
+    const c = await makeTask("Case 5 - Unfinished Leaf");
+    const d = await makeTask("Case 5 - Branch 2 Done");
+
+    await taskRepository.update(LOCAL_WORKSPACE_ID, d.id, { status: "done" });
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, b.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, a.id, d.id);
+    await taskRepository.addDependency(LOCAL_WORKSPACE_ID, b.id, c.id);
+
+    const aLoaded = await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id);
+    assert.equal(aLoaded?.blocked, true);
+
+    // Complete leaf C -> now both branches are satisfied
+    await taskRepository.update(LOCAL_WORKSPACE_ID, c.id, { status: "done" });
+    await taskRepository.update(LOCAL_WORKSPACE_ID, b.id, { status: "done" });
+
+    const aAfter = await taskRepository.findById(LOCAL_WORKSPACE_ID, a.id);
+    assert.equal(aAfter?.blocked, false);
+  });
+});
+
+describe("subtask hierarchy rules (SQLite)", () => {
+  async function makeTask(title: string, parentTaskId?: string | null) {
+    return taskRepository.create(LOCAL_WORKSPACE_ID, { projectId, title, parentTaskId });
+  }
+
+  it("rejects self-parenting on update", async () => {
+    const { InvalidParentTaskError } = await import("../../src/core/tasks/errors");
+    const task = await makeTask("Self Parent");
+    await assert.rejects(
+      () => taskRepository.update(LOCAL_WORKSPACE_ID, task.id, { parentTaskId: task.id }),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidParentTaskError);
+        assert.match((err as Error).message, /cannot be its own parent/);
+        return true;
+      },
+    );
+  });
+
+  it("rejects creating a child beneath another child (max 1 level)", async () => {
+    const { InvalidParentTaskError } = await import("../../src/core/tasks/errors");
+    const top = await makeTask("Top Level");
+    const child = await makeTask("Child Task", top.id);
+
+    await assert.rejects(
+      () => makeTask("Grandchild Task", child.id),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidParentTaskError);
+        assert.match((err as Error).message, /must be a top-level task/);
+        return true;
+      },
+    );
+  });
+
+  it("rejects moving a task beneath another child", async () => {
+    const { InvalidParentTaskError } = await import("../../src/core/tasks/errors");
+    const top = await makeTask("Top Level 2");
+    const child = await makeTask("Child 2", top.id);
+    const other = await makeTask("Other Task");
+
+    await assert.rejects(
+      () => taskRepository.update(LOCAL_WORKSPACE_ID, other.id, { parentTaskId: child.id }),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidParentTaskError);
+        assert.match((err as Error).message, /must be a top-level task/);
+        return true;
+      },
+    );
+  });
+
+  it("rejects making a task with existing children into a child", async () => {
+    const { InvalidParentTaskError } = await import("../../src/core/tasks/errors");
+    const parentA = await makeTask("Parent A");
+    await makeTask("Child of A", parentA.id);
+
+    const parentB = await makeTask("Parent B");
+
+    // Making parentA a child of parentB would create a 2-level hierarchy
+    await assert.rejects(
+      () => taskRepository.update(LOCAL_WORKSPACE_ID, parentA.id, { parentTaskId: parentB.id }),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidParentTaskError);
+        assert.match((err as Error).message, /with subtasks cannot become a subtask/);
+        return true;
+      },
+    );
+  });
+
+  it("rejects cross-project parent tasks", async () => {
+    const { InvalidParentTaskError } = await import("../../src/core/tasks/errors");
+    const otherProject = await projectRepository.create(LOCAL_WORKSPACE_ID, {
+      name: "Other Project",
+      description: "Another project",
+    });
+
+    const parentInOther = await taskRepository.create(LOCAL_WORKSPACE_ID, {
+      projectId: otherProject.id,
+      title: "Parent in Other",
+    });
+
+    await assert.rejects(
+      () => makeTask("Task in Project 1", parentInOther.id),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidParentTaskError);
+        assert.match((err as Error).message, /must belong to the same project/);
+        return true;
+      },
+    );
+  });
 });
