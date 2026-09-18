@@ -28,6 +28,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { eq } from "drizzle-orm";
+import { Client } from "pg";
 import { cleanup, migrate } from "../helpers/db.pg";
 
 let db: typeof import("../../src/db/pg-client").getPgDb;
@@ -464,7 +465,7 @@ describe("Release 2C.1: Last-owner status update protection", () => {
     assert.equal(m?.status, "active");
   });
 
-  it("two concurrent suspensions of a two-owner workspace leave exactly one active owner", async () => {
+  it("two concurrent suspensions of different owners in explicit transactions serialize and reject the second", async () => {
     const owner1 = await createTestUser({ name: "Concurrent Owner 1" });
     const owner2 = await createTestUser({ name: "Concurrent Owner 2" });
     const ws = await workspacesService.createTeamWorkspace(owner1, "Concurrent Suspension Co");
@@ -476,22 +477,157 @@ describe("Release 2C.1: Last-owner status update protection", () => {
       status: "active",
     });
 
-    // Fire two suspensions in parallel
-    const results = await Promise.allSettled([
-      workspacesService.updateMemberStatus(ws.id, owner1, "suspended"),
-      workspacesService.updateMemberStatus(ws.id, owner2, "suspended"),
-    ]);
+    const c1 = new Client({ connectionString: process.env.DATABASE_URL });
+    const c2 = new Client({ connectionString: process.env.DATABASE_URL });
+    await c1.connect();
+    await c2.connect();
 
-    const fulfilled = results.filter((r) => r.status === "fulfilled");
-    const rejected = results.filter((r) => r.status === "rejected");
+    try {
+      await c1.query("BEGIN");
+      await c1.query(
+        "UPDATE workspace_member SET status = 'suspended' WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, owner1],
+      );
 
-    assert.equal(fulfilled.length, 1, "exactly one suspension must succeed");
-    assert.equal(rejected.length, 1, "the second suspension must be rejected by the trigger");
+      await c2.query("BEGIN");
+      const t2Update = c2.query(
+        "UPDATE workspace_member SET status = 'suspended' WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, owner2],
+      );
 
-    // Exactly one active owner remains
-    const members = await workspacesService.listMembers(ws.id);
-    const activeOwners = members.filter((m) => m.role === "owner" && m.status === "active");
-    assert.equal(activeOwners.length, 1);
+      // t2 should block on the workspace lock held by t1
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      await c1.query("COMMIT");
+
+      await assert.rejects(
+        t2Update,
+        (err: Error) => {
+          assert.match(err.message, /workspace must retain at least one owner/);
+          return true;
+        },
+      );
+
+      await c2.query("ROLLBACK");
+
+      const members = await workspacesService.listMembers(ws.id);
+      const activeOwners = members.filter((m) => m.role === "owner" && m.status === "active");
+      assert.equal(activeOwners.length, 1);
+      assert.equal(activeOwners[0]?.userId, owner2);
+    } finally {
+      await c1.end();
+      await c2.end();
+    }
+  });
+
+  it("two concurrent deletes of different owners in explicit transactions serialize and reject the second", async () => {
+    const owner1 = await createTestUser({ name: "Concurrent Delete Owner 1" });
+    const owner2 = await createTestUser({ name: "Concurrent Delete Owner 2" });
+    const ws = await workspacesService.createTeamWorkspace(owner1, "Concurrent Delete Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: owner2,
+      role: "owner",
+      status: "active",
+    });
+
+    const c1 = new Client({ connectionString: process.env.DATABASE_URL });
+    const c2 = new Client({ connectionString: process.env.DATABASE_URL });
+    await c1.connect();
+    await c2.connect();
+
+    try {
+      await c1.query("BEGIN");
+      await c1.query(
+        "DELETE FROM workspace_member WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, owner1],
+      );
+
+      await c2.query("BEGIN");
+      const t2Delete = c2.query(
+        "DELETE FROM workspace_member WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, owner2],
+      );
+
+      // t2 should block on the workspace lock held by t1
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      await c1.query("COMMIT");
+
+      await assert.rejects(
+        t2Delete,
+        (err: Error) => {
+          assert.match(err.message, /workspace must retain at least one owner/);
+          return true;
+        },
+      );
+
+      await c2.query("ROLLBACK");
+
+      const members = await workspacesService.listMembers(ws.id);
+      const activeOwners = members.filter((m) => m.role === "owner" && m.status === "active");
+      assert.equal(activeOwners.length, 1);
+      assert.equal(activeOwners[0]?.userId, owner2);
+    } finally {
+      await c1.end();
+      await c2.end();
+    }
+  });
+
+  it("a suspend racing a demotion of different owners in explicit transactions serializes and rejects the second", async () => {
+    const owner1 = await createTestUser({ name: "Suspend Racing Owner 1" });
+    const owner2 = await createTestUser({ name: "Demote Racing Owner 2" });
+    const ws = await workspacesService.createTeamWorkspace(owner1, "Suspend Demote Race Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: owner2,
+      role: "owner",
+      status: "active",
+    });
+
+    const c1 = new Client({ connectionString: process.env.DATABASE_URL });
+    const c2 = new Client({ connectionString: process.env.DATABASE_URL });
+    await c1.connect();
+    await c2.connect();
+
+    try {
+      await c1.query("BEGIN");
+      await c1.query(
+        "UPDATE workspace_member SET status = 'suspended' WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, owner1],
+      );
+
+      await c2.query("BEGIN");
+      const t2Demote = c2.query(
+        "UPDATE workspace_member SET role = 'member' WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, owner2],
+      );
+
+      // t2 should block on the workspace lock held by t1
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      await c1.query("COMMIT");
+
+      await assert.rejects(
+        t2Demote,
+        (err: Error) => {
+          assert.match(err.message, /workspace must retain at least one owner/);
+          return true;
+        },
+      );
+
+      await c2.query("ROLLBACK");
+
+      const members = await workspacesService.listMembers(ws.id);
+      const activeOwners = members.filter((m) => m.role === "owner" && m.status === "active");
+      assert.equal(activeOwners.length, 1);
+      assert.equal(activeOwners[0]?.userId, owner2);
+    } finally {
+      await c1.end();
+      await c2.end();
+    }
   });
 
   it("deleting a whole workspace still cascades cleanly", async () => {

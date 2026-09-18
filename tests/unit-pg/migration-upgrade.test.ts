@@ -333,6 +333,29 @@ describe("PostgreSQL migration 0008 upgrade: historical schema recreation & clai
 
     await migrate(db, { migrationsFolder: tempMigrationsDir });
 
+    // d. Apply migration 0011: last active owner lock
+    const migration0011Tag = realJournal.entries[11]?.tag;
+    if (migration0011Tag !== "0011_last_active_owner_lock") {
+      throw new Error(`Expected entry 11 to be 0011 migration, found: ${migration0011Tag}`);
+    }
+    const sql0011Source = path.join(realMigrationsDir, `${migration0011Tag}.sql`);
+    if (!fs.existsSync(sql0011Source)) {
+      throw new Error(`Migration 0011 SQL file missing at ${sql0011Source}`);
+    }
+    fs.copyFileSync(sql0011Source, path.join(tempMigrationsDir, `${migration0011Tag}.sql`));
+
+    const upgradedJournal0011 = {
+      version: "7",
+      dialect: "postgresql",
+      entries: realJournal.entries.slice(0, 12),
+    };
+    fs.writeFileSync(
+      path.join(tempMigrationsDir, "meta", "_journal.json"),
+      JSON.stringify(upgradedJournal0011, null, 2),
+    );
+
+    await migrate(db, { migrationsFolder: tempMigrationsDir });
+
     // 8. Verify the completed claim cannot be reclaimed by the original user or any other user
     process.env.DATABASE_URL = testUrl.toString();
     process.env.DASHBOARD_PASSWORD = "test-dashboard-password";
