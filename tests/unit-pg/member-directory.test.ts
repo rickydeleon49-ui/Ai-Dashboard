@@ -368,7 +368,19 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
       },
     );
 
-    // 4. Re-activate colleague: assignment succeeds again
+    // 4. Mark the colleague as invited
+    await workspacesService.updateMemberStatus(ws.id, colleagueId, "invited");
+
+    await assert.rejects(
+      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidAssigneeError);
+        assert.match((err as Error).message, /active member/i);
+        return true;
+      },
+    );
+
+    // 5. Re-activate colleague: assignment succeeds again
     await workspacesService.updateMemberStatus(ws.id, colleagueId, "active");
     const updated = await taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId });
     assert.ok(updated);
