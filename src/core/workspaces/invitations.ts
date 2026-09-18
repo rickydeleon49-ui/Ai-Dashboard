@@ -269,6 +269,7 @@ export async function acceptInvitation(
       workspaceId: membership.workspaceId,
       userId: membership.userId,
       role: membership.role as WorkspaceMembership["role"],
+      status: membership.status as WorkspaceMembership["status"],
       invitedBy: membership.invitedBy,
       createdAt: membership.createdAt,
     };

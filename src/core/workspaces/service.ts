@@ -5,7 +5,13 @@ import { getPgDb } from "@/db/pg-client";
 import { workspaceMembers, workspaces } from "@/db/schema.pg";
 import { createId, slugify } from "@/lib/ids";
 import { pgErrorCode, UNIQUE_VIOLATION } from "@/db/pg-errors";
-import type { Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceWithRole } from "./types";
+import type {
+  Workspace,
+  WorkspaceMembership,
+  WorkspaceMemberStatus,
+  WorkspaceRole,
+  WorkspaceWithRole,
+} from "./types";
 
 /**
  * Thrown when an operation would leave a workspace with zero owners — the
@@ -60,6 +66,7 @@ function toMembership(row: typeof workspaceMembers.$inferSelect): WorkspaceMembe
     workspaceId: row.workspaceId,
     userId: row.userId,
     role: row.role as WorkspaceRole,
+    status: row.status as WorkspaceMemberStatus,
     invitedBy: row.invitedBy,
     createdAt: row.createdAt,
   };
