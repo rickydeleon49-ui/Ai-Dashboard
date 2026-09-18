@@ -6,7 +6,7 @@ import {
 } from "@/core/auth/session";
 import { AuthorizationError, authorizationErrorResponse, requireRole } from "@/core/workspaces/authorization";
 import { createInvitationSchema } from "@/core/workspaces/schema";
-import { createInvitation, listInvitations } from "@/core/workspaces/invitations";
+import { createInvitation, InvitationError, listInvitations } from "@/core/workspaces/invitations";
 
 export const dynamic = "force-dynamic";
 
@@ -77,16 +77,24 @@ export async function POST(request: NextRequest, { params }: Context) {
     );
   }
 
-  const { invitation, token } = await createInvitation(
-    workspaceId,
-    userId,
-    parsed.data.email,
-    parsed.data.role,
-  );
+  try {
+    const { invitation, token } = await createInvitation(
+      workspaceId,
+      userId,
+      parsed.data.email,
+      parsed.data.role,
+    );
 
-  // The raw token exists only here and in the link itself — nothing else
-  // ever gets it back, since only its hash is persisted. Building the
-  // actual invite link (and sending it) is not yet wired up; the caller
-  // gets the token so a UI can construct /invite?token=... itself for now.
-  return NextResponse.json({ invitation, token }, { status: 201 });
+    // The raw token exists only here and in the link itself — nothing else
+    // ever gets it back, since only its hash is persisted. Building the
+    // actual invite link (and sending it) is not yet wired up; the caller
+    // gets the token so a UI can construct /invite?token=... itself for now.
+    return NextResponse.json({ invitation, token }, { status: 201 });
+  } catch (error) {
+    if (error instanceof InvitationError) {
+      const status = error.reason === "membership_suspended" ? 403 : 409;
+      return NextResponse.json({ error: error.message }, { status });
+    }
+    throw error;
+  }
 }

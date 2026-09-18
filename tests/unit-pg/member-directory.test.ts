@@ -27,7 +27,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Client } from "pg";
 import { cleanup, migrate } from "../helpers/db.pg";
 
@@ -44,6 +44,9 @@ let PostgresTaskRepository: typeof import(
   "../../src/db/repositories/postgres-task-repository"
 ).PostgresTaskRepository;
 let InvalidAssigneeError: typeof import("../../src/core/tasks/errors").InvalidAssigneeError;
+let invitationsService: typeof import("../../src/core/workspaces/invitations");
+let InvitationError: typeof import("../../src/core/workspaces/invitations").InvitationError;
+let authz: typeof import("../../src/core/workspaces/authorization");
 
 before(async () => {
   await migrate();
@@ -62,6 +65,9 @@ before(async () => {
     "../../src/db/repositories/postgres-task-repository"
   ));
   ({ InvalidAssigneeError } = await import("../../src/core/tasks/errors"));
+  invitationsService = await import("../../src/core/workspaces/invitations");
+  ({ InvitationError } = invitationsService);
+  authz = await import("../../src/core/workspaces/authorization");
 });
 
 after(() => cleanup());
@@ -369,8 +375,16 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
       },
     );
 
-    // 4. Mark the colleague as invited
-    await workspacesService.updateMemberStatus(ws.id, colleagueId, "invited");
+    // 4. Mark the colleague as invited via direct DB update (cannot be set via updateMemberStatus)
+    await db()
+      .update(workspaceMembers)
+      .set({ status: "invited" })
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, ws.id),
+          eq(workspaceMembers.userId, colleagueId),
+        ),
+      );
 
     await assert.rejects(
       () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }),
@@ -639,5 +653,353 @@ describe("Release 2C.1: Last-owner status update protection", () => {
 
     const remainingMembers = await workspacesService.listMembers(ws.id);
     assert.equal(remainingMembers.length, 0);
+  });
+});
+
+describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement invariants", () => {
+  it("removeMember keeps the membership row with status = 'removed'", async () => {
+    const ownerId = await createTestUser({ name: "Owner" });
+    const memberId = await createTestUser({ name: "Member" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Soft Remove Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: memberId,
+      role: "member",
+      status: "active",
+    });
+
+    await workspacesService.removeMember(ws.id, memberId);
+
+    const membership = await workspacesService.getMembership(ws.id, memberId);
+    assert.ok(membership);
+    assert.equal(membership.status, "removed");
+    assert.equal(membership.role, "member");
+  });
+
+  it("a removed member cannot access workspace or be assigned tasks, and past tasks remain intact", async () => {
+    const ownerId = await createTestUser({ name: "Task Owner" });
+    const memberId = await createTestUser({ name: "Task Member" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Task History Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: memberId,
+      role: "member",
+      status: "active",
+    });
+
+    const projectRepo = new PostgresProjectRepository();
+    const taskRepo = new PostgresTaskRepository();
+
+    const proj = await projectRepo.create(ws.id, { name: "Project History" });
+    const historicalTask = await taskRepo.create(ws.id, {
+      projectId: proj.id,
+      title: "Historical Task",
+      assigneeId: memberId,
+    });
+
+    // Remove member (soft removal)
+    await workspacesService.removeMember(ws.id, memberId);
+
+    // 1. Removed member cannot access workspace (requireRole throws 403 inactive_member)
+    await assert.rejects(
+      () => authz.requireRole(ws.id, memberId, "viewer"),
+      (err: unknown) => {
+        assert.ok(err instanceof authz.AuthorizationError);
+        assert.equal(err.reason, "inactive_member");
+        return true;
+      },
+    );
+
+    // 2. Removed member cannot be assigned new tasks
+    await assert.rejects(
+      () =>
+        taskRepo.create(ws.id, {
+          projectId: proj.id,
+          title: "New Task Attempt",
+          assigneeId: memberId,
+        }),
+      InvalidAssigneeError,
+    );
+
+    // 3. Past task assignment remains intact
+    const fetchedTask = await taskRepo.findById(ws.id, historicalTask.id);
+    assert.equal(fetchedTask?.assigneeId, memberId);
+  });
+
+  it("re-inviting a removed member reactivates the same row preserving original createdAt", async () => {
+    const ownerId = await createTestUser({ name: "Reinvite Owner" });
+    const email = `reinvite_${Date.now()}@example.com`;
+    const memberId = await createTestUser({ name: "Reinvited Member", email });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Reinvite Co");
+
+    const originalJoinedAt = new Date(Date.now() - 100000);
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: memberId,
+      role: "viewer",
+      status: "removed",
+      createdAt: originalJoinedAt,
+    });
+
+    // Re-inviting a removed member is allowed
+    const { token } = await invitationsService.createInvitation(ws.id, ownerId, email, "member");
+
+    // Accepting the invitation reactivates the existing row
+    const membership = await invitationsService.acceptInvitation(token, {
+      id: memberId,
+      email,
+    });
+
+    assert.equal(membership.status, "active");
+    assert.equal(membership.role, "member");
+    assert.equal(membership.invitedBy, ownerId);
+    assert.equal(membership.createdAt.getTime(), originalJoinedAt.getTime());
+
+    // Verified in database
+    const dbMembership = await workspacesService.getMembership(ws.id, memberId);
+    assert.equal(dbMembership?.status, "active");
+    assert.equal(dbMembership?.role, "member");
+    assert.equal(dbMembership?.createdAt.getTime(), originalJoinedAt.getTime());
+  });
+
+  it("a suspended member cannot rejoin through an invitation, and cannot be re-invited", async () => {
+    const ownerId = await createTestUser({ name: "Suspended Test Owner" });
+    const email = `suspended_${Date.now()}@example.com`;
+    const suspendedId = await createTestUser({ name: "Suspended Member", email });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Suspended Invite Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: suspendedId,
+      role: "member",
+      status: "suspended",
+    });
+
+    // 1. createInvitation rejects inviting a suspended member
+    await assert.rejects(
+      () => invitationsService.createInvitation(ws.id, ownerId, email, "member"),
+      (err: unknown) => {
+        assert.ok(err instanceof InvitationError);
+        assert.equal(err.reason, "membership_suspended");
+        return true;
+      },
+    );
+
+    // 2. If a pre-existing token existed, acceptInvitation rejects when user is suspended
+    const token = "preexisting_token_" + Date.now();
+    const tokenHash = (await import("node:crypto")).createHash("sha256").update(token).digest("hex");
+    const { workspaceInvitations } = await import("../../src/db/schema.pg");
+    await db().insert(workspaceInvitations).values({
+      id: `inv_test_${Date.now()}`,
+      workspaceId: ws.id,
+      email,
+      role: "member",
+      tokenHash,
+      invitedBy: ownerId,
+      expiresAt: new Date(Date.now() + 100000),
+    });
+
+    await assert.rejects(
+      () => invitationsService.acceptInvitation(token, { id: suspendedId, email }),
+      (err: unknown) => {
+        assert.ok(err instanceof InvitationError);
+        assert.equal(err.reason, "membership_suspended");
+        return true;
+      },
+    );
+  });
+
+  it("the last active owner cannot be removed via removeMember", async () => {
+    const ownerId = await createTestUser({ name: "Last Active Owner" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Last Owner Soft Remove");
+
+    await assert.rejects(
+      () => workspacesService.removeMember(ws.id, ownerId),
+      LastOwnerError,
+    );
+
+    const m = await workspacesService.getMembership(ws.id, ownerId);
+    assert.equal(m?.status, "active");
+    assert.equal(m?.role, "owner");
+  });
+
+  it("updateMemberStatus rejects setting invited status directly", async () => {
+    const ownerId = await createTestUser({ name: "Invited Guard Owner" });
+    const memberId = await createTestUser({ name: "Invited Guard Member" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Invited Guard Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: memberId,
+      role: "member",
+      status: "active",
+    });
+
+    await assert.rejects(
+      () => workspacesService.updateMemberStatus(ws.id, memberId, "invited"),
+      /cannot be set directly/i,
+    );
+  });
+
+  it("two concurrent acceptances of invitations for the same removed user don't produce an error or duplicate row", async () => {
+    const ownerId = await createTestUser({ name: "Concurrent Accept Owner" });
+    const email1 = `concurrent_accept_1_${Date.now()}@example.com`;
+    const email2 = `concurrent_accept_2_${Date.now()}@example.com`;
+    const removedUserId = await createTestUser({ name: "Concurrent Removed User", email: email1 });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Concurrent Accept Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: removedUserId,
+      role: "viewer",
+      status: "removed",
+    });
+
+    // Create two invitations for different emails targeting the same user
+    const token1 = "token_one_" + Date.now();
+    const tokenHash1 = (await import("node:crypto")).createHash("sha256").update(token1).digest("hex");
+    const token2 = "token_two_" + Date.now();
+    const tokenHash2 = (await import("node:crypto")).createHash("sha256").update(token2).digest("hex");
+    const { workspaceInvitations } = await import("../../src/db/schema.pg");
+
+    await db().insert(workspaceInvitations).values([
+      {
+        id: `inv_c1_${Date.now()}`,
+        workspaceId: ws.id,
+        email: email1,
+        role: "member",
+        tokenHash: tokenHash1,
+        invitedBy: ownerId,
+        expiresAt: new Date(Date.now() + 100000),
+      },
+      {
+        id: `inv_c2_${Date.now()}`,
+        workspaceId: ws.id,
+        email: email2,
+        role: "admin",
+        tokenHash: tokenHash2,
+        invitedBy: ownerId,
+        expiresAt: new Date(Date.now() + 100000),
+      },
+    ]);
+
+    // Use two dedicated pg Clients
+    const c1 = new Client({ connectionString: process.env.DATABASE_URL });
+    const c2 = new Client({ connectionString: process.env.DATABASE_URL });
+    await c1.connect();
+    await c2.connect();
+
+    try {
+      // t1 begins, locks membership row for update, reactivates
+      await c1.query("BEGIN");
+      await c1.query(
+        "SELECT * FROM workspace_member WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [ws.id, removedUserId],
+      );
+      await c1.query(
+        "UPDATE workspace_member SET status = 'active', role = 'member' WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, removedUserId],
+      );
+
+      // t2 begins, tries to lock the same membership row -> blocks!
+      await c2.query("BEGIN");
+      let t2Done = false;
+      const t2Promise = c2
+        .query(
+          "SELECT * FROM workspace_member WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+          [ws.id, removedUserId],
+        )
+        .then((res) => {
+          t2Done = true;
+          return res;
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(t2Done, false, "t2 must block waiting for t1's row lock");
+
+      // t1 commits
+      await c1.query("COMMIT");
+
+      // t2 unblocks
+      const t2Res = await t2Promise;
+      assert.ok(t2Res);
+      // t2 sees that the status is now 'active'
+      assert.equal(t2Res.rows[0]?.status, "active");
+      await c2.query("ROLLBACK");
+
+      // Verify in workspaceMembers table: exactly 1 row, no duplicates, status is active
+      const allMembers = await db()
+        .select()
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, ws.id),
+            eq(workspaceMembers.userId, removedUserId),
+          ),
+        );
+      assert.equal(allMembers.length, 1);
+      assert.equal(allMembers[0]?.status, "active");
+    } finally {
+      await c1.end();
+      await c2.end();
+    }
+  });
+
+  it("directory visibility enforces active-only for members/viewers, and allows all statuses for owners/admins", async () => {
+    const ownerId = await createTestUser({ name: "Vis Owner" });
+    const adminId = await createTestUser({ name: "Vis Admin" });
+    const memberId = await createTestUser({ name: "Vis Member" });
+    const viewerId = await createTestUser({ name: "Vis Viewer" });
+    const suspendedId = await createTestUser({ name: "Vis Suspended" });
+    const removedId = await createTestUser({ name: "Vis Removed" });
+
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Visibility Co");
+
+    await db().insert(workspaceMembers).values([
+      { workspaceId: ws.id, userId: adminId, role: "admin", status: "active" },
+      { workspaceId: ws.id, userId: memberId, role: "member", status: "active" },
+      { workspaceId: ws.id, userId: viewerId, role: "viewer", status: "active" },
+      { workspaceId: ws.id, userId: suspendedId, role: "member", status: "suspended" },
+      { workspaceId: ws.id, userId: removedId, role: "member", status: "removed" },
+    ]);
+
+    // 1. Member caller: sees only active members, even if status='all' requested
+    const memberView = await workspacesService.listMembersPaginated(ws.id, {
+      callerRole: "member",
+      status: "all",
+    });
+    assert.equal(memberView.members.every((m) => m.status === "active"), true);
+    assert.equal(memberView.total, 4); // owner, admin, member, viewer
+
+    // 2. Viewer caller: sees only active members
+    const viewerView = await workspacesService.listMembersPaginated(ws.id, {
+      callerRole: "viewer",
+    });
+    assert.equal(viewerView.members.every((m) => m.status === "active"), true);
+    assert.equal(viewerView.total, 4);
+
+    // 3. Admin caller: can filter by status='suspended'
+    const adminSuspended = await workspacesService.listMembersPaginated(ws.id, {
+      callerRole: "admin",
+      status: "suspended",
+    });
+    assert.equal(adminSuspended.total, 1);
+    assert.equal(adminSuspended.members[0]?.id, suspendedId);
+
+    // 4. Owner caller: status='all' returns all 6 members
+    const ownerAll = await workspacesService.listMembersPaginated(ws.id, {
+      callerRole: "owner",
+      status: "all",
+    });
+    assert.equal(ownerAll.total, 6);
+
+    // 5. Default filter (omitted status) for owner: defaults to 'active'
+    const ownerDefault = await workspacesService.listMembersPaginated(ws.id, {
+      callerRole: "owner",
+    });
+    assert.equal(ownerDefault.total, 4);
+    assert.equal(ownerDefault.members.every((m) => m.status === "active"), true);
   });
 });

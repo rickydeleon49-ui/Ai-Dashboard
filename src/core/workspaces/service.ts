@@ -262,14 +262,16 @@ export async function updateMemberRole(
 }
 
 /**
- * Removes a member from a workspace. Rejects (via the DB trigger, translated
- * to `LastOwnerError`) removing a workspace's last owner.
+ * Removes a member from a workspace (soft removal: sets status = 'removed').
+ * Preserves historical task assignments and attribution. Rejects (via the DB trigger,
+ * translated to `LastOwnerError`) removing a workspace's last active owner.
  */
 export async function removeMember(workspaceId: string, userId: string): Promise<void> {
   await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
     await db
-      .delete(workspaceMembers)
+      .update(workspaceMembers)
+      .set({ status: "removed" })
       .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
   });
 }
@@ -291,6 +293,8 @@ function escapeSqlLike(term: string): string {
  * - Enforces minimum (1) and maximum (100) bounds on page size to prevent unbounded queries.
  * - Searches across user `name` and `email` using case-insensitive ILIKE with literal wildcard escaping.
  * - Caps search input length at MAX_SEARCH_LENGTH (100 chars).
+ * - Directory visibility: members and viewers see only 'active' members. Admins and owners can filter by any status.
+ *   Default filter is 'active' for everyone.
  * - Selects ONLY safe user-summary fields: (id, name, email, image, role, status, joinedAt).
  *   Never selects or returns account credentials, sessions, password hashes, emailVerified internals,
  *   or cross-workspace memberships.
@@ -314,8 +318,13 @@ export async function listMembersPaginated(
 
   const conditions: SQL[] = [eq(workspaceMembers.workspaceId, workspaceId)];
 
-  if (options?.status && options.status !== "all") {
-    conditions.push(eq(workspaceMembers.status, options.status));
+  let requestedStatus = options?.status ?? "active";
+  if (options?.callerRole === "member" || options?.callerRole === "viewer") {
+    requestedStatus = "active";
+  }
+
+  if (requestedStatus !== "all") {
+    conditions.push(eq(workspaceMembers.status, requestedStatus));
   }
 
   if (options?.search) {
@@ -377,7 +386,8 @@ export async function listMembersPaginated(
 }
 
 /**
- * Changes a member's status (active | invited | suspended | removed).
+ * Changes a member's status (active | suspended | removed).
+ * The 'invited' status cannot be set directly (only created via invitations).
  * Rejects (via the DB trigger, translated to `LastOwnerError`) suspending
  * or removing a workspace's last active owner.
  */
@@ -386,6 +396,9 @@ export async function updateMemberStatus(
   userId: string,
   status: WorkspaceMemberStatus,
 ): Promise<void> {
+  if (status === "invited") {
+    throw new Error("The 'invited' status cannot be set directly; use the invitation flow.");
+  }
   await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
     await db

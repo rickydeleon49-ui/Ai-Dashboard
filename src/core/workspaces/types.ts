@@ -50,6 +50,7 @@ export interface ListMembersOptions {
   limit?: number;
   offset?: number;
   status?: WorkspaceMemberStatus | "all";
+  callerRole?: WorkspaceRole;
 }
 
 export interface PaginatedMembersResult {

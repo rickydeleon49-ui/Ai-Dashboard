@@ -15,6 +15,7 @@ const REASON_MESSAGE: Record<InvitationFailureReason, string> = {
   already_accepted: "This invitation has already been used.",
   email_mismatch: "This invitation was sent to a different email address.",
   already_member: "You're already a member of this workspace.",
+  membership_suspended: "Your membership in this workspace is suspended. An admin or owner must reinstate it.",
 };
 
 export default async function InvitePage({

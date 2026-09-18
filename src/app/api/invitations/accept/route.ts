@@ -16,6 +16,7 @@ const STATUS_FOR_REASON: Record<InvitationError["reason"], number> = {
   already_accepted: 409,
   email_mismatch: 403,
   already_member: 409,
+  membership_suspended: 403,
 };
 
 /**
