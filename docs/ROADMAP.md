@@ -1,9 +1,9 @@
 # Command Center / AI-Dashboard Product Roadmap
 
 **Repository:** `rickydeleon49-ui/Ai-Dashboard`  
-**Roadmap version:** 1.0  
-**Updated:** September 15, 2026  
-**Status:** Planning document; the hardening release is in progress
+**Roadmap version:** 1.1  
+**Updated:** September 18, 2026  
+**Status:** Planning document; Phase 2 hardening is completed and merged. A fresh-start readiness correction is in independent review as the final prerequisite before Phase 2C.
 
 ## 1. Product vision
 
@@ -58,10 +58,11 @@ All roadmap work should follow these rules:
 - Added direct blocked-task completion protection
 - Completed a full-route visual and browser audit
 - Added the missing application favicon
+- Added this roadmap document and corrected the Turbopack dev-mode bootstrap regression (PR #29)
 
-### In progress — Phase 2 hardening release
+#### Phase 2 hardening release — the gate before new feature implementation
 
-This release is the gate before new feature implementation. Its target scope includes:
+Completed and merged as PR #30, the hardening baseline for everything after it. Delivered:
 
 - Recursive task-blocking correctness
 - Concurrency-safe dependency cycle prevention
@@ -76,14 +77,21 @@ This release is the gate before new feature implementation. Its target scope inc
 - Safe workspace ownership and account deletion
 - Enforced CI checks
 
-The roadmap may be designed while this work proceeds, but Phase 2C implementation should start from the hardened and reviewed `main` branch.
+An independent audit and the full verification matrix (typecheck, lint, unit, PostgreSQL, desktop-shell, end-to-end, build) passed before merge.
+
+### In review — fresh-start readiness correction
+
+The independent audit of PR #30 surfaced one remaining gap: a brand-new desktop or single-password install could still hit a 500 on its very first request against a never-migrated database, since Next.js renders layouts and pages in parallel and only the root layout called the database-readiness function. This is the final prerequisite before Phase 2C — closing it moves migration onto Next.js's own `instrumentation.ts` startup boundary, which the framework guarantees completes before any request is routed, rather than relying on a per-layout call with no ordering guarantee relative to sibling pages. In independent review on `fix/fresh-start-readiness` as of this update; Phase 2C branches from `main` once it merges.
+
+Phase 2C's first release, once this correction lands, is **2C.1 — Workspace Member Directory** (§6).
 
 ## 4. Release sequence at a glance
 
 | Order | Release | Primary outcome | Depends on |
 |---:|---|---|---|
-| 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` |
-| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Hardening release |
+| 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
+| — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **in independent review** |
+| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Fresh-start readiness correction |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
@@ -93,6 +101,8 @@ The roadmap may be designed while this work proceeds, but Phase 2C implementatio
 | 9 | Phase 5 — Scale and Enterprise Readiness | Larger organizations can govern and operate safely | Commercial baseline |
 
 ## 5. Phase 2 hardening — Release gate
+
+**Status: completed and merged as PR #30.** Kept below as the record of what this gate required and delivered.
 
 ### Goal
 
@@ -792,24 +802,20 @@ No roadmap date should override a failed security, migration, backup, or data-is
 
 ## 19. Immediate next actions
 
-### While the hardening work is in progress
+### Before Phase 2C starts
 
-- Review and approve this roadmap.
+- Complete independent review of the fresh-start readiness correction on `fix/fresh-start-readiness` and merge it to `main`.
 - Define the exact role and membership lifecycle for Phase 2C.
 - Draft collaboration user flows and wireframes.
 - Decide comment retention and deletion behavior.
 - Decide whether task activity is immutable or supports administrative redaction.
 - Define desktop behavior for collaboration features that normally involve multiple users.
 
-### After the hardening implementation is delivered
+### Once the fresh-start readiness correction is merged
 
-1. Perform a fresh independent audit against the delivered branch.
-2. Verify the complete test and migration evidence.
-3. Resolve any remaining confirmed release blockers.
-4. Merge the hardening release.
-5. Confirm branch protection and required checks.
-6. Create a fresh Phase 2C branch from the updated `main`.
-7. Begin with the workspace-member endpoint and authorization contract.
+1. Confirm branch protection and required checks still pass on the updated `main`.
+2. Create a fresh Phase 2C branch from that `main`.
+3. Begin with the workspace-member endpoint and authorization contract (Release 2C.1, §6).
 
 ## 20. Decisions still required
 
