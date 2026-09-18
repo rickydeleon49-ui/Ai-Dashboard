@@ -51,7 +51,7 @@ import { startScheduler } from "@/core/automation/scheduler";
 let ready = false;
 
 export function ensureDatabaseReady(): void {
-  if (isAccountsMode() || Boolean(process.env.DATABASE_URL)) return;
+  if (process.env.AUTH_MODE === "accounts" || isAccountsMode() || Boolean(process.env.DATABASE_URL)) return;
   if (ready) return;
 
   runMigrations();

@@ -281,7 +281,11 @@ describe("Fresh-start readiness boundary", () => {
       resetDatabaseReadyForTesting();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      const { closeConnection } = await import("../../src/db/client");
+      const { resetSchedulerForTesting } = await import("../../src/core/automation/scheduler");
+      resetSchedulerForTesting();
+      closeConnection();
       restoreEnv();
       fs.rmSync(root, { recursive: true, force: true });
     });
@@ -296,6 +300,23 @@ describe("Fresh-start readiness boundary", () => {
       assert.equal(fs.existsSync(`${dbPath}-wal`), false);
       assert.equal(fs.existsSync(`${dbPath}-shm`), false);
       assert.equal(fs.existsSync(uploadsDir), false);
+    });
+
+    it("ensureDatabaseReady() returns early when AUTH_MODE=accounts and DATABASE_URL is unset", async () => {
+      delete env.DATABASE_URL;
+      env.AUTH_MODE = "accounts";
+
+      const { ensureDatabaseReady, isDatabaseReady } = await import("../../src/db/bootstrap");
+      const { isSchedulerRunning } = await import("../../src/core/automation/scheduler");
+
+      ensureDatabaseReady();
+
+      assert.equal(isDatabaseReady(), false, "must leave isDatabaseReady() false when AUTH_MODE=accounts without DATABASE_URL");
+      assert.equal(fs.existsSync(dbPath), false, "must not create or migrate the DATABASE_PATH file");
+      assert.equal(fs.existsSync(`${dbPath}-wal`), false);
+      assert.equal(fs.existsSync(`${dbPath}-shm`), false);
+      assert.equal(fs.existsSync(uploadsDir), false);
+      assert.equal(isSchedulerRunning(), false, "must not start the scheduler when AUTH_MODE=accounts without DATABASE_URL");
     });
 
     it("instrumentation's register() no-ops and creates no SQLite files", async () => {
