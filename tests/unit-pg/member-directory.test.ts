@@ -182,6 +182,34 @@ describe("Release 2C.1: Case-insensitive search across name and email", () => {
     assert.equal(resNone.total, 0);
     assert.equal(resNone.members.length, 0);
   });
+
+  it("escapes %, _, and \\ so user search input matches literally without wildcard expansion", async () => {
+    const ownerId = await createTestUser({ name: "Regular User", email: "regular@example.com" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Wildcard Test");
+
+    const percentUser = await createTestUser({ name: "100% Discount", email: "promo%deals@example.com" });
+    const underscoreUser = await createTestUser({ name: "Special_User", email: "special_agent@example.com" });
+
+    await db().insert(workspaceMembers).values([
+      { workspaceId: ws.id, userId: percentUser, role: "member", status: "active" },
+      { workspaceId: ws.id, userId: underscoreUser, role: "member", status: "active" },
+    ]);
+
+    // Searching for "%" should ONLY match "100% Discount", not all 3 members
+    const resPercent = await workspacesService.listMembersPaginated(ws.id, { search: "%" });
+    assert.equal(resPercent.total, 1);
+    assert.equal(resPercent.members[0]?.id, percentUser);
+
+    // Searching for "_" should ONLY match "Special_User", not all 3 members
+    const resUnderscore = await workspacesService.listMembersPaginated(ws.id, { search: "_" });
+    assert.equal(resUnderscore.total, 1);
+    assert.equal(resUnderscore.members[0]?.id, underscoreUser);
+
+    // Searching with long input is truncated to MAX_SEARCH_LENGTH without error
+    const longSearch = "a".repeat(150);
+    const resLong = await workspacesService.listMembersPaginated(ws.id, { search: longSearch });
+    assert.equal(resLong.total, 0);
+  });
 });
 
 describe("Release 2C.1: Safe user-summary shape verification", () => {

@@ -277,6 +277,11 @@ export async function removeMember(workspaceId: string, userId: string): Promise
 export const DEFAULT_MEMBER_PAGE_SIZE = 20;
 export const MAX_MEMBER_PAGE_SIZE = 100;
 export const MIN_MEMBER_PAGE_SIZE = 1;
+export const MAX_SEARCH_LENGTH = 100;
+
+function escapeSqlLike(term: string): string {
+  return term.replace(/([\\%_])/g, "\\$1");
+}
 
 /**
  * Paginated, searchable workspace member directory query.
@@ -284,7 +289,8 @@ export const MIN_MEMBER_PAGE_SIZE = 1;
  * Invariants:
  * - Scopes directly to `workspaceId` in the SQL WHERE clause — never filters in memory.
  * - Enforces minimum (1) and maximum (100) bounds on page size to prevent unbounded queries.
- * - Searches across user `name` and `email` using case-insensitive ILIKE.
+ * - Searches across user `name` and `email` using case-insensitive ILIKE with literal wildcard escaping.
+ * - Caps search input length at MAX_SEARCH_LENGTH (100 chars).
  * - Selects ONLY safe user-summary fields: (id, name, email, image, role, status, joinedAt).
  *   Never selects or returns account credentials, sessions, password hashes, emailVerified internals,
  *   or cross-workspace memberships.
@@ -372,49 +378,20 @@ export async function listMembersPaginated(
 
 /**
  * Changes a member's status (active | invited | suspended | removed).
- * Rejects (via LastOwnerError) suspending or removing a workspace's last active owner.
+ * Rejects (via the DB trigger, translated to `LastOwnerError`) suspending
+ * or removing a workspace's last active owner.
  */
 export async function updateMemberStatus(
   workspaceId: string,
   userId: string,
   status: WorkspaceMemberStatus,
 ): Promise<void> {
-  const db = getPgDb();
-
-  if (status === "suspended" || status === "removed") {
-    const [membership] = await db
-      .select({ role: workspaceMembers.role, status: workspaceMembers.status })
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          eq(workspaceMembers.userId, userId),
-        ),
-      )
-      .limit(1);
-
-    if (membership?.role === "owner" && membership.status === "active") {
-      const [otherOwners] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, workspaceId),
-            eq(workspaceMembers.role, "owner"),
-            eq(workspaceMembers.status, "active"),
-            sql`${workspaceMembers.userId} <> ${userId}`,
-          ),
-        );
-
-      if (Number(otherOwners?.count ?? 0) === 0) {
-        throw new LastOwnerError();
-      }
-    }
-  }
-
-  await db
-    .update(workspaceMembers)
-    .set({ status })
-    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
+  await translatingLastOwnerErrors(async () => {
+    const db = getPgDb();
+    await db
+      .update(workspaceMembers)
+      .set({ status })
+      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
+  });
 }
 
