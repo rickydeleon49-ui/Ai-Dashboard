@@ -252,7 +252,65 @@ describe("PostgreSQL migration 0008 upgrade: historical schema recreation & clai
     assert.deepEqual(upgradedClaim.imported_project_ids, []);
     assert.equal(upgradedClaim.last_error, null);
 
-    // 7. Verify the completed claim cannot be reclaimed by the original user or any other user
+    // 7. Verify pre-0009 workspace_member does not have status, then apply migration 0009
+    const pre0009MemberCols = await client.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'workspace_member'`,
+    );
+    const existingMemberCols = new Set(pre0009MemberCols.rows.map((r) => r.column_name));
+    assert.equal(existingMemberCols.has("status"), false, "pre-0009 workspace_member must not have status");
+
+    const migration0009Tag = realJournal.entries[9]?.tag;
+    if (migration0009Tag !== "0009_workspace_member_status") {
+      throw new Error(`Expected entry 9 to be 0009 migration, found: ${migration0009Tag}`);
+    }
+    const sql0009Source = path.join(realMigrationsDir, `${migration0009Tag}.sql`);
+    if (!fs.existsSync(sql0009Source)) {
+      throw new Error(`Migration 0009 SQL file missing at ${sql0009Source}`);
+    }
+    fs.copyFileSync(sql0009Source, path.join(tempMigrationsDir, `${migration0009Tag}.sql`));
+
+    const upgradedJournal0009 = {
+      version: "7",
+      dialect: "postgresql",
+      entries: realJournal.entries.slice(0, 10),
+    };
+    fs.writeFileSync(
+      path.join(tempMigrationsDir, "meta", "_journal.json"),
+      JSON.stringify(upgradedJournal0009, null, 2),
+    );
+
+    await migrate(db, { migrationsFolder: tempMigrationsDir });
+
+    // Verify post-0009 workspace_member schema and backfill:
+    // a. Existing member row backfilled to 'active'
+    const postMemberRes = await client.query(
+      `SELECT status FROM "workspace_member" WHERE "workspace_id" = $1 AND "user_id" = $2`,
+      [workspaceId, userId],
+    );
+    assert.equal(postMemberRes.rows.length, 1);
+    assert.equal(
+      postMemberRes.rows[0].status,
+      "active",
+      "preexisting workspace_member must backfill to 'active'",
+    );
+
+    // b. workspace_member_status_check constraint exists and rejects invalid status
+    const attackerId = "pre0008_attacker";
+    await client.query(
+      `INSERT INTO "user" ("id", "name", "email") VALUES ($1, 'Attacker', 'attacker@example.com')`,
+      [attackerId],
+    );
+    await assert.rejects(
+      () =>
+        client.query(
+          `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status") VALUES ($1, $2, 'member', 'invalid_status')`,
+          [workspaceId, attackerId],
+        ),
+      /workspace_member_status_check/,
+      "status constraint must reject invalid status values",
+    );
+
+    // 8. Verify the completed claim cannot be reclaimed by the original user or any other user
     process.env.DATABASE_URL = testUrl.toString();
     process.env.DASHBOARD_PASSWORD = "test-dashboard-password";
 
@@ -277,11 +335,6 @@ describe("PostgreSQL migration 0008 upgrade: historical schema recreation & clai
     );
 
     // Different user cannot reclaim
-    const attackerId = "pre0008_attacker";
-    await client.query(
-      `INSERT INTO "user" ("id", "name", "email") VALUES ($1, 'Attacker', 'attacker@example.com')`,
-      [attackerId],
-    );
     await assert.rejects(
       () => claimOwnership(attackerId, "test-dashboard-password"),
       (err: unknown) => {

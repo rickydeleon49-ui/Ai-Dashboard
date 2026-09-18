@@ -462,6 +462,27 @@ describe("PostgreSQL assignee validation", () => {
     );
   });
 
+  it("rejects suspended member from being assigned", async () => {
+    const repo = new PostgresTaskRepository();
+    const { workspaceId, projectId } = await makeWorkspaceWithProject("Assignee Suspended");
+
+    userCounter += 1;
+    const suspendedId = `suspended_${userCounter}`;
+    await db().insert(users).values({ id: suspendedId, email: `${suspendedId}@example.com` });
+    await db()
+      .insert(workspaceMembers)
+      .values({ workspaceId, userId: suspendedId, role: "member", status: "suspended" });
+
+    await assert.rejects(
+      () => repo.create(workspaceId, { projectId, title: "Task", assigneeId: suspendedId }),
+      (err: unknown) => {
+        assert.ok(err instanceof InvalidAssigneeError);
+        assert.match((err as Error).message, /active member/i);
+        return true;
+      },
+    );
+  });
+
   it("rejects member of another workspace", async () => {
     const repo = new PostgresTaskRepository();
     const ws1 = await makeWorkspaceWithProject("WS 1");
