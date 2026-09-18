@@ -17,8 +17,9 @@ import {
   resolveCurrentWorkspace,
   resolveWorkspaceIdForPage,
 } from "@/core/workspaces/current-workspace";
-import type { WorkspaceWithRole } from "@/core/workspaces/types";
+import type { WorkspaceRole, WorkspaceWithRole } from "@/core/workspaces/types";
 import { ClaimOwnershipForm } from "@/components/settings/claim-ownership-form";
+import { WorkspaceMembers } from "@/components/settings/workspace-members";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings" };
@@ -47,6 +48,8 @@ import { isAccountsMode } from "@/lib/auth-mode";
 async function getWorkspacesSection(): Promise<{
   workspaces: WorkspaceWithRole[];
   currentId: string | null;
+  currentUserId: string | null;
+  currentRole: WorkspaceRole;
 } | null> {
   if (process.env.AUTH_MODE !== "accounts" || !process.env.DATABASE_URL) return null;
 
@@ -67,7 +70,12 @@ async function getWorkspacesSection(): Promise<{
     cookieStore.get(CURRENT_WORKSPACE_COOKIE)?.value,
   );
 
-  return { workspaces, currentId: current?.id ?? null };
+  return {
+    workspaces,
+    currentId: current?.id ?? null,
+    currentUserId: userId,
+    currentRole: (current?.role as WorkspaceRole) ?? "viewer",
+  };
 }
 
 /**
@@ -223,6 +231,24 @@ export default async function SettingsPage() {
               <WorkspaceManager
                 workspaces={workspacesSection.workspaces}
                 currentId={workspacesSection.currentId}
+              />
+            </CardBody>
+          </Card>
+        ) : null}
+
+        {accountsMode && workspacesSection?.currentId ? (
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Workspace Members
+              </CardTitle>
+            </CardHeader>
+            <CardBody>
+              <WorkspaceMembers
+                workspaceId={workspacesSection.currentId}
+                callerRole={workspacesSection.currentRole}
+                currentUserId={workspacesSection.currentUserId}
               />
             </CardBody>
           </Card>
