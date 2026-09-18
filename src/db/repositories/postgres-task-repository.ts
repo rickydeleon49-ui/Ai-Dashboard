@@ -206,6 +206,7 @@ async function assertValidAssignee(
       and(
         eq(workspaceMembers.workspaceId, workspaceId),
         eq(workspaceMembers.userId, assigneeId),
+        eq(workspaceMembers.status, "active"),
       ),
     )
     .limit(1);

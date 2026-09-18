@@ -45,6 +45,20 @@ export interface WorkspaceMemberSummary {
   joinedAt: Date;
 }
 
+export interface ListMembersOptions {
+  search?: string;
+  limit?: number;
+  offset?: number;
+  status?: WorkspaceMemberStatus | "all";
+}
+
+export interface PaginatedMembersResult {
+  members: WorkspaceMemberSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** A workspace plus the current user's role in it — what a switcher/list needs. */
 export interface WorkspaceWithRole extends Workspace {
   role: WorkspaceRole;
