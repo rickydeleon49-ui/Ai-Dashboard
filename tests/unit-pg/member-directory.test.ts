@@ -27,6 +27,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
+import { eq } from "drizzle-orm";
 import { cleanup, migrate } from "../helpers/db.pg";
 
 let db: typeof import("../../src/db/pg-client").getPgDb;
@@ -391,5 +392,76 @@ describe("Release 2C.1: Last-owner status update protection", () => {
     );
     const m2 = await workspacesService.getMembership(ws.id, owner2);
     assert.equal(m2?.status, "active");
+  });
+
+  it("with one active and one suspended owner, removing or demoting the active owner is rejected", async () => {
+    const activeOwner = await createTestUser({ name: "Active Owner" });
+    const suspendedOwner = await createTestUser({ name: "Suspended Owner" });
+    const ws = await workspacesService.createTeamWorkspace(activeOwner, "Active/Suspended Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: suspendedOwner,
+      role: "owner",
+      status: "suspended",
+    });
+
+    // Demoting the active owner must fail because the only other owner is suspended
+    await assert.rejects(
+      () => workspacesService.updateMemberRole(ws.id, activeOwner, "member"),
+      LastOwnerError,
+    );
+
+    // Removing the active owner must also fail
+    await assert.rejects(
+      () => workspacesService.removeMember(ws.id, activeOwner),
+      LastOwnerError,
+    );
+
+    // Active owner remains an active owner
+    const m = await workspacesService.getMembership(ws.id, activeOwner);
+    assert.equal(m?.role, "owner");
+    assert.equal(m?.status, "active");
+  });
+
+  it("two concurrent suspensions of a two-owner workspace leave exactly one active owner", async () => {
+    const owner1 = await createTestUser({ name: "Concurrent Owner 1" });
+    const owner2 = await createTestUser({ name: "Concurrent Owner 2" });
+    const ws = await workspacesService.createTeamWorkspace(owner1, "Concurrent Suspension Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: owner2,
+      role: "owner",
+      status: "active",
+    });
+
+    // Fire two suspensions in parallel
+    const results = await Promise.allSettled([
+      workspacesService.updateMemberStatus(ws.id, owner1, "suspended"),
+      workspacesService.updateMemberStatus(ws.id, owner2, "suspended"),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    assert.equal(fulfilled.length, 1, "exactly one suspension must succeed");
+    assert.equal(rejected.length, 1, "the second suspension must be rejected by the trigger");
+
+    // Exactly one active owner remains
+    const members = await workspacesService.listMembers(ws.id);
+    const activeOwners = members.filter((m) => m.role === "owner" && m.status === "active");
+    assert.equal(activeOwners.length, 1);
+  });
+
+  it("deleting a whole workspace still cascades cleanly", async () => {
+    const ownerId = await createTestUser({ name: "Cascade Owner" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Cascade Workspace");
+
+    // Workspace deletion cascades its members away cleanly without trigger failure
+    await db().delete(workspacesTable).where(eq(workspacesTable.id, ws.id));
+
+    const remainingMembers = await workspacesService.listMembers(ws.id);
+    assert.equal(remainingMembers.length, 0);
   });
 });

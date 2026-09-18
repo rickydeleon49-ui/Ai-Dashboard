@@ -310,6 +310,29 @@ describe("PostgreSQL migration 0008 upgrade: historical schema recreation & clai
       "status constraint must reject invalid status values",
     );
 
+    // c. Apply migration 0010: last active owner trigger
+    const migration0010Tag = realJournal.entries[10]?.tag;
+    if (migration0010Tag !== "0010_last_active_owner_trigger") {
+      throw new Error(`Expected entry 10 to be 0010 migration, found: ${migration0010Tag}`);
+    }
+    const sql0010Source = path.join(realMigrationsDir, `${migration0010Tag}.sql`);
+    if (!fs.existsSync(sql0010Source)) {
+      throw new Error(`Migration 0010 SQL file missing at ${sql0010Source}`);
+    }
+    fs.copyFileSync(sql0010Source, path.join(tempMigrationsDir, `${migration0010Tag}.sql`));
+
+    const upgradedJournal0010 = {
+      version: "7",
+      dialect: "postgresql",
+      entries: realJournal.entries.slice(0, 11),
+    };
+    fs.writeFileSync(
+      path.join(tempMigrationsDir, "meta", "_journal.json"),
+      JSON.stringify(upgradedJournal0010, null, 2),
+    );
+
+    await migrate(db, { migrationsFolder: tempMigrationsDir });
+
     // 8. Verify the completed claim cannot be reclaimed by the original user or any other user
     process.env.DATABASE_URL = testUrl.toString();
     process.env.DASHBOARD_PASSWORD = "test-dashboard-password";

@@ -312,14 +312,19 @@ export async function listMembersPaginated(
     conditions.push(eq(workspaceMembers.status, options.status));
   }
 
-  if (options?.search && options.search.trim().length > 0) {
-    const term = options.search.trim();
-    conditions.push(
-      or(
-        ilike(users.name, `%${term}%`),
-        ilike(users.email, `%${term}%`),
-      )!,
-    );
+  if (options?.search) {
+    const rawSearch = options.search.trim();
+    if (rawSearch.length > 0) {
+      const term = rawSearch.slice(0, MAX_SEARCH_LENGTH);
+      const escaped = escapeSqlLike(term);
+      const pattern = `%${escaped}%`;
+      conditions.push(
+        or(
+          sql`${users.name} ILIKE ${pattern} ESCAPE ${"\\"}`,
+          sql`${users.email} ILIKE ${pattern} ESCAPE ${"\\"}`,
+        )!,
+      );
+    }
   }
 
   const whereClause = and(...conditions);
