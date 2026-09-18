@@ -207,7 +207,7 @@ export async function listWorkspacesForUser(
     .select({ workspace: workspaces, role: workspaceMembers.role })
     .from(workspaceMembers)
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(eq(workspaceMembers.userId, userId))
+    .where(and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.status, "active")))
     .orderBy(desc(workspaces.createdAt))
     .$dynamic();
   if (limit) query = query.limit(limit);

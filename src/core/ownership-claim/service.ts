@@ -132,7 +132,7 @@ export async function claimOwnership(
 
         // Verify the claimant still belongs to and owns the target workspace.
         const membership = await getMembership(existing.workspaceId, userId);
-        if (!membership || membership.role !== "owner") {
+        if (!membership || membership.role !== "owner" || membership.status !== "active") {
           throw new OwnershipClaimError("workspace_not_owned");
         }
 

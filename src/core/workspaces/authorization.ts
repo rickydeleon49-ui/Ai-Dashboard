@@ -14,7 +14,11 @@ const ROLE_RANK: Record<WorkspaceRole, number> = Object.fromEntries(
   WORKSPACE_ROLES.map((role, index) => [role, WORKSPACE_ROLES.length - index]),
 ) as Record<WorkspaceRole, number>;
 
-export type AuthorizationFailureReason = "unauthenticated" | "not_a_member" | "insufficient_role";
+export type AuthorizationFailureReason =
+  | "unauthenticated"
+  | "not_a_member"
+  | "insufficient_role"
+  | "inactive_member";
 
 /**
  * Thrown by requireRole() when a caller may not perform a workspace-scoped
@@ -54,6 +58,13 @@ export async function requireRole(
   const membership = await getMembership(workspaceId, userId);
   if (!membership) {
     throw new AuthorizationError("not_a_member", "You are not a member of this workspace.");
+  }
+
+  if (membership.status !== "active") {
+    throw new AuthorizationError(
+      "inactive_member",
+      "Your membership in this workspace is not active.",
+    );
   }
 
   if (ROLE_RANK[membership.role] < ROLE_RANK[minimumRole]) {

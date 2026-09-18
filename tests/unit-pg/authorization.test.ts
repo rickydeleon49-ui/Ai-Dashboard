@@ -141,6 +141,75 @@ describe("requireRole", () => {
       }
     }
   });
+  it("rejects suspended and removed members at every role level, while active members succeed", async () => {
+    const owner = await makeUser();
+    const ws = await workspaces.createTeamWorkspace(owner, "Status Authz Team");
+
+    const suspendedUser = await makeUser();
+    const removedUser = await makeUser();
+    const invitedUser = await makeUser();
+    const activeUser = await makeUser();
+
+    await db().insert(workspaceMembers).values([
+      { workspaceId: ws.id, userId: suspendedUser, role: "admin", status: "suspended" },
+      { workspaceId: ws.id, userId: removedUser, role: "owner", status: "removed" },
+      { workspaceId: ws.id, userId: invitedUser, role: "member", status: "invited" },
+      { workspaceId: ws.id, userId: activeUser, role: "member", status: "active" },
+    ]);
+
+    const testRoles = ["owner", "admin", "member", "viewer"] as const;
+
+    for (const testRole of testRoles) {
+      // Suspended user rejected at every role level
+      await assert.rejects(
+        () => authz.requireRole(ws.id, suspendedUser, testRole),
+        (error: unknown) => {
+          assert.ok(error instanceof authz.AuthorizationError);
+          assert.equal(error.reason, "inactive_member");
+          assert.equal(authz.authorizationErrorResponse(error).status, 403);
+          return true;
+        },
+      );
+
+      // Removed user rejected at every role level
+      await assert.rejects(
+        () => authz.requireRole(ws.id, removedUser, testRole),
+        (error: unknown) => {
+          assert.ok(error instanceof authz.AuthorizationError);
+          assert.equal(error.reason, "inactive_member");
+          assert.equal(authz.authorizationErrorResponse(error).status, 403);
+          return true;
+        },
+      );
+
+      // Invited user rejected at every role level
+      await assert.rejects(
+        () => authz.requireRole(ws.id, invitedUser, testRole),
+        (error: unknown) => {
+          assert.ok(error instanceof authz.AuthorizationError);
+          assert.equal(error.reason, "inactive_member");
+          assert.equal(authz.authorizationErrorResponse(error).status, 403);
+          return true;
+        },
+      );
+    }
+
+    // Active member succeeds at their role or below
+    const activeMember = await authz.requireRole(ws.id, activeUser, "member");
+    assert.equal(activeMember.role, "member");
+    assert.equal(activeMember.status, "active");
+
+    // listWorkspacesForUser: only active memberships are returned
+    const suspendedWorkspaces = await workspaces.listWorkspacesForUser(suspendedUser);
+    assert.equal(suspendedWorkspaces.length, 0);
+
+    const removedWorkspaces = await workspaces.listWorkspacesForUser(removedUser);
+    assert.equal(removedWorkspaces.length, 0);
+
+    const activeWorkspaces = await workspaces.listWorkspacesForUser(activeUser);
+    assert.equal(activeWorkspaces.length, 1);
+    assert.equal(activeWorkspaces[0]?.id, ws.id);
+  });
 });
 
 describe("authorizationErrorResponse", () => {
@@ -156,6 +225,11 @@ describe("authorizationErrorResponse", () => {
 
   it("maps insufficient_role to 403", () => {
     const error = new authz.AuthorizationError("insufficient_role", "Not enough.");
+    assert.equal(authz.authorizationErrorResponse(error).status, 403);
+  });
+
+  it("maps inactive_member to 403", () => {
+    const error = new authz.AuthorizationError("inactive_member", "Inactive member.");
     assert.equal(authz.authorizationErrorResponse(error).status, 403);
   });
 });
