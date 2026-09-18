@@ -408,3 +408,37 @@ export async function updateMemberStatus(
   });
 }
 
+/** Returns the safe summary for a single member, or null if not found. */
+export async function getMemberSummary(
+  workspaceId: string,
+  userId: string,
+): Promise<WorkspaceMemberSummary | null> {
+  const db = getPgDb();
+  const [row] = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      image: users.image,
+      role: workspaceMembers.role,
+      status: workspaceMembers.status,
+      joinedAt: workspaceMembers.createdAt,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)))
+    .limit(1);
+
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    image: row.image,
+    role: row.role as WorkspaceRole,
+    status: row.status as WorkspaceMemberStatus,
+    joinedAt: row.joinedAt,
+  };
+}
+
+
