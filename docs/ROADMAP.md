@@ -79,19 +79,26 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 
 An independent audit and the full verification matrix (typecheck, lint, unit, PostgreSQL, desktop-shell, end-to-end, build) passed before merge.
 
-### In review — fresh-start readiness correction
+### In review — Release 2C.1: Workspace member directory
 
-The independent audit of PR #30 surfaced one remaining gap: a brand-new desktop or single-password install could still hit a 500 on its very first request against a never-migrated database, since Next.js renders layouts and pages in parallel and only the root layout called the database-readiness function. This is the final prerequisite before Phase 2C — closing it moves migration onto Next.js's own `instrumentation.ts` startup boundary, which the framework guarantees completes before any request is routed, rather than relying on a per-layout call with no ordering guarantee relative to sibling pages. In independent review on `fix/fresh-start-readiness` as of this update; Phase 2C branches from `main` once it merges.
-
-Phase 2C's first release, once this correction lands, is **2C.1 — Workspace Member Directory** (§6).
+Implemented, in review on `phase2c/member-directory` (per §17 step 14). Delivered:
+- Server-enforced soft removal (`status = 'removed'`), preserving task history and member attribution.
+- Re-invitation and reactivation flow with composite row locks (`SELECT ... FOR UPDATE`), protecting original join dates.
+- Reinstatement invariants: suspended members cannot be re-invited or self-rejoin via invitation; only admins/owners can reinstate.
+- Database trigger protection preventing removal, demotion, or suspension of the last active owner across concurrent transactions.
+- Member Directory API: `GET /api/workspaces/:id/members`, `PATCH /api/workspaces/:id/members/:userId`, `DELETE /api/workspaces/:id/members/:userId`.
+- Full authorization matrix covering Owner, Admin, Member, Viewer, Suspended, Removed, Outsider, and Unauthenticated callers.
+- Scoped admin capabilities: admins cannot modify/remove owners or other admins and cannot grant elevated roles.
+- Member directory UI in Settings (accounts mode only) with debounced search, admin/owner status filters, role management, suspend/reinstate, and accessible removal confirmation dialog.
+- Desktop single-user SQLite mode left untouched.
 
 ## 4. Release sequence at a glance
 
 | Order | Release | Primary outcome | Depends on |
 |---:|---|---|---|
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
-| — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **in independent review** |
-| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Fresh-start readiness correction |
+| — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
+| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Release 2C.1 implemented, in review on `phase2c/member-directory` |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
@@ -139,7 +146,7 @@ Make the completed Phase 2 foundation safe under multi-user concurrency and safe
 
 A workspace becomes a place where multiple people can assign, discuss, review, and track work without relying on another chat application.
 
-### Release 2C.1 — Workspace member directory
+### Release 2C.1 — Workspace member directory (implemented, in review on phase2c/member-directory)
 
 #### Features
 
