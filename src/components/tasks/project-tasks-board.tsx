@@ -10,7 +10,7 @@
  * editing, or mid-create) is genuinely shared across milestone groups and
  * their tasks, not independent per row.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -19,7 +19,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +33,9 @@ import {
   type Milestone,
   type Task,
 } from "@/core/tasks/types";
+import type { WorkspaceMemberSummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
+import { AssigneeBadge, AssigneePicker } from "./assignee-picker";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
@@ -63,10 +64,20 @@ export function ProjectTasksBoard({
   projectId,
   milestones,
   tasks,
+  accountsMode = false,
+  workspaceId,
+  currentUserId,
+  callerRole = "member",
+  initialMembers = [],
 }: {
   projectId: string;
   milestones: Milestone[];
   tasks: Task[];
+  accountsMode?: boolean;
+  workspaceId?: string;
+  currentUserId?: string | null;
+  callerRole?: WorkspaceRole;
+  initialMembers?: WorkspaceMemberSummary[];
 }) {
   const router = useRouter();
   const [creatingMilestone, setCreatingMilestone] = useState(false);
@@ -74,13 +85,27 @@ export function ProjectTasksBoard({
   const [creatingTaskFor, setCreatingTaskFor] = useState<string | "none" | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "to_me" | "by_me" | "unassigned">("all");
+
+  const isViewer = accountsMode && callerRole === "viewer";
+  const membersMap = new Map<string, WorkspaceMemberSummary>(
+    initialMembers.map((m) => [m.id, m]),
+  );
+
+  const filteredTasks = tasks.filter((task) => {
+    if (!accountsMode || assignmentFilter === "all") return true;
+    if (assignmentFilter === "to_me") return task.assigneeId === currentUserId;
+    if (assignmentFilter === "by_me") return task.assignedBy === currentUserId;
+    if (assignmentFilter === "unassigned") return !task.assigneeId;
+    return true;
+  });
 
   const groups: { milestone: Milestone | null; tasks: Task[] }[] = [
     ...milestones.map((milestone) => ({
       milestone,
-      tasks: tasks.filter((t) => t.milestoneId === milestone.id),
+      tasks: filteredTasks.filter((t) => t.milestoneId === milestone.id),
     })),
-    { milestone: null, tasks: tasks.filter((t) => t.milestoneId === null) },
+    { milestone: null, tasks: filteredTasks.filter((t) => t.milestoneId === null) },
   ];
 
   function refresh() {
@@ -91,18 +116,45 @@ export function ProjectTasksBoard({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-[15px] font-semibold text-fg">Milestones &amp; tasks</h2>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => setCreatingMilestone((v) => !v)}
-        >
-          <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
-          New milestone
-        </Button>
+        {!isViewer ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setCreatingMilestone((v) => !v)}
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+            New milestone
+          </Button>
+        ) : null}
       </div>
 
-      {creatingMilestone ? (
+      {accountsMode ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            aria-label="Filter tasks by assignment"
+            value={assignmentFilter}
+            onChange={(e) => setAssignmentFilter(e.target.value as typeof assignmentFilter)}
+            className="w-auto min-w-36 text-[12.5px]"
+          >
+            <option value="all">All assignees</option>
+            <option value="to_me">Assigned to me</option>
+            <option value="by_me">Assigned by me</option>
+            <option value="unassigned">Unassigned</option>
+          </Select>
+          {assignmentFilter !== "all" ? (
+            <button
+              type="button"
+              onClick={() => setAssignmentFilter("all")}
+              className="h-8 rounded-md px-2 text-[12.5px] text-faint transition-colors hover:text-fg"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {creatingMilestone && !isViewer ? (
         <MilestoneFormInline
           projectId={projectId}
           onDone={() => {
@@ -123,7 +175,7 @@ export function ProjectTasksBoard({
         groups.map((group) => (
           <Card key={group.milestone?.id ?? "none"}>
             {group.milestone ? (
-              editingMilestoneId === group.milestone.id ? (
+              editingMilestoneId === group.milestone.id && !isViewer ? (
                 <div className="border-b border-line p-4">
                   <MilestoneFormInline
                     projectId={projectId}
@@ -151,24 +203,26 @@ export function ProjectTasksBoard({
                       {group.tasks.filter((t) => DONE_STATUSES.has(t.status)).length}/{group.tasks.length}
                     </span>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setEditingMilestoneId(group.milestone!.id)}
-                      className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
-                      title="Edit milestone"
-                    >
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    </button>
-                    <DeleteMilestoneButton
-                      projectId={projectId}
-                      milestoneId={group.milestone.id}
-                      onDeleted={refresh}
-                    />
-                  </div>
+                  {!isViewer ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditingMilestoneId(group.milestone!.id)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
+                        title="Edit milestone"
+                      >
+                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      </button>
+                      <DeleteMilestoneButton
+                        projectId={projectId}
+                        milestoneId={group.milestone.id}
+                        onDeleted={refresh}
+                      />
+                    </div>
+                  ) : null}
                 </CardHeader>
               )
-            ) : group.tasks.length > 0 || creatingTaskFor === "none" ? (
+            ) : group.tasks.length > 0 || (creatingTaskFor === "none" && !isViewer) ? (
               <CardHeader>
                 <CardTitle className="text-faint">No milestone</CardTitle>
               </CardHeader>
@@ -181,36 +235,46 @@ export function ProjectTasksBoard({
                   projectId={projectId}
                   task={task}
                   otherTasks={tasks.filter((t) => t.id !== task.id)}
-                  editing={editingTaskId === task.id}
+                  editing={editingTaskId === task.id && !isViewer}
                   expanded={expandedTaskId === task.id}
                   onEditToggle={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
                   onExpandToggle={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                   onChanged={refresh}
                   milestones={milestones}
+                  accountsMode={accountsMode}
+                  workspaceId={workspaceId}
+                  isViewer={isViewer}
+                  membersMap={membersMap}
+                  initialMembers={initialMembers}
                 />
               ))}
 
-              {creatingTaskFor === (group.milestone?.id ?? "none") ? (
-                <TaskFormInline
-                  projectId={projectId}
-                  milestoneId={group.milestone?.id ?? null}
-                  milestones={milestones}
-                  onDone={() => {
-                    setCreatingTaskFor(null);
-                    refresh();
-                  }}
-                  onCancel={() => setCreatingTaskFor(null)}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setCreatingTaskFor(group.milestone?.id ?? "none")}
-                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-faint transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
-                >
-                  <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  Add task
-                </button>
-              )}
+              {!isViewer ? (
+                creatingTaskFor === (group.milestone?.id ?? "none") ? (
+                  <TaskFormInline
+                    projectId={projectId}
+                    milestoneId={group.milestone?.id ?? null}
+                    milestones={milestones}
+                    accountsMode={accountsMode}
+                    workspaceId={workspaceId}
+                    initialMembers={initialMembers}
+                    onDone={() => {
+                      setCreatingTaskFor(null);
+                      refresh();
+                    }}
+                    onCancel={() => setCreatingTaskFor(null)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCreatingTaskFor(group.milestone?.id ?? "none")}
+                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-faint transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
+                  >
+                    <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    Add task
+                  </button>
+                )
+              ) : null}
             </CardBody>
           </Card>
         ))
@@ -335,6 +399,9 @@ function TaskFormInline({
   milestoneId,
   milestones,
   task,
+  accountsMode,
+  workspaceId,
+  initialMembers,
   onDone,
   onCancel,
 }: {
@@ -342,6 +409,9 @@ function TaskFormInline({
   milestoneId?: string | null;
   milestones: Milestone[];
   task?: Task;
+  accountsMode?: boolean;
+  workspaceId?: string;
+  initialMembers?: WorkspaceMemberSummary[];
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -349,13 +419,16 @@ function TaskFormInline({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const initialAssigneeId = task?.assigneeId ?? null;
+  const [assigneeId, setAssigneeId] = useState<string | null>(initialAssigneeId);
+
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError(null);
     const form = new FormData(event.currentTarget);
     const milestoneValue = String(form.get("milestoneId") ?? "");
-    const payload = {
+    const payload: Record<string, unknown> = {
       title: String(form.get("title") ?? "").trim(),
       description: String(form.get("description") ?? ""),
       status: String(form.get("status") ?? "todo"),
@@ -363,6 +436,20 @@ function TaskFormInline({
       dueDate: String(form.get("dueDate") ?? ""),
       milestoneId: milestoneValue,
     };
+
+    if (accountsMode) {
+      if (editing) {
+        // Defense in depth: only send assigneeId when actually changed by user!
+        if (assigneeId !== initialAssigneeId) {
+          payload.assigneeId = assigneeId;
+        }
+      } else {
+        if (assigneeId) {
+          payload.assigneeId = assigneeId;
+        }
+      }
+    }
+
     const url = editing ? `/api/tasks/${task!.id}` : `/api/projects/${projectId}/tasks`;
     const result = await postJson(url, editing ? "PATCH" : "POST", payload);
     setSaving(false);
@@ -414,6 +501,19 @@ function TaskFormInline({
           </Select>
         </Field>
       </div>
+
+      {accountsMode && workspaceId ? (
+        <Field label="Assignee">
+          <AssigneePicker
+            workspaceId={workspaceId}
+            value={assigneeId}
+            onChange={setAssigneeId}
+            knownMembers={initialMembers}
+            disabled={saving}
+          />
+        </Field>
+      ) : null}
+
       {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
       <div className="flex items-center gap-2">
         <Button type="submit" variant="primary" size="sm" disabled={saving}>
@@ -438,6 +538,11 @@ function TaskRow({
   onEditToggle,
   onExpandToggle,
   onChanged,
+  accountsMode,
+  workspaceId,
+  isViewer,
+  membersMap,
+  initialMembers,
 }: {
   projectId: string;
   task: Task;
@@ -448,12 +553,18 @@ function TaskRow({
   onEditToggle: () => void;
   onExpandToggle: () => void;
   onChanged: () => void;
+  accountsMode?: boolean;
+  workspaceId?: string;
+  isViewer?: boolean;
+  membersMap?: Map<string, WorkspaceMemberSummary>;
+  initialMembers?: WorkspaceMemberSummary[];
 }) {
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function changeStatus(status: string) {
+    if (isViewer) return;
     setStatusSaving(true);
     setStatusError(null);
     const result = await postJson(`/api/tasks/${task.id}`, "PATCH", { status });
@@ -469,6 +580,7 @@ function TaskRow({
   }
 
   async function remove() {
+    if (isViewer) return;
     if (!confirmingDelete) {
       setConfirmingDelete(true);
       setTimeout(() => setConfirmingDelete(false), 4000);
@@ -478,12 +590,15 @@ function TaskRow({
     onChanged();
   }
 
-  if (editing) {
+  if (editing && !isViewer) {
     return (
       <TaskFormInline
         projectId={projectId}
         milestones={milestones}
         task={task}
+        accountsMode={accountsMode}
+        workspaceId={workspaceId}
+        initialMembers={initialMembers}
         onDone={onChanged}
         onCancel={onEditToggle}
       />
@@ -491,13 +606,15 @@ function TaskRow({
   }
 
   const overdue = isOverdue(task);
+  const assigneeMember = task.assigneeId && membersMap ? membersMap.get(task.assigneeId) : null;
+  const assignerMember = task.assignedBy && membersMap ? membersMap.get(task.assignedBy) : null;
 
   return (
     <div className="rounded-lg border border-line bg-[var(--bg-subtle)]/40">
       <div className="flex items-center gap-2 px-2.5 py-2">
         <Select
           value={task.status}
-          disabled={statusSaving}
+          disabled={statusSaving || isViewer}
           onChange={(e) => changeStatus(e.target.value)}
           className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
         >
@@ -527,6 +644,16 @@ function TaskRow({
           </span>
         </button>
 
+        {accountsMode && (task.assigneeId || isViewer) ? (
+          <div className="shrink-0">
+            {task.assigneeId ? (
+              <AssigneeBadge member={assigneeMember} userId={task.assigneeId} />
+            ) : (
+              <span className="text-[11.5px] text-faint">Unassigned</span>
+            )}
+          </div>
+        ) : null}
+
         <Badge className={cn("shrink-0", TASK_PRIORITY_META[task.priority].className)}>
           {TASK_PRIORITY_META[task.priority].label}
         </Badge>
@@ -541,24 +668,26 @@ function TaskRow({
           </span>
         ) : null}
 
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onEditToggle}
-            className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
-            title="Edit task"
-          >
-            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            onClick={remove}
-            title={confirmingDelete ? "Click again to confirm" : "Delete task"}
-            className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
-          >
-            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-          </button>
-        </div>
+        {!isViewer ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={onEditToggle}
+              className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
+              title="Edit task"
+            >
+              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              onClick={remove}
+              title={confirmingDelete ? "Click again to confirm" : "Delete task"}
+              className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {statusError ? (
@@ -572,6 +701,17 @@ function TaskRow({
               {task.description}
             </p>
           ) : null}
+
+          {accountsMode && (task.assignedBy || task.assignedAt) ? (
+            <p className="text-[11.5px] text-faint">
+              Assigned
+              {task.assignedBy
+                ? ` by ${assignerMember?.name || assignerMember?.email || "teammate"}`
+                : ""}
+              {task.assignedAt ? ` on ${formatDate(task.assignedAt)}` : ""}
+            </p>
+          ) : null}
+
           <TaskDependencies taskId={task.id} otherTasks={otherTasks} onChanged={onChanged} />
         </div>
       ) : null}
@@ -601,102 +741,101 @@ function TaskDependencies({
     setLoaded(true);
   }
 
-  // Fetched once per mount via an effect, not in the render body: calling
-  // load() there re-fires on every re-render until the first request
-  // resolves, since `loaded` doesn't flip until then — a re-render from
-  // unrelated state (another row's edit/expand toggle) would fire a
-  // duplicate concurrent GET. The `active` guard (same pattern as
-  // `local-ai-workspace.tsx`'s own project-files effect) drops a response
-  // that resolves after a newer request has already superseded it.
-  useEffect(() => {
-    let active = true;
-    fetch(`/api/tasks/${taskId}/dependencies`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: { blockers: Task[] } | null) => {
-        if (!active || !body) return;
-        setBlockers(body.blockers);
-        setLoaded(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [taskId]);
+  // Lazy-load on first expand: dependencies aren't needed just to see the task row.
+  if (!loaded) {
+    load();
+  }
 
   async function addDependency(dependsOnTaskId: string) {
     if (!dependsOnTaskId) return;
-    setAdding(true);
     setError(null);
     const result = await postJson(`/api/tasks/${taskId}/dependencies`, "POST", { dependsOnTaskId });
-    setAdding(false);
     if (!result.ok) {
       setError(result.error ?? "Could not add dependency.");
       return;
     }
-    await load();
+    setAdding(false);
+    load();
     onChanged();
   }
 
   async function removeDependency(dependsOnTaskId: string) {
+    setError(null);
     await postJson(`/api/tasks/${taskId}/dependencies?dependsOnTaskId=${encodeURIComponent(dependsOnTaskId)}`, "DELETE");
-    await load();
+    load();
     onChanged();
   }
 
-  const linkedIds = new Set(blockers.map((b) => b.id));
-  const pickable = otherTasks.filter((t) => !linkedIds.has(t.id));
+  const blockerIds = new Set(blockers.map((b) => b.id));
+  const availableTasks = otherTasks.filter((t) => !blockerIds.has(t.id));
 
   return (
-    <div className="space-y-1.5">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
-        Blocked by
-      </p>
-      {blockers.length === 0 ? (
-        <p className="text-[12px] text-faint">No dependencies.</p>
-      ) : (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11.5px] font-medium text-faint">Blocked by ({blockers.length})</span>
+        {!adding && availableTasks.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="text-[11.5px] text-faint transition-colors hover:text-fg"
+          >
+            + Add blocker
+          </button>
+        ) : null}
+      </div>
+
+      {blockers.length > 0 ? (
         <ul className="space-y-1">
           {blockers.map((b) => (
-            <li key={b.id} className="flex items-center gap-2 text-[12.5px] text-fg">
-              <span className="truncate">{b.title}</span>
-              <Badge className={TASK_STATUS_META[b.status].className}>
-                {TASK_STATUS_META[b.status].label}
-              </Badge>
-              <button
-                type="button"
-                onClick={() => removeDependency(b.id)}
-                className="ml-auto flex h-5 w-5 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
-                title="Remove dependency"
-              >
-                <X className="h-3 w-3" strokeWidth={2} />
-              </button>
+            <li
+              key={b.id}
+              className="flex items-center justify-between gap-2 rounded bg-surface px-2 py-1 text-[12px]"
+            >
+              <span className={cn("truncate text-muted", DONE_STATUSES.has(b.status) && "line-through text-faint")}>
+                {b.title}
+              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Badge className={cn("text-[10px]", TASK_STATUS_META[b.status].className)}>
+                  {TASK_STATUS_META[b.status].label}
+                </Badge>
+                <button
+                  type="button"
+                  onClick={() => removeDependency(b.id)}
+                  className="text-faint hover:text-red-400"
+                  title="Remove blocker"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
 
-      {pickable.length > 0 ? (
+      {adding ? (
         <div className="flex items-center gap-2 pt-1">
           <Select
-            disabled={adding}
+            onChange={(e) => addDependency(e.target.value)}
             defaultValue=""
-            onChange={(e) => {
-              addDependency(e.target.value);
-              e.target.value = "";
-            }}
-            className="h-7 max-w-xs text-[12px]"
+            className="h-7 text-[12px]"
+            autoFocus
           >
             <option value="" disabled>
-              Add a dependency…
+              Select a task that must finish first...
             </option>
-            {pickable.map((t) => (
+            {availableTasks.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.title}
               </option>
             ))}
           </Select>
-          {adding ? <Loader2 className="h-3 w-3 animate-spin text-faint" strokeWidth={2} /> : null}
+          <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)}>
+            Cancel
+          </Button>
         </div>
       ) : null}
-      {error ? <p className="text-[11.5px] text-red-400">{error}</p> : null}
+
+      {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
     </div>
   );
 }

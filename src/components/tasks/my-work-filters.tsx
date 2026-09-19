@@ -7,7 +7,13 @@ import { TASK_PRIORITIES, TASK_STATUSES } from "@/core/tasks/types";
 import { TASK_PRIORITY_META, TASK_STATUS_META } from "@/core/tasks/labels";
 
 /** Search/filter controls for My Work — all state lives in the URL, same as ProjectFilters. */
-export function MyWorkFilters({ projects }: { projects: { id: string; name: string }[] }) {
+export function MyWorkFilters({
+  projects,
+  accountsMode = false,
+}: {
+  projects: { id: string; name: string }[];
+  accountsMode?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -22,15 +28,32 @@ export function MyWorkFilters({ projects }: { projects: { id: string; name: stri
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(params.toString());
-    if (!value || value === "all") next.delete(key);
-    else next.set(key, value);
+    if (!value || value === "all" || (key === "assignment" && value === "to_me")) {
+      next.delete(key);
+    } else {
+      next.set(key, value);
+    }
     push(next);
   }
 
-  const activeCount = ["status", "priority", "project"].filter((key) => params.get(key)).length;
+  const activeCount = ["status", "priority", "project", "assignment"].filter((key) => params.get(key)).length;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {accountsMode ? (
+        <Select
+          aria-label="Filter by assignment"
+          value={params.get("assignment") ?? "to_me"}
+          onChange={(e) => setParam("assignment", e.target.value)}
+          className="w-auto min-w-36"
+        >
+          <option value="to_me">Assigned to me</option>
+          <option value="by_me">Assigned by me</option>
+          <option value="unassigned">Unassigned</option>
+          <option value="all">All assignments</option>
+        </Select>
+      ) : null}
+
       <Select
         aria-label="Filter by status"
         value={params.get("status") ?? "all"}

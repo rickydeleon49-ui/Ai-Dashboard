@@ -9,7 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/field";
 import { TASK_PRIORITY_META, TASK_STATUS_META } from "@/core/tasks/labels";
 import { TASK_STATUSES, type Task } from "@/core/tasks/types";
+import type { WorkspaceMemberSummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
+import { AssigneeBadge } from "./assignee-picker";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
@@ -20,25 +22,54 @@ function isOverdue(task: Task): boolean {
 export function MyWorkList({
   tasks,
   projectNames,
+  accountsMode = false,
+  callerRole = "viewer",
+  members = [],
 }: {
   tasks: Task[];
   projectNames: Map<string, string>;
+  accountsMode?: boolean;
+  callerRole?: WorkspaceRole;
+  members?: WorkspaceMemberSummary[];
 }) {
+  const membersMap = new Map<string, WorkspaceMemberSummary>(members.map((m) => [m.id, m]));
+  const isViewer = accountsMode && callerRole === "viewer";
+
   return (
     <div className="space-y-2">
       {tasks.map((task) => (
-        <MyWorkRow key={task.id} task={task} projectName={projectNames.get(task.projectId) ?? "Unknown project"} />
+        <MyWorkRow
+          key={task.id}
+          task={task}
+          projectName={projectNames.get(task.projectId) ?? "Unknown project"}
+          accountsMode={accountsMode}
+          isViewer={isViewer}
+          assigneeMember={task.assigneeId ? membersMap.get(task.assigneeId) : null}
+        />
       ))}
     </div>
   );
 }
 
-function MyWorkRow({ task, projectName }: { task: Task; projectName: string }) {
+function MyWorkRow({
+  task,
+  projectName,
+  accountsMode,
+  isViewer,
+  assigneeMember,
+}: {
+  task: Task;
+  projectName: string;
+  accountsMode: boolean;
+  isViewer: boolean;
+  assigneeMember?: WorkspaceMemberSummary | null;
+}) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function changeStatus(status: string) {
+    if (isViewer) return;
     setSaving(true);
     setError(null);
     try {
@@ -71,7 +102,7 @@ function MyWorkRow({ task, projectName }: { task: Task; projectName: string }) {
       <div className="flex items-center gap-2 px-2.5 py-2">
         <Select
           value={task.status}
-          disabled={saving}
+          disabled={saving || isViewer}
           onChange={(e) => changeStatus(e.target.value)}
           className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
         >
@@ -91,6 +122,16 @@ function MyWorkRow({ task, projectName }: { task: Task; projectName: string }) {
         >
           {task.title}
         </Link>
+
+        {accountsMode && (task.assigneeId || isViewer) ? (
+          <div className="shrink-0">
+            {task.assigneeId ? (
+              <AssigneeBadge member={assigneeMember} userId={task.assigneeId} />
+            ) : (
+              <span className="text-[11.5px] text-faint">Unassigned</span>
+            )}
+          </div>
+        ) : null}
 
         <span className="shrink-0 truncate text-[11.5px] text-faint">{projectName}</span>
 
