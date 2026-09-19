@@ -324,15 +324,19 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
     });
 
     // 1. Assigning active colleague succeeds
-    const task = await taskRepo.create(ws.id, {
-      projectId: project.id,
-      title: "Active Task",
-      assigneeId: colleagueId,
-    });
+    const task = await taskRepo.create(
+      ws.id,
+      {
+        projectId: project.id,
+        title: "Active Task",
+        assigneeId: colleagueId,
+      },
+      { actorUserId: ownerId },
+    );
     assert.equal(task.assigneeId, colleagueId);
 
     // 2. Suspend the colleague
-    await workspacesService.updateMemberStatus(ws.id, colleagueId, "suspended");
+    await workspacesService.updateMemberStatus(ws.id, colleagueId, "suspended", { callerRole: "owner" });
 
     // Creating a task assigned to the suspended member must be rejected
     await assert.rejects(
@@ -341,7 +345,7 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
           projectId: project.id,
           title: "Rejected Task",
           assigneeId: colleagueId,
-        }),
+        }, { actorUserId: ownerId }),
       (err: unknown) => {
         assert.ok(err instanceof InvalidAssigneeError);
         assert.match((err as Error).message, /active member/i);
@@ -355,7 +359,7 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
       title: "Unassigned Task",
     });
     await assert.rejects(
-      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }),
+      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }, { actorUserId: ownerId }),
       (err: unknown) => {
         assert.ok(err instanceof InvalidAssigneeError);
         assert.match((err as Error).message, /active member/i);
@@ -364,10 +368,10 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
     );
 
     // 3. Mark the colleague as removed
-    await workspacesService.updateMemberStatus(ws.id, colleagueId, "removed");
+    await workspacesService.updateMemberStatus(ws.id, colleagueId, "removed", { callerRole: "owner" });
 
     await assert.rejects(
-      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }),
+      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }, { actorUserId: ownerId }),
       (err: unknown) => {
         assert.ok(err instanceof InvalidAssigneeError);
         assert.match((err as Error).message, /active member/i);
@@ -387,7 +391,7 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
       );
 
     await assert.rejects(
-      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }),
+      () => taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }, { actorUserId: ownerId }),
       (err: unknown) => {
         assert.ok(err instanceof InvalidAssigneeError);
         assert.match((err as Error).message, /active member/i);
@@ -395,9 +399,27 @@ describe("Release 2C.1: Assignee status validation & task assignment invariants"
       },
     );
 
-    // 5. Re-activate colleague: assignment succeeds again
-    await workspacesService.updateMemberStatus(ws.id, colleagueId, "active");
-    const updated = await taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId });
+    // 5. Direct updateMemberStatus from invited -> active must be rejected (invited members must accept an invitation)
+    await assert.rejects(
+      () => workspacesService.updateMemberStatus(ws.id, colleagueId, "active", { callerRole: "owner" }),
+      (err: unknown) => {
+        assert.ok(err instanceof workspacesService.InvalidMemberTransitionError);
+        assert.match((err as Error).message, /accepting their invitation/i);
+        return true;
+      },
+    );
+
+    // Set status back to active in DB to verify assignment succeeds again
+    await db()
+      .update(workspaceMembers)
+      .set({ status: "active" })
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, ws.id),
+          eq(workspaceMembers.userId, colleagueId),
+        ),
+      );
+    const updated = await taskRepo.update(ws.id, unassignedTask.id, { assigneeId: colleagueId }, { actorUserId: ownerId });
     assert.ok(updated);
     assert.equal(updated.assigneeId, colleagueId);
   });
@@ -409,12 +431,12 @@ describe("Release 2C.1: Last-owner status update protection", () => {
     const ws = await workspacesService.createTeamWorkspace(ownerId, "Solo Workspace");
 
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, ownerId, "suspended"),
+      () => workspacesService.updateMemberStatus(ws.id, ownerId, "suspended", { callerRole: "owner" }),
       LastOwnerError,
     );
 
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, ownerId, "removed"),
+      () => workspacesService.updateMemberStatus(ws.id, ownerId, "removed", { callerRole: "owner" }),
       LastOwnerError,
     );
 
@@ -436,13 +458,13 @@ describe("Release 2C.1: Last-owner status update protection", () => {
     });
 
     // Suspending owner1 succeeds because owner2 is active
-    await workspacesService.updateMemberStatus(ws.id, owner1, "suspended");
+    await workspacesService.updateMemberStatus(ws.id, owner1, "suspended", { callerRole: "owner" });
     const m1 = await workspacesService.getMembership(ws.id, owner1);
     assert.equal(m1?.status, "suspended");
 
     // Now owner2 is the sole active owner: suspending owner2 must be rejected
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, owner2, "suspended"),
+      () => workspacesService.updateMemberStatus(ws.id, owner2, "suspended", { callerRole: "owner" }),
       LastOwnerError,
     );
     const m2 = await workspacesService.getMembership(ws.id, owner2);
@@ -463,13 +485,13 @@ describe("Release 2C.1: Last-owner status update protection", () => {
 
     // Demoting the active owner must fail because the only other owner is suspended
     await assert.rejects(
-      () => workspacesService.updateMemberRole(ws.id, activeOwner, "member"),
+      () => workspacesService.updateMemberRole(ws.id, activeOwner, "member", { callerRole: "owner" }),
       LastOwnerError,
     );
 
     // Removing the active owner must also fail
     await assert.rejects(
-      () => workspacesService.removeMember(ws.id, activeOwner),
+      () => workspacesService.removeMember(ws.id, activeOwner, { callerRole: "owner" }),
       LastOwnerError,
     );
 
@@ -680,7 +702,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
       status: "active",
     });
 
-    await workspacesService.removeMember(ws.id, memberId);
+    await workspacesService.removeMember(ws.id, memberId, { callerRole: "owner" });
 
     const membership = await workspacesService.getMembership(ws.id, memberId);
     assert.ok(membership);
@@ -704,14 +726,18 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
     const taskRepo = new PostgresTaskRepository();
 
     const proj = await projectRepo.create(ws.id, { name: "Project History" });
-    const historicalTask = await taskRepo.create(ws.id, {
-      projectId: proj.id,
-      title: "Historical Task",
-      assigneeId: memberId,
-    });
+    const historicalTask = await taskRepo.create(
+      ws.id,
+      {
+        projectId: proj.id,
+        title: "Historical Task",
+        assigneeId: memberId,
+      },
+      { actorUserId: ownerId },
+    );
 
     // Remove member (soft removal)
-    await workspacesService.removeMember(ws.id, memberId);
+    await workspacesService.removeMember(ws.id, memberId, { callerRole: "owner" });
 
     // 1. Removed member cannot access workspace (requireRole throws 403 inactive_member)
     await assert.rejects(
@@ -827,7 +853,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
     const ws = await workspacesService.createTeamWorkspace(ownerId, "Last Owner Soft Remove");
 
     await assert.rejects(
-      () => workspacesService.removeMember(ws.id, ownerId),
+      () => workspacesService.removeMember(ws.id, ownerId, { callerRole: "owner" }),
       LastOwnerError,
     );
 
@@ -849,7 +875,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
     });
 
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, memberId, "invited"),
+      () => workspacesService.updateMemberStatus(ws.id, memberId, "invited", { callerRole: "owner" }),
       /cannot be set directly/i,
     );
   });
@@ -1037,7 +1063,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
 
     // 1. Removed -> active rejected
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, removedId, "active"),
+      () => workspacesService.updateMemberStatus(ws.id, removedId, "active", { callerRole: "owner" }),
       (err: unknown) => {
         assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
         assert.match((err as Error).message, /Removed members must be re-invited/);
@@ -1047,7 +1073,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
 
     // 2. Removed -> suspended rejected
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, removedId, "suspended"),
+      () => workspacesService.updateMemberStatus(ws.id, removedId, "suspended", { callerRole: "owner" }),
       (err: unknown) => {
         assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
         return true;
@@ -1056,7 +1082,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
 
     // 3. Role change on removed member rejected
     await assert.rejects(
-      () => workspacesService.updateMemberRole(ws.id, removedId, "admin"),
+      () => workspacesService.updateMemberRole(ws.id, removedId, "admin", { callerRole: "owner" }),
       (err: unknown) => {
         assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
         return true;
@@ -1065,7 +1091,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
 
     // 4. removeMember on removed member rejected
     await assert.rejects(
-      () => workspacesService.removeMember(ws.id, removedId),
+      () => workspacesService.removeMember(ws.id, removedId, { callerRole: "owner" }),
       (err: unknown) => {
         assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
         return true;
@@ -1074,7 +1100,7 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
 
     // 5. Setting 'invited' status rejected
     await assert.rejects(
-      () => workspacesService.updateMemberStatus(ws.id, memberId, "invited"),
+      () => workspacesService.updateMemberStatus(ws.id, memberId, "invited", { callerRole: "owner" }),
       (err: unknown) => {
         assert.ok(err instanceof workspacesService.InvalidMemberTransitionError);
         return true;
@@ -1083,17 +1109,17 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
 
     // 6. Allowed transitions work
     // active -> suspended
-    await workspacesService.updateMemberStatus(ws.id, memberId, "suspended");
+    await workspacesService.updateMemberStatus(ws.id, memberId, "suspended", { callerRole: "owner" });
     let mem = await workspacesService.getMembership(ws.id, memberId);
     assert.equal(mem?.status, "suspended");
 
     // suspended -> active (reinstate)
-    await workspacesService.updateMemberStatus(ws.id, memberId, "active");
+    await workspacesService.updateMemberStatus(ws.id, memberId, "active", { callerRole: "owner" });
     mem = await workspacesService.getMembership(ws.id, memberId);
     assert.equal(mem?.status, "active");
 
     // suspended -> removed
-    await workspacesService.updateMemberStatus(ws.id, suspendedId, "removed");
+    await workspacesService.updateMemberStatus(ws.id, suspendedId, "removed", { callerRole: "owner" });
     const susp = await workspacesService.getMembership(ws.id, suspendedId);
     assert.equal(susp?.status, "removed");
   });
@@ -1113,10 +1139,15 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
     // Attempt an update changing role to 'admin' AND status to 'invited' (which is forbidden)
     await assert.rejects(
       () =>
-        workspacesService.updateMember(ws.id, targetId, {
-          role: "admin",
-          status: "invited" as any,
-        }),
+        workspacesService.updateMember(
+          ws.id,
+          targetId,
+          {
+            role: "admin",
+            status: "invited" as any,
+          },
+          { callerRole: "owner" },
+        ),
       workspacesService.InvalidMemberTransitionError,
     );
 

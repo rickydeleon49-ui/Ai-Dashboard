@@ -59,7 +59,7 @@ export class ForbiddenMemberActionError extends Error {
 }
 
 export interface UpdateMemberOptions {
-  callerRole?: WorkspaceRole;
+  callerRole: WorkspaceRole;
 }
 
 function isLastOwnerViolation(error: unknown): boolean {
@@ -285,7 +285,7 @@ export async function updateMember(
   workspaceId: string,
   targetUserId: string,
   updates: { role?: WorkspaceRole; status?: WorkspaceMemberStatus },
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<WorkspaceMemberSummary> {
   return await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
@@ -310,7 +310,10 @@ export async function updateMember(
       const currentStatus = lockedMember.status as WorkspaceMemberStatus;
 
       // 2. Permission checks against locked row
-      if (options?.callerRole === "admin") {
+      if (options.callerRole !== "owner" && options.callerRole !== "admin") {
+        throw new ForbiddenMemberActionError("Only owners and admins can modify members.");
+      }
+      if (options.callerRole === "admin") {
         if (currentRole === "owner" || currentRole === "admin") {
           throw new ForbiddenMemberActionError("Admins cannot modify owners or other admins.");
         }
@@ -330,11 +333,16 @@ export async function updateMember(
         throw new RemovedMemberTransitionError("Removed members must be re-invited.");
       }
 
+      if (currentStatus === "invited" && updates.status) {
+        throw new InvalidMemberTransitionError(
+          "Invited members can only become active by accepting their invitation.",
+        );
+      }
+
       if (updates.status && updates.status !== currentStatus) {
         const allowed =
           (currentStatus === "active" && (updates.status === "suspended" || updates.status === "removed")) ||
-          (currentStatus === "suspended" && (updates.status === "active" || updates.status === "removed")) ||
-          (currentStatus === "invited" && updates.status === "active");
+          (currentStatus === "suspended" && (updates.status === "active" || updates.status === "removed"));
 
         if (!allowed) {
           throw new InvalidMemberTransitionError(
@@ -396,7 +404,7 @@ export async function updateMemberRole(
   workspaceId: string,
   userId: string,
   role: WorkspaceRole,
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<void> {
   await updateMember(workspaceId, userId, { role }, options);
 }
@@ -409,7 +417,7 @@ export async function updateMemberRole(
 export async function removeMember(
   workspaceId: string,
   userId: string,
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<void> {
   await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
@@ -432,7 +440,10 @@ export async function removeMember(
       const currentRole = lockedMember.role as WorkspaceRole;
       const currentStatus = lockedMember.status as WorkspaceMemberStatus;
 
-      if (options?.callerRole === "admin") {
+      if (options.callerRole !== "owner" && options.callerRole !== "admin") {
+        throw new ForbiddenMemberActionError("Only owners and admins can remove members.");
+      }
+      if (options.callerRole === "admin") {
         if (currentRole === "owner" || currentRole === "admin") {
           throw new ForbiddenMemberActionError("Admins cannot remove owners or other admins.");
         }
@@ -575,7 +586,7 @@ export async function updateMemberStatus(
   workspaceId: string,
   userId: string,
   status: WorkspaceMemberStatus,
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<void> {
   await updateMember(workspaceId, userId, { status }, options);
 }

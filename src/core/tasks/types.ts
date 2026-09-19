@@ -57,6 +57,13 @@ export interface Task {
    * hosted accounts mode, where it references a workspace member.
    */
   assigneeId: string | null;
+  /**
+   * User ID of the workspace member who created or updated the assignment.
+   * Null for unassigned or legacy tasks.
+   */
+  assignedBy: string | null;
+  /** ISO date/time string when the assignment was made, or null. */
+  assignedAt: string | null;
   dueDate: string | null;
   createdAt: string;
   updatedAt: string;
@@ -83,11 +90,18 @@ export type TaskCreateInput = Partial<Omit<Task, "id" | "blocked">> & {
  */
 export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt" | "blocked">>;
 
+export interface TaskMutationOptions {
+  actorUserId?: string;
+}
+
 export interface TaskQuery {
   status?: TaskStatus | "all";
   priority?: TaskPriority | "all";
   milestoneId?: string;
   assigneeId?: string;
+  unassigned?: boolean;
+  assignedTo?: string;
+  assignedBy?: string;
   /** `null` means "top-level tasks only"; omitted means "no filter". */
   parentTaskId?: string | null;
   sort?: "dueDate" | "priority" | "created" | "updated";

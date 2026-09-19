@@ -120,12 +120,16 @@ describe("PostgresTaskRepository: CRUD + workspace isolation", () => {
     const repo = new PostgresTaskRepository();
     const { workspaceId, projectId, userId } = await makeWorkspaceWithProject("Task CRUD");
 
-    const created = await repo.create(workspaceId, {
-      projectId,
-      title: "Write the plan",
-      priority: "high",
-      assigneeId: userId,
-    });
+    const created = await repo.create(
+      workspaceId,
+      {
+        projectId,
+        title: "Write the plan",
+        priority: "high",
+        assigneeId: userId,
+      },
+      { actorUserId: userId },
+    );
     assert.equal(created.status, "todo");
     assert.equal(created.priority, "high");
     assert.equal(created.assigneeId, userId);
@@ -186,11 +190,15 @@ describe("PostgresTaskRepository: CRUD + workspace isolation", () => {
     const repo = new PostgresTaskRepository();
     const a = await makeWorkspaceWithProject("Task Assignee A");
 
-    await repo.create(a.workspaceId, {
-      projectId: a.projectId,
-      title: "Assigned to owner",
-      assigneeId: a.userId,
-    });
+    await repo.create(
+      a.workspaceId,
+      {
+        projectId: a.projectId,
+        title: "Assigned to owner",
+        assigneeId: a.userId,
+      },
+      { actorUserId: a.userId },
+    );
     await repo.create(a.workspaceId, { projectId: a.projectId, title: "Unassigned" });
 
     const assignedToOwner = await repo.listForWorkspace(a.workspaceId, { assigneeId: a.userId });

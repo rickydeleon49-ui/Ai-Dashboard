@@ -124,7 +124,7 @@ describe("last-owner protection", () => {
     const ws = await workspaces.createTeamWorkspace(userId, "Solo Owner Co");
 
     await assert.rejects(
-      () => workspaces.updateMemberRole(ws.id, userId, "admin"),
+      () => workspaces.updateMemberRole(ws.id, userId, "admin", { callerRole: "owner" }),
       LastOwnerError,
     );
     // Unchanged.
@@ -135,7 +135,7 @@ describe("last-owner protection", () => {
     const userId = await makeUser();
     const ws = await workspaces.createTeamWorkspace(userId, "Solo Owner Co 2");
 
-    await assert.rejects(() => workspaces.removeMember(ws.id, userId), LastOwnerError);
+    await assert.rejects(() => workspaces.removeMember(ws.id, userId, { callerRole: "owner" }), LastOwnerError);
     assert.notEqual(await workspaces.getMembership(ws.id, userId), null);
   });
 
@@ -151,12 +151,12 @@ describe("last-owner protection", () => {
       .values({ workspaceId: ws.id, userId: owner2, role: "owner" });
 
     // Two owners: demoting one is fine.
-    await workspaces.updateMemberRole(ws.id, owner1, "member");
+    await workspaces.updateMemberRole(ws.id, owner1, "member", { callerRole: "owner" });
     assert.equal((await workspaces.getMembership(ws.id, owner1))?.role, "member");
 
     // Now only owner2 is an owner: demoting them must fail.
     await assert.rejects(
-      () => workspaces.updateMemberRole(ws.id, owner2, "viewer"),
+      () => workspaces.updateMemberRole(ws.id, owner2, "viewer", { callerRole: "owner" }),
       LastOwnerError,
     );
   });

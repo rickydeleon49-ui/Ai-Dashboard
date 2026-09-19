@@ -503,11 +503,15 @@ describe("PostgreSQL assignee validation", () => {
     const repo = new PostgresTaskRepository();
     const { workspaceId, projectId, userId } = await makeWorkspaceWithProject("Active Assignee");
 
-    const task = await repo.create(workspaceId, {
-      projectId,
-      title: "Active Task",
-      assigneeId: userId,
-    });
+    const task = await repo.create(
+      workspaceId,
+      {
+        projectId,
+        title: "Active Task",
+        assigneeId: userId,
+      },
+      { actorUserId: userId },
+    );
     assert.equal(task.assigneeId, userId);
 
     const loaded = await repo.findById(workspaceId, task.id);

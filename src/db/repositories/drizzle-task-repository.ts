@@ -7,6 +7,7 @@ import type { TaskRepository } from "./task-repository";
 import type {
   Task,
   TaskCreateInput,
+  TaskMutationOptions,
   TaskPriority,
   TaskQuery,
   TaskStatus,
@@ -43,6 +44,8 @@ function toDomain(row: TaskRow, blocked: boolean): Task {
     status: row.status as TaskStatus,
     priority: row.priority as TaskPriority,
     assigneeId: null,
+    assignedBy: null,
+    assignedAt: null,
     dueDate: row.dueDate,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -142,10 +145,10 @@ function queryConditions(query: TaskQuery): SQL[] {
         : eq(tasks.parentTaskId, query.parentTaskId),
     );
   }
-  // assigneeId is desktop-meaningless (see toDomain's own note) — filtering
-  // by one can never match a real row here, so this is "no results" rather
+  // assigneeId, assignedTo, assignedBy are desktop-meaningless (see toDomain's own note) — filtering
+  // by any can never match a real row here, so this is "no results" rather
   // than a silently-ignored filter.
-  if (query.assigneeId) conditions.push(sql`0`);
+  if (query.assigneeId || query.assignedTo || query.assignedBy) conditions.push(sql`0`);
   return conditions;
 }
 
@@ -208,7 +211,11 @@ export class DrizzleTaskRepository implements TaskRepository {
     return toDomain(row, loadBlockedSet([id]).has(id));
   }
 
-  async create(workspaceId: string, input: TaskCreateInput): Promise<Task> {
+  async create(
+    workspaceId: string,
+    input: TaskCreateInput,
+    _options?: TaskMutationOptions,
+  ): Promise<Task> {
     assertLocalWorkspace(workspaceId);
     assertValidParentTask(null, input.parentTaskId, input.projectId);
 
@@ -240,7 +247,12 @@ export class DrizzleTaskRepository implements TaskRepository {
     return created;
   }
 
-  async update(workspaceId: string, id: string, input: TaskUpdateInput): Promise<Task | null> {
+  async update(
+    workspaceId: string,
+    id: string,
+    input: TaskUpdateInput,
+    _options?: TaskMutationOptions,
+  ): Promise<Task | null> {
     assertLocalWorkspace(workspaceId);
 
     const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
