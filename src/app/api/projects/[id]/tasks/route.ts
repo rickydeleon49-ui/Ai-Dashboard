@@ -2,10 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { milestoneRepository, projectRepository, taskRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { taskCreateSchema, taskQuerySchema } from "@/core/tasks/schema";
+import { serializeTaskResponse } from "@/core/tasks/serialize";
 import type { TaskQuery } from "@/core/tasks/types";
 import {
   resolveWorkspaceAndUserForRequest,
-  resolveWorkspaceIdForRequest,
 } from "@/core/workspaces/current-workspace";
 import { AuthorizationError, authorizationErrorResponse, requireRole } from "@/core/workspaces/authorization";
 import {
@@ -13,6 +13,7 @@ import {
   InvalidParentTaskError,
   TaskLockTimeoutError,
 } from "@/core/tasks/errors";
+import type { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
@@ -30,27 +31,44 @@ function projectNotFoundResponse(): NextResponse {
 }
 
 /** `parentTaskId=none` is the query-string spelling of "top-level tasks only" (see core/tasks/schema.ts). */
-function toTaskQuery(parsed: {
-  status?: TaskQuery["status"];
-  priority?: TaskQuery["priority"];
-  milestoneId?: string;
-  assigneeId?: string;
-  parentTaskId?: string;
-  sort?: TaskQuery["sort"];
-  limit?: number;
-}): TaskQuery {
+function toTaskQuery(
+  parsed: z.infer<typeof taskQuerySchema>,
+  userId?: string | null,
+): TaskQuery {
+  let assignedTo = parsed.assignedTo ?? parsed.assigneeId;
+  if (assignedTo === "me") {
+    assignedTo = userId ?? undefined;
+  }
+  let assignedBy = parsed.assignedBy;
+  if (assignedBy === "me") {
+    assignedBy = userId ?? undefined;
+  }
+
   return {
-    ...parsed,
+    status: parsed.status,
+    priority: parsed.priority,
+    milestoneId: parsed.milestoneId,
+    assigneeId: assignedTo,
+    assignedTo,
+    assignedBy,
+    unassigned: parsed.unassigned,
+    sort: parsed.sort,
+    limit: parsed.limit,
     parentTaskId:
-      parsed.parentTaskId === undefined ? undefined : parsed.parentTaskId === "none" ? null : parsed.parentTaskId,
+      parsed.parentTaskId === undefined
+        ? undefined
+        : parsed.parentTaskId === "none"
+          ? null
+          : parsed.parentTaskId,
   };
 }
 
 /** GET /api/projects/:id/tasks */
 export async function GET(request: NextRequest, { params }: Context) {
   ensureDatabaseReady();
-  const workspaceId = await resolveWorkspaceIdForRequest(request);
-  if (!workspaceId) return workspaceRequiredResponse();
+  const resolved = await resolveWorkspaceAndUserForRequest(request);
+  if (!resolved) return workspaceRequiredResponse();
+  const { workspaceId, userId } = resolved;
 
   const { id } = await params;
   const project = await projectRepository.findById(workspaceId, id);
@@ -61,12 +79,12 @@ export async function GET(request: NextRequest, { params }: Context) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid query", issues: parsed.error.issues },
-      { status: 400 },
+      { status: 422 },
     );
   }
 
-  const tasks = await taskRepository.list(workspaceId, id, toTaskQuery(parsed.data));
-  return NextResponse.json({ tasks });
+  const tasks = await taskRepository.list(workspaceId, id, toTaskQuery(parsed.data, userId));
+  return NextResponse.json({ tasks: tasks.map(serializeTaskResponse) });
 }
 
 /**
@@ -133,8 +151,12 @@ export async function POST(request: NextRequest, { params }: Context) {
   }
 
   try {
-    const task = await taskRepository.create(workspaceId, { ...parsed.data, projectId: id });
-    return NextResponse.json({ task }, { status: 201 });
+    const task = await taskRepository.create(
+      workspaceId,
+      { ...parsed.data, projectId: id },
+      { actorUserId: userId ?? undefined },
+    );
+    return NextResponse.json({ task: serializeTaskResponse(task) }, { status: 201 });
   } catch (error) {
     if (error instanceof TaskLockTimeoutError) {
       return NextResponse.json(

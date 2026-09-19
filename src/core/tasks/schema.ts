@@ -84,6 +84,11 @@ export const taskQuerySchema = z.object({
   priority: z.enum([...TASK_PRIORITIES, "all"]).optional(),
   milestoneId: z.string().trim().optional(),
   assigneeId: z.string().trim().optional(),
+  assignedTo: z.string().trim().optional(),
+  assignedBy: z.string().trim().optional(),
+  unassigned: z
+    .union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")])
+    .optional(),
   parentTaskId: z.string().trim().optional(),
   sort: z.enum(["dueDate", "priority", "created", "updated"]).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
