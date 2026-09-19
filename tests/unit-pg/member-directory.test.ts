@@ -1001,5 +1001,173 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
     });
     assert.equal(ownerDefault.total, 4);
     assert.equal(ownerDefault.members.every((m) => m.status === "active"), true);
+
+    // 6. Fail-closed: missing callerRole defaults to active-only even if status='all' requested
+    const failClosedView = await workspacesService.listMembersPaginated(ws.id, {
+      status: "all",
+    });
+    assert.equal(failClosedView.members.every((m) => m.status === "active"), true);
+    assert.equal(failClosedView.total, 4);
+  });
+
+  it("enforces status transition invariants at service level: forbidden transitions reject, allowed transitions work", async () => {
+    const ownerId = await createTestUser({ name: "Trans Owner" });
+    const memberId = await createTestUser({ name: "Trans Member" });
+    const removedId = await createTestUser({ name: "Trans Removed" });
+    const suspendedId = await createTestUser({ name: "Trans Suspended" });
+
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Transition Co");
+
+    await db().insert(workspaceMembers).values([
+      { workspaceId: ws.id, userId: memberId, role: "member", status: "active" },
+      { workspaceId: ws.id, userId: suspendedId, role: "member", status: "suspended" },
+      { workspaceId: ws.id, userId: removedId, role: "member", status: "removed" },
+    ]);
+
+    // 1. Removed -> active rejected
+    await assert.rejects(
+      () => workspacesService.updateMemberStatus(ws.id, removedId, "active"),
+      (err: unknown) => {
+        assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
+        assert.match((err as Error).message, /Removed members must be re-invited/);
+        return true;
+      },
+    );
+
+    // 2. Removed -> suspended rejected
+    await assert.rejects(
+      () => workspacesService.updateMemberStatus(ws.id, removedId, "suspended"),
+      (err: unknown) => {
+        assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
+        return true;
+      },
+    );
+
+    // 3. Role change on removed member rejected
+    await assert.rejects(
+      () => workspacesService.updateMemberRole(ws.id, removedId, "admin"),
+      (err: unknown) => {
+        assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
+        return true;
+      },
+    );
+
+    // 4. removeMember on removed member rejected
+    await assert.rejects(
+      () => workspacesService.removeMember(ws.id, removedId),
+      (err: unknown) => {
+        assert.ok(err instanceof workspacesService.RemovedMemberTransitionError);
+        return true;
+      },
+    );
+
+    // 5. Setting 'invited' status rejected
+    await assert.rejects(
+      () => workspacesService.updateMemberStatus(ws.id, memberId, "invited"),
+      (err: unknown) => {
+        assert.ok(err instanceof workspacesService.InvalidMemberTransitionError);
+        return true;
+      },
+    );
+
+    // 6. Allowed transitions work
+    // active -> suspended
+    await workspacesService.updateMemberStatus(ws.id, memberId, "suspended");
+    let mem = await workspacesService.getMembership(ws.id, memberId);
+    assert.equal(mem?.status, "suspended");
+
+    // suspended -> active (reinstate)
+    await workspacesService.updateMemberStatus(ws.id, memberId, "active");
+    mem = await workspacesService.getMembership(ws.id, memberId);
+    assert.equal(mem?.status, "active");
+
+    // suspended -> removed
+    await workspacesService.updateMemberStatus(ws.id, suspendedId, "removed");
+    const susp = await workspacesService.getMembership(ws.id, suspendedId);
+    assert.equal(susp?.status, "removed");
+  });
+
+  it("a PATCH whose second part fails leaves the first part unapplied (atomic rollback)", async () => {
+    const ownerId = await createTestUser({ name: "Atomic Owner" });
+    const targetId = await createTestUser({ name: "Atomic Target" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Atomic Co");
+
+    await db().insert(workspaceMembers).values({
+      workspaceId: ws.id,
+      userId: targetId,
+      role: "member",
+      status: "active",
+    });
+
+    // Attempt an update changing role to 'admin' AND status to 'invited' (which is forbidden)
+    await assert.rejects(
+      () =>
+        workspacesService.updateMember(ws.id, targetId, {
+          role: "admin",
+          status: "invited" as any,
+        }),
+      workspacesService.InvalidMemberTransitionError,
+    );
+
+    // Verify role was NOT updated to 'admin' (atomic rollback)
+    const mem = await workspacesService.getMembership(ws.id, targetId);
+    assert.equal(mem?.role, "member");
+    assert.equal(mem?.status, "active");
+  });
+
+  it("deterministic two-client concurrency: an admin's suspension of a member races an owner promoting that member to admin", async () => {
+    const ownerId = await createTestUser({ name: "Race Owner" });
+    const adminId = await createTestUser({ name: "Race Admin" });
+    const targetId = await createTestUser({ name: "Race Target" });
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Race Co");
+
+    await db().insert(workspaceMembers).values([
+      { workspaceId: ws.id, userId: adminId, role: "admin", status: "active" },
+      { workspaceId: ws.id, userId: targetId, role: "member", status: "active" },
+    ]);
+
+    const c1 = new Client({ connectionString: process.env.DATABASE_URL });
+    await c1.connect();
+
+    try {
+      // 1. Client 1 (Owner transaction) begins and locks target row with update to 'admin'
+      await c1.query("BEGIN");
+      await c1.query(
+        "UPDATE workspace_member SET role = 'admin' WHERE workspace_id = $1 AND user_id = $2",
+        [ws.id, targetId],
+      );
+
+      // 2. Client 2 (Admin trying to suspend target) runs updateMember in another transaction.
+      // It executes SELECT ... FOR UPDATE on target, which blocks because c1 holds the row lock.
+      const adminSuspendPromise = workspacesService.updateMember(
+        ws.id,
+        targetId,
+        { status: "suspended" },
+        { callerRole: "admin" },
+      );
+
+      // Give admin transaction time to run and block on c1's row lock
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // 3. Client 1 commits promotion: target is now role = 'admin'
+      await c1.query("COMMIT");
+
+      // 4. Client 2 unblocks, reads the locked row, sees target is now 'admin', and rejects with ForbiddenMemberActionError!
+      await assert.rejects(
+        adminSuspendPromise,
+        (err: unknown) => {
+          assert.ok(err instanceof workspacesService.ForbiddenMemberActionError);
+          assert.match((err as Error).message, /Admins cannot modify owners or other admins/);
+          return true;
+        },
+      );
+
+      // Verify target is still active and has role = 'admin'
+      const finalMem = await workspacesService.getMembership(ws.id, targetId);
+      assert.equal(finalMem?.role, "admin");
+      assert.equal(finalMem?.status, "active");
+    } finally {
+      await c1.end();
+    }
   });
 });

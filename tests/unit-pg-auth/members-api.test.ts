@@ -608,42 +608,288 @@ describe("Members API: PATCH & DELETE full authorization matrix and invariants",
     assert.equal(delCoOwner.status, 200);
   });
 
-  it("enforces last active owner protection with 409 conflict", async () => {
-    const soleOwnerCtx = { params: Promise.resolve({ id: wsAId, userId: ownerAId }) };
+  it("rejects self-suspend, self-remove, and self-demote for owner and admin with 403", async () => {
+    const ownerSelfCtx = { params: Promise.resolve({ id: wsAId, userId: ownerAId }) };
 
-    // Demoting the last active owner -> 409
-    const demoteRes = await memberRoute.PATCH(apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${ownerAId}`, { cookie: ownerACookie, body: { role: "admin" } }), soleOwnerCtx);
-    assert.equal(demoteRes.status, 409);
-    assert.match((await demoteRes.json()).error, /at least one owner/i);
+    // Owner self-demote -> 403
+    const ownerDemote = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${ownerAId}`, {
+        cookie: ownerACookie,
+        body: { role: "admin" },
+      }),
+      ownerSelfCtx,
+    );
+    assert.equal(ownerDemote.status, 403);
+    assert.match((await ownerDemote.json()).error, /can't change your own membership/i);
 
-    // Suspending the last active owner -> 409
-    const suspendRes = await memberRoute.PATCH(apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${ownerAId}`, { cookie: ownerACookie, body: { status: "suspended" } }), soleOwnerCtx);
-    assert.equal(suspendRes.status, 409);
-    assert.match((await suspendRes.json()).error, /at least one owner/i);
+    // Owner self-suspend -> 403
+    const ownerSuspend = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${ownerAId}`, {
+        cookie: ownerACookie,
+        body: { status: "suspended" },
+      }),
+      ownerSelfCtx,
+    );
+    assert.equal(ownerSuspend.status, 403);
+    assert.match((await ownerSuspend.json()).error, /can't change your own membership/i);
 
-    // Soft-removing the last active owner -> 409
-    const removeRes = await memberRoute.DELETE(apiRequest("DELETE", `/api/workspaces/${wsAId}/members/${ownerAId}`, { cookie: ownerACookie }), soleOwnerCtx);
-    assert.equal(removeRes.status, 409);
-    assert.match((await removeRes.json()).error, /at least one owner/i);
+    // Owner self-remove -> 403
+    const ownerRemove = await memberRoute.DELETE(
+      apiRequest("DELETE", `/api/workspaces/${wsAId}/members/${ownerAId}`, {
+        cookie: ownerACookie,
+      }),
+      ownerSelfCtx,
+    );
+    assert.equal(ownerRemove.status, 403);
+    assert.match((await ownerRemove.json()).error, /can't change your own membership/i);
+
+    // Add a second active owner to wsA and confirm owner self-action is STILL rejected with 403
+    const db = getPgDb();
+    const ts = Date.now();
+    await signIn(`co_owner_${ts}@example.com`);
+    const coOwnerId = await getUserIdByEmail(`co_owner_${ts}@example.com`);
+    await db.insert(workspaceMembers).values({
+      workspaceId: wsAId,
+      userId: coOwnerId,
+      role: "owner",
+      status: "active",
+    });
+
+    const ownerSelfWithCoOwner = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${ownerAId}`, {
+        cookie: ownerACookie,
+        body: { status: "suspended" },
+      }),
+      ownerSelfCtx,
+    );
+    assert.equal(ownerSelfWithCoOwner.status, 403);
+    assert.match((await ownerSelfWithCoOwner.json()).error, /can't change your own membership/i);
+
+    // Admin self-demote -> 403
+    const adminSelfCtx = { params: Promise.resolve({ id: wsAId, userId: adminAId }) };
+    const adminDemote = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: adminACookie,
+        body: { role: "viewer" },
+      }),
+      adminSelfCtx,
+    );
+    assert.equal(adminDemote.status, 403);
+    assert.match((await adminDemote.json()).error, /can't change your own membership/i);
+
+    // Admin self-suspend -> 403
+    const adminSuspend = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: adminACookie,
+        body: { status: "suspended" },
+      }),
+      adminSelfCtx,
+    );
+    assert.equal(adminSuspend.status, 403);
+    assert.match((await adminSuspend.json()).error, /can't change your own membership/i);
+
+    // Admin self-remove -> 403
+    const adminRemove = await memberRoute.DELETE(
+      apiRequest("DELETE", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: adminACookie,
+      }),
+      adminSelfCtx,
+    );
+    assert.equal(adminRemove.status, 403);
+    assert.match((await adminRemove.json()).error, /can't change your own membership/i);
+  });
+
+  it("enforces status transition invariants through the API: forbidden transitions return 409 or 422", async () => {
+    const removedCtx = { params: Promise.resolve({ id: wsAId, userId: removedAId }) };
+
+    // 1. removed -> active is rejected with 409 ("Removed members must be re-invited.")
+    const reactivateRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${removedAId}`, {
+        cookie: ownerACookie,
+        body: { status: "active" },
+      }),
+      removedCtx,
+    );
+    assert.equal(reactivateRes.status, 409);
+    assert.match((await reactivateRes.json()).error, /Removed members must be re-invited/i);
+
+    // 2. removed -> suspended is rejected with 409
+    const suspendRemovedRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${removedAId}`, {
+        cookie: ownerACookie,
+        body: { status: "suspended" },
+      }),
+      removedCtx,
+    );
+    assert.equal(suspendRemovedRes.status, 409);
+    assert.match((await suspendRemovedRes.json()).error, /Removed members must be re-invited/i);
+
+    // 3. role change on removed member is rejected with 409
+    const roleChangeRemovedRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${removedAId}`, {
+        cookie: ownerACookie,
+        body: { role: "admin" },
+      }),
+      removedCtx,
+    );
+    assert.equal(roleChangeRemovedRes.status, 409);
+    assert.match((await roleChangeRemovedRes.json()).error, /Removed members must be re-invited/i);
+
+    // 4. DELETE on an already removed member is rejected with 409
+    const deleteRemovedRes = await memberRoute.DELETE(
+      apiRequest("DELETE", `/api/workspaces/${wsAId}/members/${removedAId}`, {
+        cookie: ownerACookie,
+      }),
+      removedCtx,
+    );
+    assert.equal(deleteRemovedRes.status, 409);
+    assert.match((await deleteRemovedRes.json()).error, /Removed members must be re-invited/i);
+
+    // 5. Allowed transitions through the API: active -> suspended, suspended -> active, suspended -> removed
+    const ts2 = Date.now();
+    await signIn(`trans_member_${ts2}@example.com`);
+    const transMemberId = await getUserIdByEmail(`trans_member_${ts2}@example.com`);
+    const db = getPgDb();
+    await db.insert(workspaceMembers).values({
+      workspaceId: wsAId,
+      userId: transMemberId,
+      role: "member",
+      status: "active",
+    });
+
+    const memberCtx = { params: Promise.resolve({ id: wsAId, userId: transMemberId }) };
+
+    // active -> suspended
+    const suspendRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${transMemberId}`, {
+        cookie: ownerACookie,
+        body: { status: "suspended" },
+      }),
+      memberCtx,
+    );
+    assert.equal(suspendRes.status, 200);
+    assert.equal((await suspendRes.json()).member.status, "suspended");
+
+    // suspended -> active (reinstate)
+    const reinstateRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${transMemberId}`, {
+        cookie: ownerACookie,
+        body: { status: "active" },
+      }),
+      memberCtx,
+    );
+    assert.equal(reinstateRes.status, 200);
+    assert.equal((await reinstateRes.json()).member.status, "active");
+
+    // active -> removed
+    const removeRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${transMemberId}`, {
+        cookie: ownerACookie,
+        body: { status: "removed" },
+      }),
+      memberCtx,
+    );
+    assert.equal(removeRes.status, 200);
+    assert.equal((await removeRes.json()).member.status, "removed");
+  });
+
+  it("enforces last active owner protection with 409 conflict under concurrent demotion", async () => {
+    // Create a dedicated workspace with two owners
+    const ts = Date.now();
+    const o1 = await signInWithTeamWorkspace(`last_owner_1_${ts}@example.com`, "Last Owner Co");
+    const o2Cookie = await signIn(`last_owner_2_${ts}@example.com`);
+    const o2Id = await getUserIdByEmail(`last_owner_2_${ts}@example.com`);
+
+    const db = getPgDb();
+    await db.insert(workspaceMembers).values({
+      workspaceId: o1.workspaceId,
+      userId: o2Id,
+      role: "owner",
+      status: "active",
+    });
+
+    const { Client } = await import("pg");
+    const c1 = new Client({ connectionString: process.env.DATABASE_URL });
+    await c1.connect();
+
+    try {
+      // 1. Client 1 (representing owner 1) begins transaction and demotes owner 2 to member
+      await c1.query("BEGIN");
+      await c1.query(
+        "UPDATE workspace_member SET role = 'member' WHERE workspace_id = $1 AND user_id = $2",
+        [o1.workspaceId, o2Id],
+      );
+
+      // 2. Concurrently, an API request with owner 2's session calls PATCH to demote owner 1 to member.
+      // It executes inside memberRoute.PATCH, which calls updateMember with row lock + workspace lock.
+      // It will block on the workspace lock held by c1's trigger.
+      const o1Ctx = { params: Promise.resolve({ id: o1.workspaceId, userId: o1.userId }) };
+      const demotePromise = memberRoute.PATCH(
+        apiRequest("PATCH", `/api/workspaces/${o1.workspaceId}/members/${o1.userId}`, {
+          cookie: o2Cookie,
+          body: { role: "member" },
+        }),
+        o1Ctx,
+      );
+
+      // Give API request time to reach the database and block
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // 3. Client 1 commits: owner 2 is now a member, leaving owner 1 as the sole active owner!
+      await c1.query("COMMIT");
+
+      // 4. The API request unblocks and attempts to demote owner 1.
+      // Since owner 1 is now the sole remaining owner, the database trigger fires!
+      // The API route catches LastOwnerError and returns 409 Conflict.
+      const demoteRes = await demotePromise;
+      assert.equal(demoteRes.status, 409);
+      assert.match((await demoteRes.json()).error, /at least one owner/i);
+    } finally {
+      await c1.end();
+    }
   });
 
   it("validates PATCH body: rejects invalid role, invalid status, status='invited', and empty body with 422", async () => {
     const targetCtx = { params: Promise.resolve({ id: wsAId, userId: adminAId }) };
 
     // status='invited' is explicitly forbidden
-    const invitedRes = await memberRoute.PATCH(apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, { cookie: ownerACookie, body: { status: "invited" } }), targetCtx);
+    const invitedRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: ownerACookie,
+        body: { status: "invited" },
+      }),
+      targetCtx,
+    );
     assert.equal(invitedRes.status, 422);
 
     // invalid status
-    const badStatusRes = await memberRoute.PATCH(apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, { cookie: ownerACookie, body: { status: "unknown" } }), targetCtx);
+    const badStatusRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: ownerACookie,
+        body: { status: "unknown" },
+      }),
+      targetCtx,
+    );
     assert.equal(badStatusRes.status, 422);
 
     // invalid role
-    const badRoleRes = await memberRoute.PATCH(apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, { cookie: ownerACookie, body: { role: "superadmin" } }), targetCtx);
+    const badRoleRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: ownerACookie,
+        body: { role: "superadmin" },
+      }),
+      targetCtx,
+    );
     assert.equal(badRoleRes.status, 422);
 
     // empty body
-    const emptyRes = await memberRoute.PATCH(apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, { cookie: ownerACookie, body: {} }), targetCtx);
+    const emptyRes = await memberRoute.PATCH(
+      apiRequest("PATCH", `/api/workspaces/${wsAId}/members/${adminAId}`, {
+        cookie: ownerACookie,
+        body: {},
+      }),
+      targetCtx,
+    );
     assert.equal(emptyRes.status, 422);
   });
 });

@@ -206,8 +206,14 @@ export function WorkspaceMembers({
         if (!res.ok) {
           setError(data.error ?? "Failed to load workspace members.");
         } else {
+          const newTotal = data.total ?? 0;
+          setTotal(newTotal);
+          const maxPage = Math.max(1, Math.ceil(newTotal / PAGE_SIZE));
+          if (newTotal > 0 && page > maxPage) {
+            setPage(maxPage);
+            return;
+          }
           setMembers(data.members ?? []);
-          setTotal(data.total ?? 0);
           setError(null);
         }
         setLoading(false);
@@ -243,10 +249,10 @@ export function WorkspaceMembers({
         return;
       }
 
-      // Update state without full page reload
       setMembers((prev) =>
         prev.map((m) => (m.id === targetMember.id && data.member ? data.member : m)),
       );
+      setRefreshKey((k) => k + 1);
     } catch {
       setError("Network error: failed to update member role.");
     } finally {
@@ -354,6 +360,7 @@ export function WorkspaceMembers({
 
   // Check if caller can modify a given target member
   const canModify = (target: WorkspaceMemberSummary): boolean => {
+    if (target.id === currentUserId) return false;
     if (target.status === "removed") return false;
     if (callerRole === "owner") return true;
     if (callerRole === "admin") {

@@ -11,12 +11,13 @@ import {
 } from "@/core/workspaces/authorization";
 import { updateMemberSchema } from "@/core/workspaces/schema";
 import {
-  getMembership,
-  getMemberSummary,
+  ForbiddenMemberActionError,
+  InvalidMemberTransitionError,
   LastOwnerError,
+  MemberNotFoundError,
+  RemovedMemberTransitionError,
   removeMember,
-  updateMemberRole,
-  updateMemberStatus,
+  updateMember,
 } from "@/core/workspaces/service";
 
 export const dynamic = "force-dynamic";
@@ -39,9 +40,11 @@ async function requireSession(request: NextRequest): Promise<string | NextRespon
  * PATCH /api/workspaces/[id]/members/[userId]
  * Admin level and up.
  * Body: { role?, status? }
+ * - Self-modification is rejected (403).
  * - Admins can change members and viewers only (cannot modify owners/admins, cannot grant owner/admin).
  * - Owners can change anyone's role (including granting admin or owner), subject to the last active owner trigger.
  * - status ∈ {'active','suspended','removed'}. Never 'invited'.
+ * - Removed members cannot be modified or reactivated directly; they must be re-invited (409).
  * - Target not a member of this workspace -> 404.
  * - Last-owner violation -> 409.
  */
@@ -57,6 +60,16 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   } catch (error) {
     if (error instanceof AuthorizationError) return authorizationErrorResponse(error);
     throw error;
+  }
+
+  if (sessionUserId === targetUserId) {
+    return NextResponse.json(
+      {
+        error:
+          "You can't change your own membership here. Self-service leave workspace and ownership transfer will be available in a later release.",
+      },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   let body: unknown;
@@ -77,37 +90,39 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     );
   }
 
-  const targetMembership = await getMembership(workspaceId, targetUserId);
-  if (!targetMembership) {
-    return NextResponse.json(
-      { error: "Member not found in this workspace." },
-      { status: 404, headers: { "Cache-Control": "no-store" } },
-    );
-  }
-
-  if (callerMembership.role === "admin") {
-    if (targetMembership.role === "owner" || targetMembership.role === "admin") {
-      return NextResponse.json(
-        { error: "Admins cannot modify owners or other admins." },
-        { status: 403, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-    if (parsed.data.role === "owner" || parsed.data.role === "admin") {
-      return NextResponse.json(
-        { error: "Admins cannot grant admin or owner role." },
-        { status: 403, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-  }
-
   try {
-    if (parsed.data.role) {
-      await updateMemberRole(workspaceId, targetUserId, parsed.data.role);
-    }
-    if (parsed.data.status) {
-      await updateMemberStatus(workspaceId, targetUserId, parsed.data.status);
-    }
+    const member = await updateMember(
+      workspaceId,
+      targetUserId,
+      parsed.data,
+      { callerRole: callerMembership.role },
+    );
+    return NextResponse.json({ member }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof MemberNotFoundError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof ForbiddenMemberActionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof RemovedMemberTransitionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof InvalidMemberTransitionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 422, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (error instanceof LastOwnerError) {
       return NextResponse.json(
         { error: error.message },
@@ -116,15 +131,13 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     }
     throw error;
   }
-
-  const member = await getMemberSummary(workspaceId, targetUserId);
-  return NextResponse.json({ member }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
  * DELETE /api/workspaces/[id]/members/[userId]
  * Soft remove (sets status = 'removed').
  * Admin level and up.
+ * - Self-removal is rejected (403).
  * - Admins can remove members and viewers only. They cannot remove owners or other admins.
  * - Owners can remove anyone, subject to the last-owner trigger.
  * - Target not a member of this workspace -> 404.
@@ -144,26 +157,38 @@ export async function DELETE(request: NextRequest, { params }: Context) {
     throw error;
   }
 
-  const targetMembership = await getMembership(workspaceId, targetUserId);
-  if (!targetMembership) {
+  if (sessionUserId === targetUserId) {
     return NextResponse.json(
-      { error: "Member not found in this workspace." },
-      { status: 404, headers: { "Cache-Control": "no-store" } },
+      {
+        error:
+          "You can't change your own membership here. Self-service leave workspace and ownership transfer will be available in a later release.",
+      },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
     );
   }
 
-  if (callerMembership.role === "admin") {
-    if (targetMembership.role === "owner" || targetMembership.role === "admin") {
+  try {
+    await removeMember(workspaceId, targetUserId, { callerRole: callerMembership.role });
+    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    if (error instanceof MemberNotFoundError) {
       return NextResponse.json(
-        { error: "Admins cannot remove owners or other admins." },
+        { error: error.message },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof ForbiddenMemberActionError) {
+      return NextResponse.json(
+        { error: error.message },
         { status: 403, headers: { "Cache-Control": "no-store" } },
       );
     }
-  }
-
-  try {
-    await removeMember(workspaceId, targetUserId);
-  } catch (error) {
+    if (error instanceof RemovedMemberTransitionError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (error instanceof LastOwnerError) {
       return NextResponse.json(
         { error: error.message },
@@ -172,6 +197,4 @@ export async function DELETE(request: NextRequest, { params }: Context) {
     }
     throw error;
   }
-
-  return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

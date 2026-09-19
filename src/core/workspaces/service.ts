@@ -30,6 +30,38 @@ export class LastOwnerError extends Error {
   }
 }
 
+export class RemovedMemberTransitionError extends Error {
+  constructor(message = "Removed members must be re-invited.") {
+    super(message);
+    this.name = "RemovedMemberTransitionError";
+  }
+}
+
+export class InvalidMemberTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidMemberTransitionError";
+  }
+}
+
+export class MemberNotFoundError extends Error {
+  constructor(message = "Member not found in this workspace.") {
+    super(message);
+    this.name = "MemberNotFoundError";
+  }
+}
+
+export class ForbiddenMemberActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ForbiddenMemberActionError";
+  }
+}
+
+export interface UpdateMemberOptions {
+  callerRole?: WorkspaceRole;
+}
+
 function isLastOwnerViolation(error: unknown): boolean {
   // Raised via plain RAISE EXCEPTION, so its SQLSTATE is the generic P0001
   // ("raise_exception"), not a code specific to this trigger — matching on
@@ -244,6 +276,119 @@ export async function listMembers(workspaceId: string): Promise<WorkspaceMembers
 }
 
 /**
+ * Atomically updates a member's role and/or status within a single transaction.
+ * Locks the target membership row with SELECT ... FOR UPDATE before evaluating
+ * role constraints and status transition invariants to prevent write skew or
+ * concurrent privilege escalation.
+ */
+export async function updateMember(
+  workspaceId: string,
+  targetUserId: string,
+  updates: { role?: WorkspaceRole; status?: WorkspaceMemberStatus },
+  options?: UpdateMemberOptions,
+): Promise<WorkspaceMemberSummary> {
+  return await translatingLastOwnerErrors(async () => {
+    const db = getPgDb();
+    return await db.transaction(async (tx) => {
+      // 1. Lock the target membership row with SELECT ... FOR UPDATE
+      const [lockedMember] = await tx
+        .select()
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.userId, targetUserId),
+          ),
+        )
+        .for("update");
+
+      if (!lockedMember) {
+        throw new MemberNotFoundError("Member not found in this workspace.");
+      }
+
+      const currentRole = lockedMember.role as WorkspaceRole;
+      const currentStatus = lockedMember.status as WorkspaceMemberStatus;
+
+      // 2. Permission checks against locked row
+      if (options?.callerRole === "admin") {
+        if (currentRole === "owner" || currentRole === "admin") {
+          throw new ForbiddenMemberActionError("Admins cannot modify owners or other admins.");
+        }
+        if (updates.role === "owner" || updates.role === "admin") {
+          throw new ForbiddenMemberActionError("Admins cannot grant admin or owner role.");
+        }
+      }
+
+      // 3. Status and transition checks
+      if (updates.status === "invited") {
+        throw new InvalidMemberTransitionError(
+          "The 'invited' status cannot be set directly; use the invitation flow.",
+        );
+      }
+
+      if (currentStatus === "removed") {
+        throw new RemovedMemberTransitionError("Removed members must be re-invited.");
+      }
+
+      if (updates.status && updates.status !== currentStatus) {
+        const allowed =
+          (currentStatus === "active" && (updates.status === "suspended" || updates.status === "removed")) ||
+          (currentStatus === "suspended" && (updates.status === "active" || updates.status === "removed")) ||
+          (currentStatus === "invited" && updates.status === "active");
+
+        if (!allowed) {
+          throw new InvalidMemberTransitionError(
+            `Transition from ${currentStatus} to ${updates.status} is not allowed.`,
+          );
+        }
+      }
+
+      // 4. Apply role and status atomically
+      const toSet: { role?: WorkspaceRole; status?: WorkspaceMemberStatus } = {};
+      if (updates.role && updates.role !== currentRole) {
+        toSet.role = updates.role;
+      }
+      if (updates.status && updates.status !== currentStatus) {
+        toSet.status = updates.status;
+      }
+
+      if (Object.keys(toSet).length > 0) {
+        await tx
+          .update(workspaceMembers)
+          .set(toSet)
+          .where(
+            and(
+              eq(workspaceMembers.workspaceId, workspaceId),
+              eq(workspaceMembers.userId, targetUserId),
+            ),
+          );
+      }
+
+      const [userRow] = await tx
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          image: users.image,
+        })
+        .from(users)
+        .where(eq(users.id, targetUserId))
+        .limit(1);
+
+      return {
+        id: targetUserId,
+        name: userRow?.name ?? null,
+        email: userRow?.email ?? null,
+        image: userRow?.image ?? null,
+        role: (toSet.role ?? currentRole) as WorkspaceRole,
+        status: (toSet.status ?? currentStatus) as WorkspaceMemberStatus,
+        joinedAt: lockedMember.createdAt,
+      };
+    });
+  });
+}
+
+/**
  * Changes a member's role. Rejects (via the DB trigger, translated to
  * `LastOwnerError`) a demotion that would leave the workspace with no owner.
  */
@@ -251,14 +396,9 @@ export async function updateMemberRole(
   workspaceId: string,
   userId: string,
   role: WorkspaceRole,
+  options?: UpdateMemberOptions,
 ): Promise<void> {
-  await translatingLastOwnerErrors(async () => {
-    const db = getPgDb();
-    await db
-      .update(workspaceMembers)
-      .set({ role })
-      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
-  });
+  await updateMember(workspaceId, userId, { role }, options);
 }
 
 /**
@@ -266,13 +406,52 @@ export async function updateMemberRole(
  * Preserves historical task assignments and attribution. Rejects (via the DB trigger,
  * translated to `LastOwnerError`) removing a workspace's last active owner.
  */
-export async function removeMember(workspaceId: string, userId: string): Promise<void> {
+export async function removeMember(
+  workspaceId: string,
+  userId: string,
+  options?: UpdateMemberOptions,
+): Promise<void> {
   await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
-    await db
-      .update(workspaceMembers)
-      .set({ status: "removed" })
-      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
+    await db.transaction(async (tx) => {
+      const [lockedMember] = await tx
+        .select()
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.userId, userId),
+          ),
+        )
+        .for("update");
+
+      if (!lockedMember) {
+        throw new MemberNotFoundError("Member not found in this workspace.");
+      }
+
+      const currentRole = lockedMember.role as WorkspaceRole;
+      const currentStatus = lockedMember.status as WorkspaceMemberStatus;
+
+      if (options?.callerRole === "admin") {
+        if (currentRole === "owner" || currentRole === "admin") {
+          throw new ForbiddenMemberActionError("Admins cannot remove owners or other admins.");
+        }
+      }
+
+      if (currentStatus === "removed") {
+        throw new RemovedMemberTransitionError("Removed members must be re-invited.");
+      }
+
+      await tx
+        .update(workspaceMembers)
+        .set({ status: "removed" })
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.userId, userId),
+          ),
+        );
+    });
   });
 }
 
@@ -319,7 +498,8 @@ export async function listMembersPaginated(
   const conditions: SQL[] = [eq(workspaceMembers.workspaceId, workspaceId)];
 
   let requestedStatus = options?.status ?? "active";
-  if (options?.callerRole === "member" || options?.callerRole === "viewer") {
+  const isElevated = options?.callerRole === "owner" || options?.callerRole === "admin";
+  if (!isElevated) {
     requestedStatus = "active";
   }
 
@@ -395,17 +575,9 @@ export async function updateMemberStatus(
   workspaceId: string,
   userId: string,
   status: WorkspaceMemberStatus,
+  options?: UpdateMemberOptions,
 ): Promise<void> {
-  if (status === "invited") {
-    throw new Error("The 'invited' status cannot be set directly; use the invitation flow.");
-  }
-  await translatingLastOwnerErrors(async () => {
-    const db = getPgDb();
-    await db
-      .update(workspaceMembers)
-      .set({ status })
-      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)));
-  });
+  await updateMember(workspaceId, userId, { status }, options);
 }
 
 /** Returns the safe summary for a single member, or null if not found. */

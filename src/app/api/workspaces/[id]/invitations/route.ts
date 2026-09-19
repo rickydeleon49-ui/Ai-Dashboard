@@ -93,7 +93,10 @@ export async function POST(request: NextRequest, { params }: Context) {
   } catch (error) {
     if (error instanceof InvitationError) {
       const status = error.reason === "membership_suspended" ? 403 : 409;
-      return NextResponse.json({ error: error.message }, { status });
+      return NextResponse.json(
+        { error: error.message },
+        { status, headers: { "Cache-Control": "no-store" } },
+      );
     }
     throw error;
   }
