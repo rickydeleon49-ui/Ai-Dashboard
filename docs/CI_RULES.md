@@ -88,8 +88,8 @@ npm run test:e2e:accounts
 
 ### Requirements & Execution:
 - Requires PostgreSQL running locally on port 5432 (default admin connection `postgres://ai_dashboard:ai_dashboard_dev@localhost:5432/postgres` or configured via `TEST_DATABASE_ADMIN_URL`).
-- Requires an up-to-date production build (`npm run build`).
-- Automatically provisions an isolated throwaway PostgreSQL database per run, applies all migrations, seeds multi-role workspace fixtures, and starts the production Next.js server with `AUTH_MODE=accounts` and `AUTH_LOG_MAGIC_LINK=true`.
+- Self-sufficient: does not require a prior build (`npm run build`). Runs against the Next.js development server (`next dev`) so that `NODE_ENV=development` allows `AUTH_LOG_MAGIC_LINK=true` console magic link delivery without weakening production guards. (Production bundle and build behavior are covered by `npm run test:e2e`).
+- Automatically provisions an isolated throwaway PostgreSQL database per run, applies all migrations, seeds multi-role workspace fixtures, and starts the development Next.js server with `AUTH_MODE=accounts` and `AUTH_LOG_MAGIC_LINK=true`.
 - Validates end-to-end HTTP flows:
   - Owner: directory listing, member suspension, and self-demotion protection (403).
   - Viewer: active-only member visibility, server-rendered privacy protections (zero email leakage for suspended members), and write-protection (403).

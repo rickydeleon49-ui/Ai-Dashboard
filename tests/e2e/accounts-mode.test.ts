@@ -1,8 +1,11 @@
 /**
  * Release 2C.2 / Phase 2C Accounts-Mode End-to-End Tests.
  *
- * Boots a real built production Next.js server configured with AUTH_MODE=accounts
- * backed by a throwaway PostgreSQL database.
+ * Runs against a Next.js development server (`next dev`) configured with AUTH_MODE=accounts
+ * backed by a throwaway PostgreSQL database. Running under development mode (NODE_ENV=development)
+ * allows AUTH_LOG_MAGIC_LINK to log magic links to console output without weakening production guards.
+ * Note that this suite runs against the dev server, so it does not cover production-build behavior
+ * (which is exercised by test:e2e).
  *
  * Verifies critical accounts-mode workflows over HTTP using native fetch and pg:
  * 1. Owner flow:
@@ -86,31 +89,37 @@ function createCookieJar() {
   };
 }
 
-async function waitForServer(url: string, timeoutMs = 60_000): Promise<void> {
+async function waitForServer(url: string, timeoutMs = 120_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${url}/api/auth/csrf`, { redirect: "manual" });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15_000);
+      const res = await fetch(`${url}/api/auth/csrf`, {
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       if (res.status < 500) return;
     } catch {
-      // Server not accepting connections yet
+      // Server not accepting connections yet or aborted
     }
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Server at ${url} did not become ready within ${timeoutMs}ms`);
 }
 
-function waitForMagicLink(email: string, timeoutMs = 20_000): Promise<string> {
+function waitForMagicLink(email: string, timeoutMs = 60_000): Promise<string> {
   const existing = loggedLines.find((l) => l.includes(`magic link for ${email}`));
   if (existing) {
     const match = existing.match(/(http\S+)/);
-    if (match?.[1]) return Promise.resolve(match[1]);
+    if (match?.[1]) return Promise.resolve(match[1].trim());
   }
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       magicLinkWaiters.delete(email);
-      reject(new Error(`Timeout waiting for magic link for ${email}. Logged: ${loggedLines.join("\n")}`));
+      reject(new Error(`Timeout waiting for magic link for ${email}. Logged:\n${loggedLines.join("\n")}`));
     }, timeoutMs);
 
     magicLinkWaiters.set(email, (url) => {
@@ -247,19 +256,19 @@ before(async () => {
       ('task_member_assigned', '${WS_ID}', '${PROJ_ID}', 'Task Assigned By Member', 'todo', 'high', 'usr_member', 'usr_member', NOW(), NOW(), NOW())
   `);
 
-  // 4. Start Next.js built production server
+  // 4. Start Next.js development server
   const port = await getFreePort();
   baseURL = `http://127.0.0.1:${port}`;
   const nextBin = require.resolve("next/dist/bin/next");
 
   serverProcess = spawn(
     process.execPath,
-    [nextBin, "start", "--port", String(port), "--hostname", "127.0.0.1"],
+    [nextBin, "dev", "--port", String(port), "--hostname", "127.0.0.1"],
     {
       detached: true,
       env: {
         ...process.env,
-        NODE_ENV: "test",
+        NODE_ENV: "development",
         AUTH_MODE: "accounts",
         DATABASE_URL: testDbUrl.toString(),
         AUTH_SECRET: "test-accounts-mode-e2e-secret-very-long-32-chars",
@@ -267,6 +276,8 @@ before(async () => {
         AUTH_TRUST_HOST: "true",
         AUTH_LOG_MAGIC_LINK: "true",
         DASHBOARD_DISABLE_SCHEDULER: "1",
+        NO_COLOR: "1",
+        FORCE_COLOR: "0",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -277,7 +288,8 @@ before(async () => {
     stdoutBuffer += chunk.toString("utf8");
     const lines = stdoutBuffer.split("\n");
     stdoutBuffer = lines.pop() ?? "";
-    for (const line of lines) {
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\r$/, "");
       loggedLines.push(line);
       const match = line.match(/\[auth\] magic link for ([^:]+):\s*(http\S+)/);
       if (match) {
@@ -296,9 +308,9 @@ before(async () => {
 
   serverProcess.stderr?.on("data", (chunk: Buffer) => {
     const errText = chunk.toString("utf8");
-    // Ignore benign Next.js telemetry warnings
+    // Ignore benign Next.js telemetry / fast refresh logs
     if (!errText.includes("Fast Refresh")) {
-      loggedLines.push(`[stderr] ${errText}`);
+      loggedLines.push(`[stderr] ${errText.replace(/\r$/, "")}`);
     }
   });
 
