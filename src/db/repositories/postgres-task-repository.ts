@@ -338,11 +338,7 @@ export class PostgresTaskRepository implements TaskRepository {
     input: TaskCreateInput,
     options?: TaskMutationOptions,
   ): Promise<Task> {
-    const db = getPgDb();
-    const id = createId("tsk");
-    const now = new Date();
-
-    return db.transaction(async (tx) => {
+    const execute = async (tx: any) => {
       if (input.parentTaskId !== undefined && input.parentTaskId !== null) {
         await acquireWorkspaceLock(tx, workspaceId, this.lockTimeoutMs);
       }
@@ -355,6 +351,9 @@ export class PostgresTaskRepository implements TaskRepository {
           throw new Error("actorUserId is required when setting a task assignee");
         }
       }
+
+      const id = createId("tsk");
+      const now = new Date();
 
       await tx.insert(tasks).values({
         id,
@@ -383,7 +382,13 @@ export class PostgresTaskRepository implements TaskRepository {
       if (!created) throw new Error("Failed to read back created task");
       const blocked = await loadBlockedSet(workspaceId, [id], tx);
       return toDomain(created, blocked.has(id));
-    });
+    };
+
+    if (options?.tx) {
+      return execute(options.tx);
+    }
+    const db = getPgDb();
+    return db.transaction(execute);
   }
 
   async update(

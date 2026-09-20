@@ -100,3 +100,25 @@ export const myWorkQuerySchema = taskQuerySchema.omit({ assigneeId: true, milest
 export const taskDependencyCreateSchema = z.object({
   dependsOnTaskId: z.string().trim().min(1, "dependsOnTaskId is required"),
 });
+
+export const checklistItemCreateSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(1, "Checklist item text cannot be empty")
+    .max(500, "Checklist item text cannot exceed 500 characters"),
+});
+
+export const checklistItemUpdateSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(1, "Checklist item text cannot be empty")
+    .max(500, "Checklist item text cannot exceed 500 characters")
+    .optional(),
+  done: z.boolean().optional(),
+});
+
+export const checklistReorderSchema = z.object({
+  itemIds: z.array(z.string().trim().min(1, "Item ID cannot be empty")),
+});

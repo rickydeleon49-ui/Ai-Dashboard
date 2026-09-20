@@ -65,3 +65,33 @@ export class TaskLockTimeoutError extends Error {
     this.name = "TaskLockTimeoutError";
   }
 }
+
+/**
+ * Thrown when a task's checklist reaches the maximum limit (100 items).
+ */
+export class ChecklistLimitExceededError extends Error {
+  constructor(message = "Task checklist cannot exceed 100 items.") {
+    super(message);
+    this.name = "ChecklistLimitExceededError";
+  }
+}
+
+/**
+ * Thrown when a checklist item is not found or does not belong to the given task/workspace.
+ */
+export class ChecklistItemNotFoundError extends Error {
+  constructor(message = "Checklist item not found.") {
+    super(message);
+    this.name = "ChecklistItemNotFoundError";
+  }
+}
+
+/**
+ * Thrown when checklist item input violates validation rules (e.g. text length, empty text, or invalid reorder IDs).
+ */
+export class InvalidChecklistItemError extends Error {
+  constructor(message = "Checklist item text must be between 1 and 500 characters.") {
+    super(message);
+    this.name = "InvalidChecklistItemError";
+  }
+}

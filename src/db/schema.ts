@@ -182,6 +182,33 @@ export const taskDependencies = sqliteTable(
 );
 
 /**
+ * An item in a task checklist (Phase 2C, release C.3).
+ * Dense 0-indexed position within a task.
+ */
+export const taskChecklistItems = sqliteTable(
+  "task_checklist_item",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().default("default"),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+    done: integer("done", { mode: "boolean" }).notNull().default(false),
+    doneBy: text("done_by"),
+    doneAt: text("done_at"),
+    createdBy: text("created_by"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [
+    index("task_checklist_item_task_pos_idx").on(t.taskId, t.position),
+    index("task_checklist_item_workspace_task_idx").on(t.workspaceId, t.taskId),
+  ],
+);
+
+/**
  * A note in a project's knowledge base (Phase 2, release B) — flat, plain
  * text, no folders/hierarchy or version history in this first slice. See
  * `core/knowledge/types.ts` for the domain type this maps to.
@@ -442,6 +469,7 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type MilestoneRow = typeof milestones.$inferSelect;
 export type TaskRow = typeof tasks.$inferSelect;
 export type TaskDependencyRow = typeof taskDependencies.$inferSelect;
+export type TaskChecklistItemRow = typeof taskChecklistItems.$inferSelect;
 export type KnowledgeDocumentRow = typeof knowledgeDocuments.$inferSelect;
 export type GithubRepositoryRow = typeof githubRepositories.$inferSelect;
 export type ActivityRow = typeof activityEvents.$inferSelect;

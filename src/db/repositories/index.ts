@@ -7,6 +7,8 @@ import { PostgresTaskRepository } from "./postgres-task-repository";
 import type { TaskRepository } from "./task-repository";
 import { PostgresKnowledgeDocumentRepository } from "./postgres-knowledge-document-repository";
 import type { KnowledgeDocumentRepository } from "./knowledge-document-repository";
+import { PostgresChecklistRepository } from "./postgres-checklist-repository";
+import type { ChecklistRepository } from "./checklist-repository";
 
 const require = createRequire(import.meta.url);
 
@@ -39,8 +41,13 @@ export const knowledgeDocumentRepository: KnowledgeDocumentRepository = process.
   ? new PostgresKnowledgeDocumentRepository()
   : new (require("./drizzle-knowledge-document-repository").DrizzleKnowledgeDocumentRepository)();
 
+export const checklistRepository: ChecklistRepository = process.env.DATABASE_URL
+  ? new PostgresChecklistRepository()
+  : new (require("./drizzle-checklist-repository").DrizzleChecklistRepository)();
+
 export type { ProjectRepository } from "./project-repository";
 export type { MilestoneRepository } from "./milestone-repository";
 export type { TaskRepository } from "./task-repository";
 export type { KnowledgeDocumentRepository } from "./knowledge-document-repository";
+export type { ChecklistRepository } from "./checklist-repository";
 export { LOCAL_WORKSPACE_ID } from "./project-repository";

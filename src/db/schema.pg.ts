@@ -491,3 +491,34 @@ export const knowledgeDocuments = pgTable(
     index("knowledge_document_workspace_category_idx").on(t.workspaceId, t.category),
   ],
 );
+
+/**
+ * An item in a task checklist (Phase 2C, release C.3).
+ * Dense 0-indexed position within a task, with workspace scoping and attribution.
+ */
+export const taskChecklistItems = pgTable(
+  "task_checklist_item",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+    done: boolean("done").notNull().default(false),
+    doneBy: text("done_by").references(() => users.id, { onDelete: "set null" }),
+    doneAt: timestamp("done_at", { mode: "date" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_checklist_item_task_pos_idx").on(t.taskId, t.position),
+    index("task_checklist_item_workspace_task_idx").on(t.workspaceId, t.taskId),
+  ],
+);
+
+export type TaskChecklistItemRow = typeof taskChecklistItems.$inferSelect;

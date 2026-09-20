@@ -401,6 +401,75 @@ describe("PostgreSQL migration 0008 upgrade: historical schema recreation & clai
     `);
     assert.equal(post0012Index.rows.length, 1, "task_workspace_assigned_by_idx index must exist");
 
+    // f. Verify pre-0013 task_checklist_item table does not exist, then apply migration 0013: task checklists
+    const pre0013Table = await client.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_name = 'task_checklist_item';
+    `);
+    assert.equal(pre0013Table.rows.length, 0, "pre-0013 database must not have task_checklist_item table");
+
+    const migration0013Tag = realJournal.entries[13]?.tag;
+    if (migration0013Tag !== "0013_task_checklists") {
+      throw new Error(`Expected entry 13 to be 0013 migration, found: ${migration0013Tag}`);
+    }
+    const sql0013Source = path.join(realMigrationsDir, `${migration0013Tag}.sql`);
+    if (!fs.existsSync(sql0013Source)) {
+      throw new Error(`Migration 0013 SQL file missing at ${sql0013Source}`);
+    }
+    fs.copyFileSync(sql0013Source, path.join(tempMigrationsDir, `${migration0013Tag}.sql`));
+
+    const upgradedJournal0013 = {
+      version: "7",
+      dialect: "postgresql",
+      entries: realJournal.entries.slice(0, 14),
+    };
+    fs.writeFileSync(
+      path.join(tempMigrationsDir, "meta", "_journal.json"),
+      JSON.stringify(upgradedJournal0013, null, 2),
+    );
+
+    await migrate(db, { migrationsFolder: tempMigrationsDir });
+
+    const post0013Cols = await client.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'task_checklist_item'
+      ORDER BY column_name;
+    `);
+    const checklistCols = new Set(post0013Cols.rows.map((r: { column_name: string }) => r.column_name));
+    for (const expectedCol of [
+      "id",
+      "workspace_id",
+      "task_id",
+      "position",
+      "text",
+      "done",
+      "done_by",
+      "done_at",
+      "created_by",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.ok(checklistCols.has(expectedCol), `task_checklist_item must have column ${expectedCol}`);
+    }
+
+    const post0013Indexes = await client.query(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'task_checklist_item'
+      ORDER BY indexname;
+    `);
+    const checklistIndexes = new Set(post0013Indexes.rows.map((r: { indexname: string }) => r.indexname));
+    assert.ok(
+      checklistIndexes.has("task_checklist_item_task_pos_idx"),
+      "task_checklist_item_task_pos_idx index must exist",
+    );
+    assert.ok(
+      checklistIndexes.has("task_checklist_item_workspace_task_idx"),
+      "task_checklist_item_workspace_task_idx index must exist",
+    );
+
     // 8. Verify the completed claim cannot be reclaimed by the original user or any other user
     process.env.DATABASE_URL = testUrl.toString();
     process.env.DASHBOARD_PASSWORD = "test-dashboard-password";

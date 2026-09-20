@@ -92,6 +92,7 @@ export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt
 
 export interface TaskMutationOptions {
   actorUserId?: string;
+  tx?: unknown;
 }
 
 export interface TaskQuery {
@@ -107,3 +108,5 @@ export interface TaskQuery {
   sort?: "dueDate" | "priority" | "created" | "updated";
   limit?: number;
 }
+
+export * from "./checklist-types";
