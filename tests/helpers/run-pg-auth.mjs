@@ -21,6 +21,7 @@ const args = [
   "tests/unit-pg-auth/members-api.test.ts",
   "tests/unit-pg-auth/task-assignment-api.test.ts",
   "tests/unit-pg-auth/task-checklists-api.test.ts",
+  "tests/unit-pg-auth/task-comments-api.test.ts",
 ];
 
 const result = spawnSync(isWindows ? "npx.cmd" : "npx", args, {

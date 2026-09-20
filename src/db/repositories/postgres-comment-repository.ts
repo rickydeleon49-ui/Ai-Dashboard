@@ -104,8 +104,8 @@ export class PostgresCommentRepository implements CommentRepository {
       throw new Error("Task not found in this workspace.");
     }
 
-    // Validate mentions against workspace members
-    await this.validateMentions(workspaceId, input.body, input.mentions);
+    // Validate mentions against workspace members and extract validated IDs
+    const mentions = await this.validateMentions(workspaceId, input.body, input.mentions);
 
     return db.transaction(async (tx) => {
       const id = crypto.randomUUID();
@@ -130,7 +130,7 @@ export class PostgresCommentRepository implements CommentRepository {
         taskId,
         actorId: authorId,
         type: "comment.created",
-        details: { commentId: id },
+        details: { commentId: id, ...(mentions.length > 0 ? { mentions } : {}) },
       });
 
       if (!row) throw new Error("Failed to create comment");
@@ -320,11 +320,11 @@ export class PostgresCommentRepository implements CommentRepository {
     workspaceId: string,
     body: string,
     explicitMentions?: string[],
-  ): Promise<void> {
+  ): Promise<string[]> {
     const extracted = extractMentions(body);
     const allMentionIds = Array.from(new Set([...extracted, ...(explicitMentions ?? [])]));
 
-    if (allMentionIds.length === 0) return;
+    if (allMentionIds.length === 0) return [];
 
     const db = getPgDb();
     const members = await db
@@ -348,6 +348,8 @@ export class PostgresCommentRepository implements CommentRepository {
         );
       }
     }
+
+    return allMentionIds;
   }
 
   private mapRow(row: typeof taskComments.$inferSelect, editCount = 0): TaskComment {

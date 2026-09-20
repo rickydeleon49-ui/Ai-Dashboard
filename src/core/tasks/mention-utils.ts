@@ -11,11 +11,12 @@
 export function extractMentions(text: string): string[] {
   const mentions = new Set<string>();
 
-  // 1. Markdown mention: @[Display Name](uuid)
-  const markdownRegex = /@\[[^\]]+\]\(([a-f0-9-]{36})\)/gi;
+  // 1. Markdown mention: @[Display Name](userId)
+  const markdownRegex = /@\[[^\]]+\]\(([^)]+)\)/g;
   let match: RegExpExecArray | null;
   while ((match = markdownRegex.exec(text)) !== null) {
-    if (match[1]) mentions.add(match[1]);
+    const id = match[1]?.trim();
+    if (id) mentions.add(id);
   }
 
   // 2. Standalone @uuid
