@@ -64,6 +64,27 @@
       "when": 1789200000000,
       "tag": "0008_safe_workspace_lifecycle_and_resumable_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789300000000,
+      "tag": "0009_workspace_member_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789400000000,
+      "tag": "0010_last_active_owner_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789500000000,
+      "tag": "0011_last_active_owner_lock",
+      "breakpoints": true
     }
   ]
 }

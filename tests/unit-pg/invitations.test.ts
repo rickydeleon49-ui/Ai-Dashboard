@@ -243,11 +243,32 @@ describe("acceptInvitation", () => {
       email: "already@example.com",
     });
 
-    // A second invitation to the same (now-member) address...
-    const second = await invitations.createInvitation(ws.id, owner, "already@example.com", "admin");
+    // Re-inviting an active member is rejected at creation time
+    await assert.rejects(
+      () => invitations.createInvitation(ws.id, owner, "already@example.com", "admin"),
+      (error: unknown) => {
+        assert.ok(error instanceof InvitationError);
+        assert.equal(error.reason, "already_member");
+        return true;
+      },
+    );
+
+    // If an invitation token existed previously, attempting to accept it is also rejected
+    const token = "preexisting_token_" + Date.now();
+    const tokenHash = (await import("node:crypto")).createHash("sha256").update(token).digest("hex");
+    await db().insert(workspaceInvitations).values({
+      id: `inv_existing_${Date.now()}`,
+      workspaceId: ws.id,
+      email: "already@example.com",
+      role: "admin",
+      tokenHash,
+      invitedBy: owner,
+      expiresAt: new Date(Date.now() + 100000),
+    });
+
     await assert.rejects(
       () =>
-        invitations.acceptInvitation(second.token, {
+        invitations.acceptInvitation(token, {
           id: alreadyMember,
           email: "already@example.com",
         }),

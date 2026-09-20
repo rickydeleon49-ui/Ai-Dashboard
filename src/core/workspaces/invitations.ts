@@ -3,7 +3,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getPgDb } from "@/db/pg-client";
-import { workspaceInvitations, workspaceMembers, workspaces } from "@/db/schema.pg";
+import { users, workspaceInvitations, workspaceMembers, workspaces } from "@/db/schema.pg";
 import { createId } from "@/lib/ids";
 import { pgErrorCode, UNIQUE_VIOLATION } from "@/db/pg-errors";
 import type { InvitableRole, WorkspaceInvitation, WorkspaceMembership } from "./types";
@@ -17,7 +17,8 @@ export type InvitationFailureReason =
   | "expired"
   | "already_accepted"
   | "email_mismatch"
-  | "already_member";
+  | "already_member"
+  | "membership_suspended";
 
 /** Thrown by acceptInvitation() when a token cannot be redeemed, and why. */
 export class InvitationError extends Error {
@@ -78,6 +79,43 @@ export async function createInvitation(
 ): Promise<{ invitation: WorkspaceInvitation; token: string }> {
   const db = getPgDb();
   const normalizedEmail = email.trim().toLowerCase();
+
+  // If a user with this email already exists, check their membership status in this workspace.
+  const [existingUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${normalizedEmail}`)
+    .limit(1);
+
+  if (existingUser) {
+    const [existingMembership] = await db
+      .select({ role: workspaceMembers.role, status: workspaceMembers.status })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.userId, existingUser.id),
+        ),
+      )
+      .limit(1);
+
+    if (existingMembership) {
+      if (existingMembership.status === "active") {
+        throw new InvitationError(
+          "already_member",
+          "This user is already an active member of this workspace.",
+        );
+      }
+      if (existingMembership.status === "suspended") {
+        throw new InvitationError(
+          "membership_suspended",
+          "Cannot invite a suspended member. A workspace admin or owner must reinstate them.",
+        );
+      }
+      // 'removed' status: inviting is allowed to enable re-invitation.
+    }
+  }
+
   const token = generateToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
@@ -244,21 +282,52 @@ export async function acceptInvitation(
           eq(workspaceMembers.userId, acceptingUser.id),
         ),
       )
+      .for("update")
       .limit(1);
-    if (existingMembership) {
+
+    let membershipRow: typeof workspaceMembers.$inferSelect;
+
+    if (!existingMembership) {
+      const [inserted] = await tx
+        .insert(workspaceMembers)
+        .values({
+          workspaceId: invitation.workspaceId,
+          userId: acceptingUser.id,
+          role: invitation.role,
+          status: "active",
+          invitedBy: invitation.invitedBy,
+        })
+        .returning();
+      if (!inserted) throw new Error("Failed to record membership");
+      membershipRow = inserted;
+    } else if (existingMembership.status === "removed") {
+      // Reactivate membership: status = 'active', role = invitation.role, invitedBy = invitation.invitedBy.
+      // Keeps original createdAt so joinedAt reflects the user's first join.
+      const [updated] = await tx
+        .update(workspaceMembers)
+        .set({
+          status: "active",
+          role: invitation.role,
+          invitedBy: invitation.invitedBy,
+        })
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, invitation.workspaceId),
+            eq(workspaceMembers.userId, acceptingUser.id),
+          ),
+        )
+        .returning();
+      if (!updated) throw new Error("Failed to reactivate membership");
+      membershipRow = updated;
+    } else if (existingMembership.status === "suspended") {
+      throw new InvitationError(
+        "membership_suspended",
+        "Your membership in this workspace is suspended. An admin or owner must reinstate it.",
+      );
+    } else {
+      // status 'active' or 'invited' -> already a member
       throw new InvitationError("already_member", "You are already a member of this workspace.");
     }
-
-    const [membership] = await tx
-      .insert(workspaceMembers)
-      .values({
-        workspaceId: invitation.workspaceId,
-        userId: acceptingUser.id,
-        role: invitation.role,
-        invitedBy: invitation.invitedBy,
-      })
-      .returning();
-    if (!membership) throw new Error("Failed to record membership");
 
     await tx
       .update(workspaceInvitations)
@@ -266,11 +335,12 @@ export async function acceptInvitation(
       .where(eq(workspaceInvitations.id, invitation.id));
 
     return {
-      workspaceId: membership.workspaceId,
-      userId: membership.userId,
-      role: membership.role as WorkspaceMembership["role"],
-      invitedBy: membership.invitedBy,
-      createdAt: membership.createdAt,
+      workspaceId: membershipRow.workspaceId,
+      userId: membershipRow.userId,
+      role: membershipRow.role as WorkspaceMembership["role"],
+      status: membershipRow.status as WorkspaceMembership["status"],
+      invitedBy: membershipRow.invitedBy,
+      createdAt: membershipRow.createdAt,
     };
   });
 }

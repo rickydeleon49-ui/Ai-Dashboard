@@ -126,6 +126,8 @@ export const workspaceMembers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     /** 'owner' | 'admin' | 'member' | 'viewer' */
     role: text("role").notNull(),
+    /** 'active' | 'invited' | 'suspended' | 'removed' */
+    status: text("status").notNull().default("active"),
     invitedBy: text("invited_by").references(() => users.id),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
@@ -137,6 +139,10 @@ export const workspaceMembers = pgTable(
     check(
       "workspace_member_role_check",
       sql`${t.role} in ('owner', 'admin', 'member', 'viewer')`,
+    ),
+    check(
+      "workspace_member_status_check",
+      sql`${t.status} in ('active', 'invited', 'suspended', 'removed')`,
     ),
   ],
 );
