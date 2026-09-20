@@ -29,7 +29,8 @@
     "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts tests/e2e/fresh-start-readiness.test.ts",
     "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts",
     "test:unit:pg": "tsx --conditions=react-server --test tests/unit-pg/*.test.ts",
-    "test:unit:pg:auth": "node tests/helpers/run-pg-auth.mjs"
+    "test:unit:pg:auth": "node tests/helpers/run-pg-auth.mjs",
+    "test:e2e:accounts": "tsx --test tests/e2e/accounts-mode.test.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "1.11.3",
