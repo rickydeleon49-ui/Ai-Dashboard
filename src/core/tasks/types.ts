@@ -92,7 +92,6 @@ export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt
 
 export interface TaskMutationOptions {
   actorUserId?: string;
-  tx?: unknown;
 }
 
 export interface TaskQuery {

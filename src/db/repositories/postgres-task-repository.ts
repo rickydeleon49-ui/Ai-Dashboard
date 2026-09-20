@@ -34,6 +34,16 @@ import type { TaskRepository } from "./task-repository";
 
 type TaskRow = typeof tasks.$inferSelect;
 
+export type PgTransaction = Parameters<
+  Parameters<ReturnType<typeof getPgDb>["transaction"]>[0]
+>[0];
+
+export type PgExecutor = ReturnType<typeof getPgDb> | PgTransaction;
+
+export interface PostgresTaskMutationOptions extends TaskMutationOptions {
+  tx?: PgTransaction;
+}
+
 function toDomain(row: TaskRow, blocked: boolean): Task {
   return {
     id: row.id,
@@ -64,7 +74,7 @@ function toDomain(row: TaskRow, blocked: boolean): Task {
 async function loadBlockedSet(
   workspaceId: string,
   taskIds: string[],
-  txOrDb?: any,
+  txOrDb?: PgExecutor,
 ): Promise<Set<string>> {
   if (taskIds.length === 0) return new Set();
   const db = txOrDb ?? getPgDb();
@@ -124,7 +134,7 @@ export function parseTaskLockTimeoutMs(raw: unknown): number {
 }
 
 export async function acquireWorkspaceLock(
-  tx: any,
+  tx: PgExecutor,
   workspaceId: string,
   timeoutMs?: number,
 ): Promise<void> {
@@ -158,7 +168,7 @@ export async function acquireWorkspaceLock(
 }
 
 async function assertValidParentTask(
-  tx: any,
+  tx: PgExecutor,
   workspaceId: string,
   taskId: string | null,
   parentTaskId: string | null | undefined,
@@ -197,7 +207,7 @@ async function assertValidParentTask(
 }
 
 async function assertValidAssignee(
-  tx: any,
+  tx: PgExecutor,
   workspaceId: string,
   assigneeId: string | null | undefined,
 ): Promise<void> {
@@ -336,9 +346,9 @@ export class PostgresTaskRepository implements TaskRepository {
   async create(
     workspaceId: string,
     input: TaskCreateInput,
-    options?: TaskMutationOptions,
+    options?: PostgresTaskMutationOptions,
   ): Promise<Task> {
-    const execute = async (tx: any) => {
+    const execute = async (tx: PgTransaction) => {
       if (input.parentTaskId !== undefined && input.parentTaskId !== null) {
         await acquireWorkspaceLock(tx, workspaceId, this.lockTimeoutMs);
       }

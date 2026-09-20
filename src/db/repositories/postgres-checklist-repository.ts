@@ -53,9 +53,9 @@ function validateText(text: string): string {
 }
 
 export class PostgresChecklistRepository implements ChecklistRepository {
-  private taskRepo: TaskRepository;
+  private taskRepo: PostgresTaskRepository | TaskRepository;
 
-  constructor(taskRepo?: TaskRepository) {
+  constructor(taskRepo?: PostgresTaskRepository | TaskRepository) {
     this.taskRepo = taskRepo ?? new PostgresTaskRepository();
   }
 
@@ -416,7 +416,7 @@ export class PostgresChecklistRepository implements ChecklistRepository {
       }
 
       // Convert through normal task invariants and create
-      const createdTask = await this.taskRepo.create(
+      const createdTask = await (this.taskRepo as PostgresTaskRepository).create(
         workspaceId,
         {
           projectId: parentTask.projectId,
