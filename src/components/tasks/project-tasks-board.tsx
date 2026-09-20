@@ -10,7 +10,7 @@
  * editing, or mid-create) is genuinely shared across milestone groups and
  * their tasks, not independent per row.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -36,6 +36,7 @@ import {
 import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
 import { AssigneeBadge, AssigneePicker } from "./assignee-picker";
+import { TaskChecklist, TaskChecklistBadge } from "./task-checklist";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
@@ -562,6 +563,24 @@ function TaskRow({
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [checklistSummary, setChecklistSummary] = useState<{ done: number; total: number } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/tasks/${task.id}/checklist`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.items) {
+          const total = data.items.length;
+          const done = data.items.filter((i: any) => i.done).length;
+          setChecklistSummary(total > 0 ? { done, total } : null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [task.id]);
 
   async function changeStatus(status: string) {
     if (isViewer) return;
@@ -663,6 +682,10 @@ function TaskRow({
           <Badge className="shrink-0 text-amber-300 bg-amber-400/10 ring-amber-400/25">Blocked</Badge>
         ) : null}
 
+        {checklistSummary ? (
+          <TaskChecklistBadge done={checklistSummary.done} total={checklistSummary.total} />
+        ) : null}
+
         {task.dueDate ? (
           <span className={cn("shrink-0 text-[11.5px]", overdue ? "text-red-400" : "text-faint")}>
             {formatDate(task.dueDate)}
@@ -712,6 +735,15 @@ function TaskRow({
               {task.assignedAt ? ` on ${formatDate(task.assignedAt)}` : ""}
             </p>
           ) : null}
+
+          <TaskChecklist
+            taskId={task.id}
+            isViewer={isViewer}
+            onProgressChange={(done, total) => {
+              setChecklistSummary(total > 0 ? { done, total } : null);
+            }}
+            onTaskCreated={onChanged}
+          />
 
           <TaskDependencies taskId={task.id} otherTasks={otherTasks} onChanged={onChanged} />
         </div>

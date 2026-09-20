@@ -98,7 +98,7 @@ Implemented, in review on `phase2c/member-directory` (per §17 step 14). Deliver
 |---:|---|---|---|
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
-| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Release 2C.1 implemented, in review on `phase2c/member-directory` |
+| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Release 2C.3 implemented, in review on `phase2c/checklists` |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
@@ -182,7 +182,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Removing a member does not corrupt task history.
 - Assignment changes generate activity events.
 
-### Release 2C.3 — Task checklists
+### Release 2C.3 — Task checklists (implemented, in review on phase2c/checklists)
 
 #### Features
 

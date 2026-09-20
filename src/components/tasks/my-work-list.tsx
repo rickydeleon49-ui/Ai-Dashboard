@@ -1,7 +1,7 @@
 "use client";
 
 /** The task list on My Work — read-focused, with a quick status change; full editing lives on the project's own tasks page. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
@@ -12,6 +12,7 @@ import { TASK_STATUSES, type Task } from "@/core/tasks/types";
 import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
 import { AssigneeBadge } from "./assignee-picker";
+import { TaskChecklistBadge } from "./task-checklist";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
@@ -67,6 +68,24 @@ function MyWorkRow({
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checklistSummary, setChecklistSummary] = useState<{ done: number; total: number } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/tasks/${task.id}/checklist`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.items) {
+          const total = data.items.length;
+          const done = data.items.filter((i: any) => i.done).length;
+          setChecklistSummary(total > 0 ? { done, total } : null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [task.id]);
 
   async function changeStatus(status: string) {
     if (isViewer) return;
@@ -139,6 +158,10 @@ function MyWorkRow({
         <Badge className={cn("shrink-0", TASK_PRIORITY_META[task.priority].className)}>
           {TASK_PRIORITY_META[task.priority].label}
         </Badge>
+
+        {checklistSummary ? (
+          <TaskChecklistBadge done={checklistSummary.done} total={checklistSummary.total} />
+        ) : null}
 
         {task.blocked ? (
           <Badge className="shrink-0 text-amber-300 bg-amber-400/10 ring-amber-400/25">Blocked</Badge>
