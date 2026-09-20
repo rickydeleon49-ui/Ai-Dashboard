@@ -7,7 +7,7 @@ import { projectRepository, taskRepository } from "@/db/repositories";
 import { resolveWorkspaceAndUserForPage } from "@/core/workspaces/current-workspace";
 import { isAccountsMode } from "@/lib/auth-mode";
 import type { TaskPriority, TaskStatus } from "@/core/tasks/types";
-import type { WorkspaceMemberSummary, WorkspaceRole } from "@/core/workspaces/types";
+import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "My Work" };
@@ -41,19 +41,13 @@ export default async function MyWorkPage({
   let queryUnassigned: boolean | undefined = undefined;
 
   let callerRole: WorkspaceRole = "viewer";
-  let membersList: WorkspaceMemberSummary[] = [];
+  let membersList: WorkspaceMemberDisplaySummary[] = [];
 
   if (accountsMode) {
     if (userId) {
-      const { getMembership, listMembersPaginated } = await import("@/core/workspaces/service");
+      const { getMembership } = await import("@/core/workspaces/service");
       const membership = await getMembership(workspaceId, userId);
       callerRole = membership?.role ?? "viewer";
-      const membersRes = await listMembersPaginated(workspaceId, {
-        status: "all",
-        callerRole: "owner",
-        limit: 200,
-      });
-      membersList = membersRes.members;
     }
 
     if (assignmentParam === "by_me") {
@@ -82,6 +76,20 @@ export default async function MyWorkPage({
 
   const filteredTasks = projectParam ? tasks.filter((t) => t.projectId === projectParam) : tasks;
   const projectNames = new Map(projects.map((p) => [p.id, p.name] as const));
+
+  if (accountsMode && filteredTasks.length > 0) {
+    const referencedUserIds = Array.from(
+      new Set(
+        filteredTasks
+          .flatMap((t) => [t.assigneeId, t.assignedBy])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    if (referencedUserIds.length > 0) {
+      const { getMemberDisplaySummaries } = await import("@/core/workspaces/service");
+      membersList = await getMemberDisplaySummaries(workspaceId, referencedUserIds, callerRole);
+    }
+  }
 
   return (
     <div className="space-y-5">

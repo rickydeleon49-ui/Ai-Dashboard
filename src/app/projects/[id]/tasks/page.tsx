@@ -6,7 +6,7 @@ import { ProjectTasksBoard } from "@/components/tasks/project-tasks-board";
 import { milestoneRepository, projectRepository, taskRepository, LOCAL_WORKSPACE_ID } from "@/db/repositories";
 import { resolveWorkspaceAndUserForPage } from "@/core/workspaces/current-workspace";
 import { isAccountsMode } from "@/lib/auth-mode";
-import type { WorkspaceMemberSummary, WorkspaceRole } from "@/core/workspaces/types";
+import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ export default async function ProjectTasksPage({ params }: { params: Promise<{ i
   let workspaceId = LOCAL_WORKSPACE_ID;
   let currentUserId: string | null = null;
   let callerRole: WorkspaceRole = "viewer";
-  let workspaceMembersList: WorkspaceMemberSummary[] = [];
+  let workspaceMembersList: WorkspaceMemberDisplaySummary[] = [];
 
   if (accountsMode) {
     const resolved = await resolveWorkspaceAndUserForPage();
@@ -37,15 +37,9 @@ export default async function ProjectTasksPage({ params }: { params: Promise<{ i
     workspaceId = resolved.workspaceId;
     currentUserId = resolved.userId;
     if (currentUserId) {
-      const { getMembership, listMembersPaginated } = await import("@/core/workspaces/service");
+      const { getMembership } = await import("@/core/workspaces/service");
       const membership = await getMembership(workspaceId, currentUserId);
       callerRole = membership?.role ?? "viewer";
-      const membersResult = await listMembersPaginated(workspaceId, {
-        status: "all",
-        callerRole: "owner",
-        limit: 200,
-      });
-      workspaceMembersList = membersResult.members;
     }
   }
 
@@ -56,6 +50,20 @@ export default async function ProjectTasksPage({ params }: { params: Promise<{ i
     milestoneRepository.list(workspaceId, id),
     taskRepository.list(workspaceId, id),
   ]);
+
+  if (accountsMode && tasks.length > 0) {
+    const referencedUserIds = Array.from(
+      new Set(
+        tasks
+          .flatMap((t) => [t.assigneeId, t.assignedBy])
+          .filter((userId): userId is string => Boolean(userId)),
+      ),
+    );
+    if (referencedUserIds.length > 0) {
+      const { getMemberDisplaySummaries } = await import("@/core/workspaces/service");
+      workspaceMembersList = await getMemberDisplaySummaries(workspaceId, referencedUserIds, callerRole);
+    }
+  }
 
   return (
     <div className="space-y-5">

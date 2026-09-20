@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/field";
 import { TASK_PRIORITY_META, TASK_STATUS_META } from "@/core/tasks/labels";
 import { TASK_STATUSES, type Task } from "@/core/tasks/types";
-import type { WorkspaceMemberSummary, WorkspaceRole } from "@/core/workspaces/types";
+import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
 import { AssigneeBadge } from "./assignee-picker";
 
@@ -30,9 +30,9 @@ export function MyWorkList({
   projectNames: Map<string, string>;
   accountsMode?: boolean;
   callerRole?: WorkspaceRole;
-  members?: WorkspaceMemberSummary[];
+  members?: WorkspaceMemberDisplaySummary[];
 }) {
-  const membersMap = new Map<string, WorkspaceMemberSummary>(members.map((m) => [m.id, m]));
+  const membersMap = new Map<string, WorkspaceMemberDisplaySummary>(members.map((m) => [m.id, m]));
   const isViewer = accountsMode && callerRole === "viewer";
 
   return (
@@ -62,7 +62,7 @@ function MyWorkRow({
   projectName: string;
   accountsMode: boolean;
   isViewer: boolean;
-  assigneeMember?: WorkspaceMemberSummary | null;
+  assigneeMember?: WorkspaceMemberDisplaySummary | null;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -103,6 +103,7 @@ function MyWorkRow({
         <Select
           value={task.status}
           disabled={saving || isViewer}
+          aria-label={`Status for ${task.title}`}
           onChange={(e) => changeStatus(e.target.value)}
           className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
         >

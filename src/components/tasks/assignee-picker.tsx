@@ -12,7 +12,10 @@ import {
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import type { WorkspaceMemberSummary } from "@/core/workspaces/types";
+import type {
+  WorkspaceMemberDisplaySummary,
+  WorkspaceMemberSummary,
+} from "@/core/workspaces/types";
 import { cn } from "@/lib/utils";
 
 export function getMemberInitials(name: string | null, email: string | null): string {
@@ -36,7 +39,7 @@ export function AssigneeBadge({
   userId,
   fallbackName,
 }: {
-  member?: WorkspaceMemberSummary | null;
+  member?: WorkspaceMemberDisplaySummary | null;
   userId?: string | null;
   fallbackName?: string | null;
 }) {
@@ -49,7 +52,7 @@ export function AssigneeBadge({
         title="Assigned to suspended member"
       >
         <PauseCircle className="h-3 w-3 shrink-0 text-amber-400" aria-hidden="true" />
-        <span className="max-w-[110px] truncate">{member.name || member.email || "Suspended user"}</span>
+        <span className="max-w-[110px] truncate">{member.name || "Suspended user"}</span>
         <span className="shrink-0 text-amber-400/90 font-semibold">(Suspended)</span>
       </span>
     );
@@ -62,7 +65,7 @@ export function AssigneeBadge({
         title="Assigned to former member"
       >
         <XCircle className="h-3 w-3 shrink-0 text-red-400" aria-hidden="true" />
-        <span className="max-w-[110px] truncate">{member.name || member.email || "Former member"}</span>
+        <span className="max-w-[110px] truncate">{member.name || "Former member"}</span>
         <span className="shrink-0 text-red-400/90 font-semibold">(Former Member)</span>
       </span>
     );
@@ -91,7 +94,7 @@ interface AssigneePickerProps {
   workspaceId: string;
   value: string | null;
   onChange: (assigneeId: string | null) => void;
-  knownMembers?: WorkspaceMemberSummary[];
+  knownMembers?: WorkspaceMemberDisplaySummary[];
   disabled?: boolean;
 }
 
@@ -104,6 +107,7 @@ export function AssigneePicker({
 }: AssigneePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeMembers, setActiveMembers] = useState<WorkspaceMemberSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -111,9 +115,17 @@ export function AssigneePicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Debounce search input by 300ms (matching workspace-members.tsx)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   // Build a lookup map of all known members (including historical)
   const memberMap = useMemo(() => {
-    const map = new Map<string, WorkspaceMemberSummary>();
+    const map = new Map<string, WorkspaceMemberDisplaySummary>();
     for (const m of knownMembers) {
       map.set(m.id, m);
     }
@@ -127,18 +139,20 @@ export function AssigneePicker({
   const isHistorical =
     currentMember && (currentMember.status === "suspended" || currentMember.status === "removed");
 
-  // Fetch active members when open
+  // Fetch active members when open with debounced search and cancellation of stale requests
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
+    const controller = new AbortController();
 
     const params = new URLSearchParams({ status: "active", limit: "50" });
-    if (search.trim()) {
-      params.set("search", search.trim());
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch);
     }
 
     fetch(`/api/workspaces/${workspaceId}/members?${params.toString()}`, {
       headers: { "Cache-Control": "no-store" },
+      signal: controller.signal,
     })
       .then(async (res) => {
         if (!res.ok) throw new Error();
@@ -148,17 +162,19 @@ export function AssigneePicker({
           setLoading(false);
         }
       })
-      .catch(() => {
-        if (active) {
-          setActiveMembers(knownMembers.filter((m) => m.status === "active"));
-          setLoading(false);
-        }
+      .catch((err) => {
+        if (!active || (err instanceof DOMException && err.name === "AbortError")) return;
+        setActiveMembers(
+          knownMembers.filter((m): m is WorkspaceMemberSummary => m.status === "active" && Boolean(m.role)),
+        );
+        setLoading(false);
       });
 
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [isOpen, search, workspaceId, knownMembers]);
+  }, [isOpen, debouncedSearch, workspaceId, knownMembers]);
 
   // Handle outside click to close
   useEffect(() => {
@@ -174,8 +190,8 @@ export function AssigneePicker({
   }, [isOpen]);
 
   const filteredMembers = activeMembers.filter((m) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
+    if (!debouncedSearch) return true;
+    const q = debouncedSearch.toLowerCase();
     return m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q);
   });
 
@@ -186,12 +202,14 @@ export function AssigneePicker({
     setLoading(true);
     setIsOpen(true);
     setSearch("");
+    setDebouncedSearch("");
     setFocusedIndex(-1);
   }
 
   function closePicker() {
     setIsOpen(false);
     setSearch("");
+    setDebouncedSearch("");
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -249,7 +267,7 @@ export function AssigneePicker({
             )}
             <div className="min-w-0 truncate">
               <span className="font-semibold text-fg">
-                {currentMember.name || currentMember.email || "Historical assignee"}
+                {currentMember.name || "Historical assignee"}
               </span>{" "}
               <span className="font-semibold">
                 {currentMember.status === "suspended" ? "(Suspended)" : "(Former Member)"}
@@ -278,7 +296,7 @@ export function AssigneePicker({
           id="assignee-picker-trigger"
           aria-haspopup="listbox"
           aria-expanded={isOpen}
-          aria-label={value && currentMember ? `Assignee: ${currentMember.name || currentMember.email}` : "Select assignee"}
+          aria-label={value && currentMember ? `Assignee: ${currentMember.name || currentMember.email || "assigned"}` : "Select assignee"}
           disabled={disabled}
           onClick={() => (isOpen ? closePicker() : openPicker())}
           className={cn(
@@ -294,12 +312,14 @@ export function AssigneePicker({
                   className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[9px] font-semibold text-[var(--accent-text)]"
                   aria-hidden="true"
                 >
-                  {getMemberInitials(currentMember.name, currentMember.email)}
+                  {getMemberInitials(currentMember.name, currentMember.email ?? null)}
                 </span>
                 <span className="truncate">{currentMember.name || currentMember.email}</span>
-                <Badge className="shrink-0 text-[10px] uppercase tracking-wider py-0 px-1 text-muted bg-surface/50">
-                  {currentMember.role}
-                </Badge>
+                {currentMember.role ? (
+                  <Badge className="shrink-0 text-[10px] uppercase tracking-wider py-0 px-1 text-muted bg-surface/50">
+                    {currentMember.role}
+                  </Badge>
+                ) : null}
               </>
             ) : (
               <>

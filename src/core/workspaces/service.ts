@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { getPgDb } from "@/db/pg-client";
 import { users, workspaceMembers, workspaces } from "@/db/schema.pg";
 import { createId, slugify } from "@/lib/ids";
@@ -10,6 +10,7 @@ import type {
   PaginatedMembersResult,
   Workspace,
   WorkspaceMembership,
+  WorkspaceMemberDisplaySummary,
   WorkspaceMemberStatus,
   WorkspaceMemberSummary,
   WorkspaceRole,
@@ -622,6 +623,70 @@ export async function getMemberSummary(
     status: row.status as WorkspaceMemberStatus,
     joinedAt: row.joinedAt,
   };
+}
+
+/**
+ * Resolves safe display summaries for only the specified user IDs that are members
+ * of the given workspace. Used by task boards and My Work to render assignee and
+ * assigner metadata without leaking the workspace directory or dumping full member lists.
+ *
+ * Rules:
+ * - Scoped strictly to workspaceId: users from another workspace return nothing.
+ * - For owners and admins: returns full safe summary for all matching members.
+ * - For members and viewers: returns full safe summary for active members only;
+ *   suspended and removed members receive a minimal { id, name, status } omitting
+ *   email, role, and joinedAt.
+ */
+export async function getMemberDisplaySummaries(
+  workspaceId: string,
+  userIds: string[],
+  callerRole: WorkspaceRole,
+): Promise<WorkspaceMemberDisplaySummary[]> {
+  const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const db = getPgDb();
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      image: users.image,
+      role: workspaceMembers.role,
+      status: workspaceMembers.status,
+      joinedAt: workspaceMembers.createdAt,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        inArray(workspaceMembers.userId, uniqueIds),
+      ),
+    );
+
+  const isElevated = callerRole === "owner" || callerRole === "admin";
+
+  return rows.map((row) => {
+    const status = row.status as WorkspaceMemberStatus;
+    if (isElevated || status === "active") {
+      return {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        image: row.image,
+        role: row.role as WorkspaceRole,
+        status,
+        joinedAt: row.joinedAt,
+      };
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      status,
+    };
+  });
 }
 
 

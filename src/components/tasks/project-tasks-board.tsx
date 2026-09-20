@@ -33,7 +33,7 @@ import {
   type Milestone,
   type Task,
 } from "@/core/tasks/types";
-import type { WorkspaceMemberSummary, WorkspaceRole } from "@/core/workspaces/types";
+import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
 import { AssigneeBadge, AssigneePicker } from "./assignee-picker";
 
@@ -77,7 +77,7 @@ export function ProjectTasksBoard({
   workspaceId?: string;
   currentUserId?: string | null;
   callerRole?: WorkspaceRole;
-  initialMembers?: WorkspaceMemberSummary[];
+  initialMembers?: WorkspaceMemberDisplaySummary[];
 }) {
   const router = useRouter();
   const [creatingMilestone, setCreatingMilestone] = useState(false);
@@ -88,7 +88,7 @@ export function ProjectTasksBoard({
   const [assignmentFilter, setAssignmentFilter] = useState<"all" | "to_me" | "by_me" | "unassigned">("all");
 
   const isViewer = accountsMode && callerRole === "viewer";
-  const membersMap = new Map<string, WorkspaceMemberSummary>(
+  const membersMap = new Map<string, WorkspaceMemberDisplaySummary>(
     initialMembers.map((m) => [m.id, m]),
   );
 
@@ -411,7 +411,7 @@ function TaskFormInline({
   task?: Task;
   accountsMode?: boolean;
   workspaceId?: string;
-  initialMembers?: WorkspaceMemberSummary[];
+  initialMembers?: WorkspaceMemberDisplaySummary[];
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -556,8 +556,8 @@ function TaskRow({
   accountsMode?: boolean;
   workspaceId?: string;
   isViewer?: boolean;
-  membersMap?: Map<string, WorkspaceMemberSummary>;
-  initialMembers?: WorkspaceMemberSummary[];
+  membersMap?: Map<string, WorkspaceMemberDisplaySummary>;
+  initialMembers?: WorkspaceMemberDisplaySummary[];
 }) {
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -615,6 +615,7 @@ function TaskRow({
         <Select
           value={task.status}
           disabled={statusSaving || isViewer}
+          aria-label={`Status for ${task.title}`}
           onChange={(e) => changeStatus(e.target.value)}
           className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
         >

@@ -746,4 +746,96 @@ describe("Release 2C.2 Task Assignment API: Authorization Matrix & Validation", 
     const json = (await patchRes.json()) as { error: string };
     assert.match(json.error, /accepting their invitation/i);
   });
+
+  it("viewer page data path: suspended assignee email, role, and joinedAt are absent (Stage 1A)", async () => {
+    const ownerEmail = `viewer_leak_owner_${Date.now()}@example.com`;
+    const viewerEmail = `viewer_leak_viewer_${Date.now()}@example.com`;
+    const targetEmail = `viewer_leak_target_${Date.now()}@example.com`;
+
+    const ownerCookieRaw = await signIn(ownerEmail);
+    const viewerCookieRaw = await signIn(viewerEmail);
+    await signIn(targetEmail);
+
+    const ownerId = await getUserIdByEmail(ownerEmail);
+    const viewerId = await getUserIdByEmail(viewerEmail);
+    const targetId = await getUserIdByEmail(targetEmail);
+
+    const ws = await workspacesService.createTeamWorkspace(ownerId, "Privacy Guard Workspace");
+    const ownerCookie = withWorkspaceCookie(ownerCookieRaw, ws.id);
+    const viewerCookie = withWorkspaceCookie(viewerCookieRaw, ws.id);
+
+    await db().insert(workspaceMembers).values([
+      { workspaceId: ws.id, userId: viewerId, role: "viewer", status: "active" },
+      { workspaceId: ws.id, userId: targetId, role: "member", status: "active" },
+    ]);
+
+    // Create project and assign task to targetId
+    const projectRes = await projectsRoute.POST(
+      apiRequest("POST", "/api/projects", {
+        cookie: ownerCookie,
+        body: { name: "Secret Project" },
+      }),
+    );
+    const proj = ((await projectRes.json()) as { project: { id: string } }).project;
+    const projectId = proj.id;
+
+    const taskRes = await projectTasksRoute.POST(
+      apiRequest("POST", `/api/projects/${projectId}/tasks`, {
+        cookie: ownerCookie,
+        body: { title: "Audit Task", assigneeId: targetId },
+      }),
+      { params: Promise.resolve({ id: projectId }) },
+    );
+    assert.equal(taskRes.status, 201);
+
+    // Suspend target member as owner
+    await workspacesService.updateMemberStatus(ws.id, targetId, "suspended", {
+      callerRole: "owner",
+    });
+
+    // Execute the page's data resolution path as the signed-in viewer:
+    // 1. Resolve membership and role for the caller
+    const membership = await workspacesService.getMembership(ws.id, viewerId);
+    assert.equal(membership?.role, "viewer");
+    const callerRole = membership?.role ?? "viewer";
+
+    // 2. Load tasks for the project in this workspace
+    const { taskRepository } = await import("../../src/db/repositories");
+    const tasks = await taskRepository.list(ws.id, projectId);
+    assert.equal(tasks.length, 1);
+
+    // 3. Extract referenced IDs
+    const referencedUserIds = Array.from(
+      new Set(
+        tasks
+          .flatMap((t) => [t.assigneeId, t.assignedBy])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    assert.ok(referencedUserIds.includes(targetId));
+
+    // 4. Resolve display summaries with the viewer's actual role
+    const displaySummaries = await workspacesService.getMemberDisplaySummaries(
+      ws.id,
+      referencedUserIds,
+      callerRole,
+    );
+    assert.equal(displaySummaries.length, 2);
+
+    const targetSummary = displaySummaries.find((s) => s.id === targetId)!;
+    assert.ok(targetSummary, "target summary must exist");
+    assert.equal(targetSummary.status, "suspended");
+    assert.equal(targetSummary.email, undefined, "viewer must not receive suspended member's email");
+    assert.equal(targetSummary.role, undefined, "viewer must not receive suspended member's role");
+    assert.equal(targetSummary.joinedAt, undefined, "viewer must not receive suspended member's joinedAt");
+    assert.equal("email" in targetSummary, false, "email key must be completely absent from JSON");
+    assert.equal("role" in targetSummary, false, "role key must be completely absent from JSON");
+    assert.equal("joinedAt" in targetSummary, false, "joinedAt key must be completely absent from JSON");
+
+    // Meanwhile, active owner's summary has full details
+    const ownerSummary = displaySummaries.find((s) => s.id === ownerId)!;
+    assert.ok(ownerSummary, "owner summary must exist");
+    assert.equal(ownerSummary.email, ownerEmail);
+  });
 });
+
