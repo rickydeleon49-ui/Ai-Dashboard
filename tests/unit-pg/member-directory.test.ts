@@ -508,6 +508,13 @@ describe("Release 2C.1: Last-owner status update protection", () => {
         "UPDATE workspace_member SET status = 'suspended' WHERE workspace_id = $1 AND user_id = $2",
         [ws.id, owner2],
       );
+      // Attached immediately so Node's unhandled-rejection tracking sees this
+      // settle handled from the first tick — t2 rejects as soon as t1 commits
+      // below, which can be before the assert.rejects() further down ever
+      // gets a chance to attach its own handler. A no-op catch here doesn't
+      // consume the rejection: assert.rejects() still independently observes
+      // the same promise's final state.
+      t2Update.catch(() => {});
 
       // t2 should block on the workspace lock held by t1
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -563,6 +570,8 @@ describe("Release 2C.1: Last-owner status update protection", () => {
         "DELETE FROM workspace_member WHERE workspace_id = $1 AND user_id = $2",
         [ws.id, owner2],
       );
+      // See the identical comment above t2Update's .catch() in the previous test.
+      t2Delete.catch(() => {});
 
       // t2 should block on the workspace lock held by t1
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -618,6 +627,8 @@ describe("Release 2C.1: Last-owner status update protection", () => {
         "UPDATE workspace_member SET role = 'member' WHERE workspace_id = $1 AND user_id = $2",
         [ws.id, owner2],
       );
+      // See the identical comment above t2Update's .catch() earlier in this file.
+      t2Demote.catch(() => {});
 
       // t2 should block on the workspace lock held by t1
       await new Promise((resolve) => setTimeout(resolve, 300));
