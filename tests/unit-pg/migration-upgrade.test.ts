@@ -356,6 +356,51 @@ describe("PostgreSQL migration 0008 upgrade: historical schema recreation & clai
 
     await migrate(db, { migrationsFolder: tempMigrationsDir });
 
+    // e. Verify pre-0012 task columns, then apply migration 0012: task assignment provenance
+    const pre0012Cols = await client.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'task' AND column_name IN ('assigned_by', 'assigned_at');
+    `);
+    assert.equal(pre0012Cols.rows.length, 0, "pre-0012 task table must not have assigned_by or assigned_at");
+
+    const migration0012Tag = realJournal.entries[12]?.tag;
+    if (migration0012Tag !== "0012_task_assignment_provenance") {
+      throw new Error(`Expected entry 12 to be 0012 migration, found: ${migration0012Tag}`);
+    }
+    const sql0012Source = path.join(realMigrationsDir, `${migration0012Tag}.sql`);
+    if (!fs.existsSync(sql0012Source)) {
+      throw new Error(`Migration 0012 SQL file missing at ${sql0012Source}`);
+    }
+    fs.copyFileSync(sql0012Source, path.join(tempMigrationsDir, `${migration0012Tag}.sql`));
+
+    const upgradedJournal0012 = {
+      version: "7",
+      dialect: "postgresql",
+      entries: realJournal.entries.slice(0, 13),
+    };
+    fs.writeFileSync(
+      path.join(tempMigrationsDir, "meta", "_journal.json"),
+      JSON.stringify(upgradedJournal0012, null, 2),
+    );
+
+    await migrate(db, { migrationsFolder: tempMigrationsDir });
+
+    const post0012Cols = await client.query(`
+      SELECT column_name, data_type
+      FROM information_schema.columns
+      WHERE table_name = 'task' AND column_name IN ('assigned_by', 'assigned_at')
+      ORDER BY column_name;
+    `);
+    assert.equal(post0012Cols.rows.length, 2, "post-0012 task table must have assigned_at and assigned_by");
+
+    const post0012Index = await client.query(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'task' AND indexname = 'task_workspace_assigned_by_idx';
+    `);
+    assert.equal(post0012Index.rows.length, 1, "task_workspace_assigned_by_idx index must exist");
+
     // 8. Verify the completed claim cannot be reclaimed by the original user or any other user
     process.env.DATABASE_URL = testUrl.toString();
     process.env.DASHBOARD_PASSWORD = "test-dashboard-password";

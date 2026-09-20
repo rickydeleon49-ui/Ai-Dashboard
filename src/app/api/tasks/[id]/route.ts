@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { milestoneRepository, taskRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { taskUpdateSchema } from "@/core/tasks/schema";
+import { serializeTaskResponse } from "@/core/tasks/serialize";
 import {
   InvalidAssigneeError,
   InvalidParentTaskError,
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest, { params }: Context) {
   const { id } = await params;
   const task = await taskRepository.findById(workspaceId, id);
   if (!task) return notFoundResponse();
-  return NextResponse.json({ task });
+  return NextResponse.json({ task: serializeTaskResponse(task) });
 }
 
 export async function PATCH(request: NextRequest, { params }: Context) {
@@ -110,7 +111,12 @@ export async function PATCH(request: NextRequest, { params }: Context) {
 
   let task;
   try {
-    task = await taskRepository.update(workspaceId, id, parsed.data);
+    task = await taskRepository.update(
+      workspaceId,
+      id,
+      parsed.data,
+      { actorUserId: userId ?? undefined },
+    );
   } catch (error) {
     if (error instanceof TaskBlockedError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
@@ -127,7 +133,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     throw error;
   }
   if (!task) return notFoundResponse();
-  return NextResponse.json({ task });
+  return NextResponse.json({ task: serializeTaskResponse(task) });
 }
 
 export async function DELETE(request: NextRequest, { params }: Context) {

@@ -75,3 +75,24 @@ If using Classic Branch Protection rules:
        3. `Postgres (hosted multi-user mode)`
        4. `Unit tests (Windows)`
 7. Click **Create** (or **Save changes**).
+
+---
+
+## 4. Accounts-Mode End-to-End Suite (`test:e2e:accounts`)
+
+While standard desktop E2E tests (`npm run test:e2e`) run against SQLite in single-user mode, multi-user accounts-mode workflows (`AUTH_MODE=accounts`) are covered by the dedicated accounts-mode E2E suite:
+
+```bash
+npm run test:e2e:accounts
+```
+
+### Requirements & Execution:
+- Requires PostgreSQL running locally on port 5432 (default admin connection `postgres://ai_dashboard:ai_dashboard_dev@localhost:5432/postgres` or configured via `TEST_DATABASE_ADMIN_URL`).
+- Self-sufficient: does not require a prior build (`npm run build`). Runs against the Next.js development server (`next dev`) so that `NODE_ENV=development` allows `AUTH_LOG_MAGIC_LINK=true` console magic link delivery without weakening production guards. (Production bundle and build behavior are covered by `npm run test:e2e`).
+- Automatically provisions an isolated throwaway PostgreSQL database per run, applies all migrations, seeds multi-role workspace fixtures, and starts the development Next.js server with `AUTH_MODE=accounts` and `AUTH_LOG_MAGIC_LINK=true`.
+- Validates end-to-end HTTP flows:
+  - Owner: directory listing, member suspension, and self-demotion protection (403).
+  - Viewer: active-only member visibility, server-rendered privacy protections (zero email leakage for suspended members), and write-protection (403).
+  - Member: task assignment to active members (201), rejection of suspended members (422), and "assignedBy=me" / "unassigned=true" filters.
+  - Historical integrity: editing task titles with suspended assignees preserves attribution intact in PostgreSQL.
+- Kept separate from `npm run test:e2e` to prevent CI jobs lacking a PostgreSQL service container from failing.

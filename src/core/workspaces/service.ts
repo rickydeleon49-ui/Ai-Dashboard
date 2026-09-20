@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { getPgDb } from "@/db/pg-client";
 import { users, workspaceMembers, workspaces } from "@/db/schema.pg";
 import { createId, slugify } from "@/lib/ids";
@@ -10,6 +10,7 @@ import type {
   PaginatedMembersResult,
   Workspace,
   WorkspaceMembership,
+  WorkspaceMemberDisplaySummary,
   WorkspaceMemberStatus,
   WorkspaceMemberSummary,
   WorkspaceRole,
@@ -59,7 +60,7 @@ export class ForbiddenMemberActionError extends Error {
 }
 
 export interface UpdateMemberOptions {
-  callerRole?: WorkspaceRole;
+  callerRole: WorkspaceRole;
 }
 
 function isLastOwnerViolation(error: unknown): boolean {
@@ -285,7 +286,7 @@ export async function updateMember(
   workspaceId: string,
   targetUserId: string,
   updates: { role?: WorkspaceRole; status?: WorkspaceMemberStatus },
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<WorkspaceMemberSummary> {
   return await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
@@ -310,7 +311,10 @@ export async function updateMember(
       const currentStatus = lockedMember.status as WorkspaceMemberStatus;
 
       // 2. Permission checks against locked row
-      if (options?.callerRole === "admin") {
+      if (options.callerRole !== "owner" && options.callerRole !== "admin") {
+        throw new ForbiddenMemberActionError("Only owners and admins can modify members.");
+      }
+      if (options.callerRole === "admin") {
         if (currentRole === "owner" || currentRole === "admin") {
           throw new ForbiddenMemberActionError("Admins cannot modify owners or other admins.");
         }
@@ -330,11 +334,16 @@ export async function updateMember(
         throw new RemovedMemberTransitionError("Removed members must be re-invited.");
       }
 
+      if (currentStatus === "invited" && updates.status) {
+        throw new InvalidMemberTransitionError(
+          "Invited members can only become active by accepting their invitation.",
+        );
+      }
+
       if (updates.status && updates.status !== currentStatus) {
         const allowed =
           (currentStatus === "active" && (updates.status === "suspended" || updates.status === "removed")) ||
-          (currentStatus === "suspended" && (updates.status === "active" || updates.status === "removed")) ||
-          (currentStatus === "invited" && updates.status === "active");
+          (currentStatus === "suspended" && (updates.status === "active" || updates.status === "removed"));
 
         if (!allowed) {
           throw new InvalidMemberTransitionError(
@@ -396,7 +405,7 @@ export async function updateMemberRole(
   workspaceId: string,
   userId: string,
   role: WorkspaceRole,
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<void> {
   await updateMember(workspaceId, userId, { role }, options);
 }
@@ -409,7 +418,7 @@ export async function updateMemberRole(
 export async function removeMember(
   workspaceId: string,
   userId: string,
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<void> {
   await translatingLastOwnerErrors(async () => {
     const db = getPgDb();
@@ -432,7 +441,10 @@ export async function removeMember(
       const currentRole = lockedMember.role as WorkspaceRole;
       const currentStatus = lockedMember.status as WorkspaceMemberStatus;
 
-      if (options?.callerRole === "admin") {
+      if (options.callerRole !== "owner" && options.callerRole !== "admin") {
+        throw new ForbiddenMemberActionError("Only owners and admins can remove members.");
+      }
+      if (options.callerRole === "admin") {
         if (currentRole === "owner" || currentRole === "admin") {
           throw new ForbiddenMemberActionError("Admins cannot remove owners or other admins.");
         }
@@ -575,7 +587,7 @@ export async function updateMemberStatus(
   workspaceId: string,
   userId: string,
   status: WorkspaceMemberStatus,
-  options?: UpdateMemberOptions,
+  options: UpdateMemberOptions,
 ): Promise<void> {
   await updateMember(workspaceId, userId, { status }, options);
 }
@@ -611,6 +623,70 @@ export async function getMemberSummary(
     status: row.status as WorkspaceMemberStatus,
     joinedAt: row.joinedAt,
   };
+}
+
+/**
+ * Resolves safe display summaries for only the specified user IDs that are members
+ * of the given workspace. Used by task boards and My Work to render assignee and
+ * assigner metadata without leaking the workspace directory or dumping full member lists.
+ *
+ * Rules:
+ * - Scoped strictly to workspaceId: users from another workspace return nothing.
+ * - For owners and admins: returns full safe summary for all matching members.
+ * - For members and viewers: returns full safe summary for active members only;
+ *   suspended and removed members receive a minimal { id, name, status } omitting
+ *   email, role, and joinedAt.
+ */
+export async function getMemberDisplaySummaries(
+  workspaceId: string,
+  userIds: string[],
+  callerRole: WorkspaceRole,
+): Promise<WorkspaceMemberDisplaySummary[]> {
+  const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const db = getPgDb();
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      image: users.image,
+      role: workspaceMembers.role,
+      status: workspaceMembers.status,
+      joinedAt: workspaceMembers.createdAt,
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        inArray(workspaceMembers.userId, uniqueIds),
+      ),
+    );
+
+  const isElevated = callerRole === "owner" || callerRole === "admin";
+
+  return rows.map((row) => {
+    const status = row.status as WorkspaceMemberStatus;
+    if (isElevated || status === "active") {
+      return {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        image: row.image,
+        role: row.role as WorkspaceRole,
+        status,
+        joinedAt: row.joinedAt,
+      };
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      status,
+    };
+  });
 }
 
 

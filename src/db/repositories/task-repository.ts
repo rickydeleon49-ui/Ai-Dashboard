@@ -3,7 +3,13 @@
  * own shape and reasoning exactly. Everything above this line depends only
  * on this interface, never on Drizzle or a specific database directly.
  */
-import type { Task, TaskCreateInput, TaskQuery, TaskUpdateInput } from "@/core/tasks/types";
+import type {
+  Task,
+  TaskCreateInput,
+  TaskMutationOptions,
+  TaskQuery,
+  TaskUpdateInput,
+} from "@/core/tasks/types";
 
 /**
  * `workspaceId` is a mandatory first parameter on every method, matching
@@ -25,8 +31,17 @@ export interface TaskRepository {
    */
   listForWorkspace(workspaceId: string, query?: TaskQuery): Promise<Task[]>;
   findById(workspaceId: string, id: string): Promise<Task | null>;
-  create(workspaceId: string, input: TaskCreateInput): Promise<Task>;
-  update(workspaceId: string, id: string, input: TaskUpdateInput): Promise<Task | null>;
+  create(
+    workspaceId: string,
+    input: TaskCreateInput,
+    options?: TaskMutationOptions,
+  ): Promise<Task>;
+  update(
+    workspaceId: string,
+    id: string,
+    input: TaskUpdateInput,
+    options?: TaskMutationOptions,
+  ): Promise<Task | null>;
   delete(workspaceId: string, id: string): Promise<boolean>;
 
   /** Tasks `taskId` depends on — must reach done/cancelled before it can. */

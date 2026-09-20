@@ -45,6 +45,22 @@ export interface WorkspaceMemberSummary {
   joinedAt: Date;
 }
 
+/**
+ * Minimal or full safe representation for members displayed on rendered tasks.
+ * For owners and admins, or active members: full safe summary (including email, role, joinedAt).
+ * For members and viewers viewing suspended/removed members: minimal (id, name, status)
+ * omitting private email, role, and joinedAt.
+ */
+export interface WorkspaceMemberDisplaySummary {
+  id: string;
+  name: string | null;
+  status: WorkspaceMemberStatus;
+  email?: string | null;
+  image?: string | null;
+  role?: WorkspaceRole;
+  joinedAt?: Date;
+}
+
 export interface ListMembersOptions {
   search?: string;
   limit?: number;

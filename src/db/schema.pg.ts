@@ -405,6 +405,8 @@ export const tasks = pgTable(
     status: text("status").notNull().default("todo"),
     priority: text("priority").notNull().default("medium"),
     assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    assignedBy: text("assigned_by").references(() => users.id, { onDelete: "set null" }),
+    assignedAt: timestamp("assigned_at", { mode: "date" }),
     dueDate: timestamp("due_date", { mode: "date" }),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
@@ -415,6 +417,7 @@ export const tasks = pgTable(
     index("task_milestone_idx").on(t.milestoneId),
     index("task_parent_idx").on(t.parentTaskId),
     index("task_workspace_assignee_idx").on(t.workspaceId, t.assigneeId),
+    index("task_workspace_assigned_by_idx").on(t.workspaceId, t.assignedBy),
     index("task_workspace_due_idx").on(t.workspaceId, t.dueDate),
     check(
       "task_status_check",

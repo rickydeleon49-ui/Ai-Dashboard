@@ -165,7 +165,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Every member query is workspace-scoped at repository level.
 - Responses never expose authentication providers, password data, tokens, or unrelated workspace membership.
 
-### Release 2C.2 — Assignment experience
+### Release 2C.2 — Assignment experience (implemented, in review on phase2c/assignment)
 
 #### Features
 

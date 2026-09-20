@@ -16,6 +16,7 @@ import { taskDependencies, tasks, workspaceMembers } from "../schema.pg";
 import type {
   Task,
   TaskCreateInput,
+  TaskMutationOptions,
   TaskPriority,
   TaskQuery,
   TaskStatus,
@@ -44,6 +45,8 @@ function toDomain(row: TaskRow, blocked: boolean): Task {
     status: row.status as TaskStatus,
     priority: row.priority as TaskPriority,
     assigneeId: row.assigneeId,
+    assignedBy: row.assignedBy ?? null,
+    assignedAt: row.assignedAt?.toISOString() ?? null,
     dueDate: row.dueDate?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -225,7 +228,16 @@ function queryConditions(workspaceId: string, query: TaskQuery): SQL[] {
     conditions.push(eq(tasks.priority, query.priority));
   }
   if (query.milestoneId) conditions.push(eq(tasks.milestoneId, query.milestoneId));
-  if (query.assigneeId) conditions.push(eq(tasks.assigneeId, query.assigneeId));
+  if (query.unassigned) {
+    conditions.push(isNull(tasks.assigneeId));
+  } else if (query.assignedTo) {
+    conditions.push(eq(tasks.assigneeId, query.assignedTo));
+  } else if (query.assigneeId) {
+    conditions.push(eq(tasks.assigneeId, query.assigneeId));
+  }
+  if (query.assignedBy) {
+    conditions.push(eq(tasks.assignedBy, query.assignedBy));
+  }
   if (query.parentTaskId !== undefined) {
     conditions.push(
       query.parentTaskId === null
@@ -321,7 +333,11 @@ export class PostgresTaskRepository implements TaskRepository {
     return toDomain(row, blocked.has(id));
   }
 
-  async create(workspaceId: string, input: TaskCreateInput): Promise<Task> {
+  async create(
+    workspaceId: string,
+    input: TaskCreateInput,
+    options?: TaskMutationOptions,
+  ): Promise<Task> {
     const db = getPgDb();
     const id = createId("tsk");
     const now = new Date();
@@ -331,7 +347,14 @@ export class PostgresTaskRepository implements TaskRepository {
         await acquireWorkspaceLock(tx, workspaceId, this.lockTimeoutMs);
       }
       await assertValidParentTask(tx, workspaceId, null, input.parentTaskId, input.projectId);
-      await assertValidAssignee(tx, workspaceId, input.assigneeId);
+
+      const hasAssignee = Boolean(input.assigneeId);
+      if (hasAssignee) {
+        await assertValidAssignee(tx, workspaceId, input.assigneeId);
+        if (!options?.actorUserId) {
+          throw new Error("actorUserId is required when setting a task assignee");
+        }
+      }
 
       await tx.insert(tasks).values({
         id,
@@ -344,6 +367,8 @@ export class PostgresTaskRepository implements TaskRepository {
         status: input.status ?? "todo",
         priority: input.priority ?? "medium",
         assigneeId: input.assigneeId ?? null,
+        assignedBy: hasAssignee ? options!.actorUserId : null,
+        assignedAt: hasAssignee ? now : null,
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
         createdAt: input.createdAt ? new Date(input.createdAt) : now,
         updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
@@ -361,7 +386,12 @@ export class PostgresTaskRepository implements TaskRepository {
     });
   }
 
-  async update(workspaceId: string, id: string, input: TaskUpdateInput): Promise<Task | null> {
+  async update(
+    workspaceId: string,
+    id: string,
+    input: TaskUpdateInput,
+    options?: TaskMutationOptions,
+  ): Promise<Task | null> {
     const db = getPgDb();
 
     return db.transaction(async (tx) => {
@@ -379,17 +409,33 @@ export class PostgresTaskRepository implements TaskRepository {
       if (input.parentTaskId !== undefined) {
         await assertValidParentTask(tx, workspaceId, id, input.parentTaskId, existing.projectId);
       }
-      if (input.assigneeId !== undefined) {
-        await assertValidAssignee(tx, workspaceId, input.assigneeId);
-      }
 
       const patch: Partial<typeof tasks.$inferInsert> = { updatedAt: new Date() };
+
+      if (input.assigneeId !== undefined) {
+        if (input.assigneeId === null) {
+          if (existing.assigneeId !== null) {
+            patch.assigneeId = null;
+            patch.assignedBy = null;
+            patch.assignedAt = null;
+          }
+        } else if (input.assigneeId !== existing.assigneeId) {
+          await assertValidAssignee(tx, workspaceId, input.assigneeId);
+          if (!options?.actorUserId) {
+            throw new Error("actorUserId is required when changing a task assignee");
+          }
+          patch.assigneeId = input.assigneeId;
+          patch.assignedBy = options.actorUserId;
+          patch.assignedAt = new Date();
+        }
+        // If input.assigneeId === existing.assigneeId: no validation, and no change to assignee_id, assigned_by, or assigned_at
+      }
+
       if (input.title !== undefined) patch.title = input.title;
       if (input.description !== undefined) patch.description = input.description;
       if (input.milestoneId !== undefined) patch.milestoneId = input.milestoneId;
       if (input.parentTaskId !== undefined) patch.parentTaskId = input.parentTaskId;
       if (input.priority !== undefined) patch.priority = input.priority;
-      if (input.assigneeId !== undefined) patch.assigneeId = input.assigneeId;
       if (input.dueDate !== undefined) patch.dueDate = input.dueDate ? new Date(input.dueDate) : null;
 
       if (input.status !== undefined) {
