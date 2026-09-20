@@ -117,3 +117,4 @@ export interface TaskQuery {
 }
 
 export * from "./checklist-types";
+export * from "./comment-types";

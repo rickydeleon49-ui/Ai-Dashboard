@@ -12,7 +12,13 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { getPgDb } from "../pg-client";
-import { taskChecklistItems, taskDependencies, tasks, workspaceMembers } from "../schema.pg";
+import {
+  taskActivityEvents,
+  taskChecklistItems,
+  taskDependencies,
+  tasks,
+  workspaceMembers,
+} from "../schema.pg";
 import type {
   Task,
   TaskCreateInput,
@@ -439,6 +445,16 @@ export class PostgresTaskRepository implements TaskRepository {
         completedAt: input.completedAt ? new Date(input.completedAt) : null,
       });
 
+      await tx.insert(taskActivityEvents).values({
+        id: crypto.randomUUID(),
+        workspaceId,
+        projectId: input.projectId,
+        taskId: id,
+        actorId: options?.actorUserId ?? null,
+        type: "task.created",
+        details: { title: input.title },
+      });
+
       const [created] = await tx
         .select()
         .from(tasks)
@@ -535,6 +551,72 @@ export class PostgresTaskRepository implements TaskRepository {
         .update(tasks)
         .set(patch)
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)));
+
+      if (input.status !== undefined && input.status !== existing.status) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: existing.projectId,
+          taskId: id,
+          actorId: options?.actorUserId ?? null,
+          type: "task.status_changed",
+          details: { from: existing.status, to: input.status },
+        });
+      }
+      if (input.priority !== undefined && input.priority !== existing.priority) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: existing.projectId,
+          taskId: id,
+          actorId: options?.actorUserId ?? null,
+          type: "task.priority_changed",
+          details: { from: existing.priority, to: input.priority },
+        });
+      }
+      if (input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: existing.projectId,
+          taskId: id,
+          actorId: options?.actorUserId ?? null,
+          type: input.assigneeId ? "task.assigned" : "task.unassigned",
+          details: {
+            assigneeId: input.assigneeId,
+            previousAssigneeId: existing.assigneeId,
+          },
+        });
+      }
+      if (input.dueDate !== undefined) {
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
+        const oldDue = existing.dueDate ? existing.dueDate.toISOString() : null;
+        if (newDue !== oldDue) {
+          await tx.insert(taskActivityEvents).values({
+            id: crypto.randomUUID(),
+            workspaceId,
+            projectId: existing.projectId,
+            taskId: id,
+            actorId: options?.actorUserId ?? null,
+            type: "task.dates_changed",
+            details: { dueDate: input.dueDate ?? null },
+          });
+        }
+      }
+      if (input.milestoneId !== undefined && input.milestoneId !== existing.milestoneId) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: existing.projectId,
+          taskId: id,
+          actorId: options?.actorUserId ?? null,
+          type: "task.milestone_changed",
+          details: {
+            fromMilestoneId: existing.milestoneId,
+            toMilestoneId: input.milestoneId,
+          },
+        });
+      }
 
       const [updated] = await tx
         .select({
@@ -682,6 +764,22 @@ export class PostgresTaskRepository implements TaskRepository {
         .insert(taskDependencies)
         .values({ taskId, dependsOnTaskId, workspaceId })
         .onConflictDoNothing();
+
+      const [taskRow] = await tx
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
+      if (taskRow) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: taskRow.projectId,
+          taskId,
+          actorId: null,
+          type: "task.dependency_added",
+          details: { dependsOnTaskId },
+        });
+      }
     });
   }
 
@@ -691,14 +789,34 @@ export class PostgresTaskRepository implements TaskRepository {
     dependsOnTaskId: string,
   ): Promise<void> {
     const db = getPgDb();
-    await db
-      .delete(taskDependencies)
-      .where(
-        and(
-          eq(taskDependencies.workspaceId, workspaceId),
-          eq(taskDependencies.taskId, taskId),
-          eq(taskDependencies.dependsOnTaskId, dependsOnTaskId),
-        ),
-      );
+    await db.transaction(async (tx) => {
+      const [taskRow] = await tx
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
+
+      await tx
+        .delete(taskDependencies)
+        .where(
+          and(
+            eq(taskDependencies.workspaceId, workspaceId),
+            eq(taskDependencies.taskId, taskId),
+            eq(taskDependencies.dependsOnTaskId, dependsOnTaskId),
+          ),
+        );
+
+      if (taskRow) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: taskRow.projectId,
+          taskId,
+          actorId: null,
+          type: "task.dependency_removed",
+          details: { dependsOnTaskId },
+        });
+      }
+    });
   }
 }
+

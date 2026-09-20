@@ -209,6 +209,75 @@ export const taskChecklistItems = sqliteTable(
 );
 
 /**
+ * Comments on tasks (Phase 2C, release C.4).
+ * Single-tenant desktop supported with soft-deletion.
+ */
+export const taskComments = sqliteTable(
+  "task_comment",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().default("default"),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    authorId: text("author_id"),
+    body: text("body").notNull(),
+    deletedAt: text("deleted_at"),
+    deletedBy: text("deleted_by"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [
+    index("task_comment_task_created_idx").on(t.taskId, t.createdAt),
+    index("task_comment_workspace_task_idx").on(t.workspaceId, t.taskId),
+  ],
+);
+
+export const taskCommentEdits = sqliteTable(
+  "task_comment_edit",
+  {
+    id: text("id").primaryKey(),
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => taskComments.id, { onDelete: "cascade" }),
+    editedBy: text("edited_by"),
+    previousBody: text("previous_body").notNull(),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [
+    index("task_comment_edit_comment_idx").on(t.commentId, t.createdAt),
+  ],
+);
+
+/**
+ * Immutable activity events for tasks (Phase 2C, release C.4).
+ * Tracks assignment, status, dependency, date, milestone, checklist, and comment changes.
+ */
+export const taskActivityEvents = sqliteTable(
+  "task_activity_event",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().default("default"),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    actorId: text("actor_id"),
+    type: text("type").notNull(),
+    details: text("details").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [
+    index("task_activity_event_task_idx").on(t.taskId, t.createdAt),
+    index("task_activity_event_project_idx").on(t.projectId, t.createdAt),
+    index("task_activity_event_workspace_idx").on(t.workspaceId, t.createdAt),
+  ],
+);
+
+
+/**
  * A note in a project's knowledge base (Phase 2, release B) — flat, plain
  * text, no folders/hierarchy or version history in this first slice. See
  * `core/knowledge/types.ts` for the domain type this maps to.
@@ -476,3 +545,7 @@ export type ActivityRow = typeof activityEvents.$inferSelect;
 export type NoteRow = typeof notes.$inferSelect;
 export type AiConversationRow = typeof aiConversations.$inferSelect;
 export type AiMessageRow = typeof aiMessages.$inferSelect;
+export type TaskCommentRow = typeof taskComments.$inferSelect;
+export type TaskCommentEditRow = typeof taskCommentEdits.$inferSelect;
+export type TaskActivityEventRow = typeof taskActivityEvents.$inferSelect;
+

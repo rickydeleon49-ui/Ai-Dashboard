@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql, type SQL } from "drizzle-orm";
 import { db } from "../client";
-import { taskChecklistItems, taskDependencies, tasks } from "../schema";
+import { taskActivityEvents, taskChecklistItems, taskDependencies, tasks } from "../schema";
 import type { TaskRow } from "../schema";
 import { LOCAL_WORKSPACE_ID } from "./project-repository";
 import type { TaskRepository } from "./task-repository";
@@ -281,6 +281,19 @@ export class DrizzleTaskRepository implements TaskRepository {
           completedAt: input.completedAt ?? null,
         })
         .run();
+
+      db.insert(taskActivityEvents)
+        .values({
+          id: crypto.randomUUID(),
+          workspaceId: LOCAL_WORKSPACE_ID,
+          projectId: input.projectId,
+          taskId: id,
+          actorId: null,
+          type: "task.created",
+          details: JSON.stringify({ title: input.title }),
+          createdAt: timestamp,
+        })
+        .run();
     });
 
     const created = await this.findById(workspaceId, id);
@@ -325,6 +338,66 @@ export class DrizzleTaskRepository implements TaskRepository {
 
     db.transaction(() => {
       db.update(tasks).set(patch).where(eq(tasks.id, id)).run();
+
+      if (input.status !== undefined && input.status !== existing.status) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: existing.projectId,
+            taskId: id,
+            actorId: null,
+            type: "task.status_changed",
+            details: JSON.stringify({ from: existing.status, to: input.status }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
+      if (input.priority !== undefined && input.priority !== existing.priority) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: existing.projectId,
+            taskId: id,
+            actorId: null,
+            type: "task.priority_changed",
+            details: JSON.stringify({ from: existing.priority, to: input.priority }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
+      if (input.dueDate !== undefined && input.dueDate !== existing.dueDate) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: existing.projectId,
+            taskId: id,
+            actorId: null,
+            type: "task.dates_changed",
+            details: JSON.stringify({ dueDate: input.dueDate }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
+      if (input.milestoneId !== undefined && input.milestoneId !== existing.milestoneId) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: existing.projectId,
+            taskId: id,
+            actorId: null,
+            type: "task.milestone_changed",
+            details: JSON.stringify({
+              fromMilestoneId: existing.milestoneId,
+              toMilestoneId: input.milestoneId,
+            }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
     });
     return this.findById(workspaceId, id);
   }
@@ -416,6 +489,26 @@ export class DrizzleTaskRepository implements TaskRepository {
       if (cycle) throw new DependencyCycleError();
 
       tx.insert(taskDependencies).values({ taskId, dependsOnTaskId }).onConflictDoNothing().run();
+
+      const taskRow = tx
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
+      if (taskRow) {
+        tx.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: taskRow.projectId,
+            taskId,
+            actorId: null,
+            type: "task.dependency_added",
+            details: JSON.stringify({ dependsOnTaskId }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
       return true;
     });
   }
@@ -426,13 +519,37 @@ export class DrizzleTaskRepository implements TaskRepository {
     dependsOnTaskId: string,
   ): Promise<void> {
     assertLocalWorkspace(workspaceId);
-    db.delete(taskDependencies)
-      .where(
-        and(
-          eq(taskDependencies.taskId, taskId),
-          eq(taskDependencies.dependsOnTaskId, dependsOnTaskId),
-        ),
-      )
-      .run();
+    db.transaction(() => {
+      const taskRow = db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
+
+      db.delete(taskDependencies)
+        .where(
+          and(
+            eq(taskDependencies.taskId, taskId),
+            eq(taskDependencies.dependsOnTaskId, dependsOnTaskId),
+          ),
+        )
+        .run();
+
+      if (taskRow) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: taskRow.projectId,
+            taskId,
+            actorId: null,
+            type: "task.dependency_removed",
+            details: JSON.stringify({ dependsOnTaskId }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
+    });
   }
 }
+

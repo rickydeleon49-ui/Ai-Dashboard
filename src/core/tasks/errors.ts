@@ -95,3 +95,48 @@ export class InvalidChecklistItemError extends Error {
     this.name = "InvalidChecklistItemError";
   }
 }
+
+/**
+ * Thrown when a mentioned user is not an active/invited member of the workspace,
+ * or when mentions are used in an unsupported environment (such as desktop).
+ */
+export class InvalidMentionError extends Error {
+  public readonly invalidUserId?: string;
+
+  constructor(message: string, invalidUserId?: string) {
+    super(message);
+    this.name = "InvalidMentionError";
+    this.invalidUserId = invalidUserId;
+  }
+}
+
+/**
+ * Thrown when a comment is not found or does not belong to the given task/workspace.
+ */
+export class CommentNotFoundError extends Error {
+  constructor(message = "Comment not found.") {
+    super(message);
+    this.name = "CommentNotFoundError";
+  }
+}
+
+/**
+ * Thrown when comment input violates validation rules (empty text or > 10,000 chars).
+ */
+export class InvalidCommentError extends Error {
+  constructor(message = "Comment body must be between 1 and 10,000 characters.") {
+    super(message);
+    this.name = "InvalidCommentError";
+  }
+}
+
+/**
+ * Thrown when a user lacks permission to modify or delete a comment.
+ */
+export class CommentPermissionError extends Error {
+  constructor(message = "You do not have permission to modify this comment.") {
+    super(message);
+    this.name = "CommentPermissionError";
+  }
+}
+

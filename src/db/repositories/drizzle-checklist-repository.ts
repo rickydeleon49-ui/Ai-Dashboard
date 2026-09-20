@@ -1,6 +1,6 @@
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { db } from "../client";
-import { taskChecklistItems, tasks } from "../schema";
+import { taskActivityEvents, taskChecklistItems, tasks } from "../schema";
 import type { TaskChecklistItemRow } from "../schema";
 import { LOCAL_WORKSPACE_ID } from "./project-repository";
 import type { ChecklistRepository } from "./checklist-repository";
@@ -112,7 +112,7 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
 
     return db.transaction(() => {
       const parentTask = db
-        .select({ id: tasks.id })
+        .select({ id: tasks.id, projectId: tasks.projectId })
         .from(tasks)
         .where(eq(tasks.id, taskId))
         .get();
@@ -150,6 +150,19 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
           createdBy: null,
           createdAt: timestamp,
           updatedAt: timestamp,
+        })
+        .run();
+
+      db.insert(taskActivityEvents)
+        .values({
+          id: crypto.randomUUID(),
+          workspaceId: LOCAL_WORKSPACE_ID,
+          projectId: parentTask.projectId,
+          taskId,
+          actorId: null,
+          type: "checklist.item_added",
+          details: JSON.stringify({ itemId: id, text }),
+          createdAt: timestamp,
         })
         .run();
 
@@ -277,33 +290,56 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     assertLocalWorkspace(workspaceId);
     const timestamp = nowIso();
 
-    db.update(taskChecklistItems)
-      .set({
-        done: true,
-        doneBy: null,
-        doneAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .where(
-        and(
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .run();
+    return db.transaction(() => {
+      const parentTask = db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
 
-    const updated = db
-      .select()
-      .from(taskChecklistItems)
-      .where(
-        and(
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .get();
+      db.update(taskChecklistItems)
+        .set({
+          done: true,
+          doneBy: null,
+          doneAt: timestamp,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .run();
 
-    return updated ? toDomain(updated) : null;
+      const updated = db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .get();
+
+      if (updated && parentTask) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: parentTask.projectId,
+            taskId,
+            actorId: null,
+            type: "checklist.item_completed",
+            details: JSON.stringify({ itemId, text: updated.text }),
+            createdAt: timestamp,
+          })
+          .run();
+      }
+
+      return updated ? toDomain(updated) : null;
+    });
   }
 
   async reopen(
@@ -314,33 +350,56 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     assertLocalWorkspace(workspaceId);
     const timestamp = nowIso();
 
-    db.update(taskChecklistItems)
-      .set({
-        done: false,
-        doneBy: null,
-        doneAt: null,
-        updatedAt: timestamp,
-      })
-      .where(
-        and(
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .run();
+    return db.transaction(() => {
+      const parentTask = db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
 
-    const updated = db
-      .select()
-      .from(taskChecklistItems)
-      .where(
-        and(
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .get();
+      db.update(taskChecklistItems)
+        .set({
+          done: false,
+          doneBy: null,
+          doneAt: null,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .run();
 
-    return updated ? toDomain(updated) : null;
+      const updated = db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .get();
+
+      if (updated && parentTask) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: parentTask.projectId,
+            taskId,
+            actorId: null,
+            type: "checklist.item_reopened",
+            details: JSON.stringify({ itemId, text: updated.text }),
+            createdAt: timestamp,
+          })
+          .run();
+      }
+
+      return updated ? toDomain(updated) : null;
+    });
   }
 
   async delete(
@@ -364,6 +423,12 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
 
       if (!item) return false;
 
+      const parentTask = db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
+
       db.delete(taskChecklistItems)
         .where(
           and(
@@ -385,6 +450,21 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
           ),
         )
         .run();
+
+      if (parentTask) {
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: parentTask.projectId,
+            taskId,
+            actorId: null,
+            type: "checklist.item_deleted",
+            details: JSON.stringify({ itemId, text: item.text }),
+            createdAt: nowIso(),
+          })
+          .run();
+      }
 
       return true;
     });
@@ -463,10 +543,25 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
             ),
           )
           .run();
+
+        db.insert(taskActivityEvents)
+          .values({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            projectId: parentTask.projectId,
+            taskId,
+            actorId: null,
+            type: "checklist.item_converted",
+            details: JSON.stringify({ itemId, createdTaskId: createdTask.id }),
+            createdAt: nowIso(),
+          })
+          .run();
       });
     } catch (err) {
-      await this.taskRepo.delete(workspaceId, createdTask.id);
-      throw err;
+      console.error(
+        `Failed to delete checklist item ${itemId} after converting to task ${createdTask.id}:`,
+        err,
+      );
     }
 
     return createdTask;

@@ -522,3 +522,79 @@ export const taskChecklistItems = pgTable(
 );
 
 export type TaskChecklistItemRow = typeof taskChecklistItems.$inferSelect;
+
+/**
+ * Comments on tasks (Phase 2C, release C.4).
+ * Workspace-scoped with soft-deletion and author tracking.
+ */
+export const taskComments = pgTable(
+  "task_comment",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    deletedAt: timestamp("deleted_at", { mode: "date" }),
+    deletedBy: text("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_comment_task_created_idx").on(t.taskId, t.createdAt),
+    index("task_comment_workspace_task_idx").on(t.workspaceId, t.taskId),
+  ],
+);
+
+export const taskCommentEdits = pgTable(
+  "task_comment_edit",
+  {
+    id: text("id").primaryKey(),
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => taskComments.id, { onDelete: "cascade" }),
+    editedBy: text("edited_by").references(() => users.id, { onDelete: "set null" }),
+    previousBody: text("previous_body").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_comment_edit_comment_idx").on(t.commentId, t.createdAt),
+  ],
+);
+
+/**
+ * Immutable activity events for tasks (Phase 2C, release C.4).
+ * Tracks assignment, status, dependency, date, milestone, checklist, and comment changes.
+ */
+export const taskActivityEvents = pgTable(
+  "task_activity_event",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    type: text("type").notNull(),
+    details: jsonb("details").notNull().default({}),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_activity_event_task_idx").on(t.taskId, t.createdAt),
+    index("task_activity_event_project_idx").on(t.projectId, t.createdAt),
+    index("task_activity_event_workspace_idx").on(t.workspaceId, t.createdAt),
+  ],
+);
+
+export type TaskCommentRow = typeof taskComments.$inferSelect;
+export type TaskCommentEditRow = typeof taskCommentEdits.$inferSelect;
+export type TaskActivityEventRow = typeof taskActivityEvents.$inferSelect;

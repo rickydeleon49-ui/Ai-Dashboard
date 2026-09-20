@@ -122,3 +122,22 @@ export const checklistItemUpdateSchema = z.object({
 export const checklistReorderSchema = z.object({
   itemIds: z.array(z.string().trim().min(1, "Item ID cannot be empty")),
 });
+
+export const commentCreateSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Comment body cannot be empty")
+    .max(10000, "Comment body cannot exceed 10,000 characters"),
+  mentions: z.array(z.string().trim()).optional(),
+});
+
+export const commentUpdateSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, "Comment body cannot be empty")
+    .max(10000, "Comment body cannot exceed 10,000 characters"),
+  mentions: z.array(z.string().trim()).optional(),
+});
+

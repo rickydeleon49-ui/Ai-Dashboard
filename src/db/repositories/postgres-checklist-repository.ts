@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getPgDb } from "../pg-client";
-import { taskChecklistItems, tasks } from "../schema.pg";
+import { taskActivityEvents, taskChecklistItems, tasks } from "../schema.pg";
 import type { TaskChecklistItemRow } from "../schema.pg";
 import type {
   ChecklistItemActorOptions,
@@ -106,7 +106,7 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     return db.transaction(async (tx) => {
       // Row lock parent task to serialize concurrent appends/reorders
       const [parentTask] = await tx
-        .select({ id: tasks.id })
+        .select({ id: tasks.id, projectId: tasks.projectId })
         .from(tasks)
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)))
         .for("update");
@@ -147,6 +147,16 @@ export class PostgresChecklistRepository implements ChecklistRepository {
         createdBy: options?.actorUserId ?? null,
         createdAt: now,
         updatedAt: now,
+      });
+
+      await tx.insert(taskActivityEvents).values({
+        id: crypto.randomUUID(),
+        workspaceId,
+        projectId: parentTask.projectId,
+        taskId,
+        actorId: options?.actorUserId ?? null,
+        type: "checklist.item_added",
+        details: { itemId: id, text },
       });
 
       const [created] = await tx
@@ -281,24 +291,43 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     const db = getPgDb();
     const now = new Date();
 
-    const [updated] = await db
-      .update(taskChecklistItems)
-      .set({
-        done: true,
-        doneBy: options?.actorUserId ?? null,
-        doneAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(taskChecklistItems.workspaceId, workspaceId),
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .returning();
+    return db.transaction(async (tx) => {
+      const [parentTask] = await tx
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
 
-    return updated ? toDomain(updated) : null;
+      const [updated] = await tx
+        .update(taskChecklistItems)
+        .set({
+          done: true,
+          doneBy: options?.actorUserId ?? null,
+          doneAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(taskChecklistItems.workspaceId, workspaceId),
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .returning();
+
+      if (updated && parentTask) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: parentTask.projectId,
+          taskId,
+          actorId: options?.actorUserId ?? null,
+          type: "checklist.item_completed",
+          details: { itemId, text: updated.text },
+        });
+      }
+
+      return updated ? toDomain(updated) : null;
+    });
   }
 
   async reopen(
@@ -309,24 +338,43 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     const db = getPgDb();
     const now = new Date();
 
-    const [updated] = await db
-      .update(taskChecklistItems)
-      .set({
-        done: false,
-        doneBy: null,
-        doneAt: null,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(taskChecklistItems.workspaceId, workspaceId),
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .returning();
+    return db.transaction(async (tx) => {
+      const [parentTask] = await tx
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
 
-    return updated ? toDomain(updated) : null;
+      const [updated] = await tx
+        .update(taskChecklistItems)
+        .set({
+          done: false,
+          doneBy: null,
+          doneAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(taskChecklistItems.workspaceId, workspaceId),
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .returning();
+
+      if (updated && parentTask) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: parentTask.projectId,
+          taskId,
+          actorId: null,
+          type: "checklist.item_reopened",
+          details: { itemId, text: updated.text },
+        });
+      }
+
+      return updated ? toDomain(updated) : null;
+    });
   }
 
   async delete(
@@ -350,6 +398,11 @@ export class PostgresChecklistRepository implements ChecklistRepository {
         .for("update");
 
       if (!item) return false;
+
+      const [parentTask] = await tx
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
 
       await tx
         .delete(taskChecklistItems)
@@ -375,6 +428,18 @@ export class PostgresChecklistRepository implements ChecklistRepository {
             sql`${taskChecklistItems.position} > ${item.position}`,
           ),
         );
+
+      if (parentTask) {
+        await tx.insert(taskActivityEvents).values({
+          id: crypto.randomUUID(),
+          workspaceId,
+          projectId: parentTask.projectId,
+          taskId,
+          actorId: null,
+          type: "checklist.item_deleted",
+          details: { itemId, text: item.text },
+        });
+      }
 
       return true;
     });
@@ -453,6 +518,16 @@ export class PostgresChecklistRepository implements ChecklistRepository {
             sql`${taskChecklistItems.position} > ${item.position}`,
           ),
         );
+
+      await tx.insert(taskActivityEvents).values({
+        id: crypto.randomUUID(),
+        workspaceId,
+        projectId: parentTask.projectId,
+        taskId,
+        actorId: options?.actorUserId ?? null,
+        type: "checklist.item_converted",
+        details: { itemId, createdTaskId: createdTask.id },
+      });
 
       return createdTask;
     });
