@@ -76,9 +76,15 @@ export interface Task {
    * or the blocker's own status. Not settable via create/update input.
    */
   blocked: boolean;
+  /** Total number of checklist items on this task. */
+  checklistTotal: number;
+  /** Number of completed checklist items on this task. */
+  checklistDone: number;
 }
 
-export type TaskCreateInput = Partial<Omit<Task, "id" | "blocked">> & {
+export type TaskCreateInput = Partial<
+  Omit<Task, "id" | "blocked" | "checklistDone" | "checklistTotal">
+> & {
   projectId: string;
   title: string;
 };
@@ -88,7 +94,9 @@ export type TaskCreateInput = Partial<Omit<Task, "id" | "blocked">> & {
  * immutable — `blocked` only ever changes as a side effect of
  * `addDependency`/`removeDependency` or a dependency's own status changing.
  */
-export type TaskUpdateInput = Partial<Omit<Task, "id" | "projectId" | "createdAt" | "blocked">>;
+export type TaskUpdateInput = Partial<
+  Omit<Task, "id" | "projectId" | "createdAt" | "blocked" | "checklistDone" | "checklistTotal">
+>;
 
 export interface TaskMutationOptions {
   actorUserId?: string;

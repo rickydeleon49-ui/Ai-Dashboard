@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql, type SQL } from "drizzle-orm";
 import { db } from "../client";
-import { taskDependencies, tasks } from "../schema";
+import { taskChecklistItems, taskDependencies, tasks } from "../schema";
 import type { TaskRow } from "../schema";
 import { LOCAL_WORKSPACE_ID } from "./project-repository";
 import type { TaskRepository } from "./task-repository";
@@ -33,7 +33,11 @@ function nowIso(): string {
  * (if anything) is actually stored in the column. See the column's own
  * comment in `db/schema.ts`.
  */
-function toDomain(row: TaskRow, blocked: boolean): Task {
+function toDomain(
+  row: TaskRow,
+  blocked: boolean,
+  checklistCounts?: { done: number; total: number },
+): Task {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -51,6 +55,8 @@ function toDomain(row: TaskRow, blocked: boolean): Task {
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
     blocked,
+    checklistTotal: checklistCounts?.total ?? 0,
+    checklistDone: checklistCounts?.done ?? 0,
   };
 }
 
@@ -175,16 +181,27 @@ export class DrizzleTaskRepository implements TaskRepository {
     const conditions = [eq(tasks.projectId, projectId), ...queryConditions(query)];
 
     let statement = db
-      .select()
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)`.mapWith(Number),
+      })
       .from(tasks)
+      .leftJoin(taskChecklistItems, eq(taskChecklistItems.taskId, tasks.id))
       .where(and(...conditions))
+      .groupBy(tasks.id)
       .orderBy(...orderByFor(query.sort))
       .$dynamic();
     if (query.limit) statement = statement.limit(query.limit);
 
     const rows = statement.all();
-    const blocked = loadBlockedSet(rows.map((r) => r.id));
-    return rows.map((row) => toDomain(row, blocked.has(row.id)));
+    const blocked = loadBlockedSet(rows.map((r) => r.task.id));
+    return rows.map((row) =>
+      toDomain(row.task, blocked.has(row.task.id), {
+        total: row.checklistTotal ?? 0,
+        done: row.checklistDone ?? 0,
+      }),
+    );
   }
 
   async listForWorkspace(workspaceId: string, query: TaskQuery = {}): Promise<Task[]> {
@@ -192,23 +209,47 @@ export class DrizzleTaskRepository implements TaskRepository {
     const conditions = queryConditions(query);
 
     let statement = db
-      .select()
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)`.mapWith(Number),
+      })
       .from(tasks)
+      .leftJoin(taskChecklistItems, eq(taskChecklistItems.taskId, tasks.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(tasks.id)
       .orderBy(...orderByFor(query.sort))
       .$dynamic();
     if (query.limit) statement = statement.limit(query.limit);
 
     const rows = statement.all();
-    const blocked = loadBlockedSet(rows.map((r) => r.id));
-    return rows.map((row) => toDomain(row, blocked.has(row.id)));
+    const blocked = loadBlockedSet(rows.map((r) => r.task.id));
+    return rows.map((row) =>
+      toDomain(row.task, blocked.has(row.task.id), {
+        total: row.checklistTotal ?? 0,
+        done: row.checklistDone ?? 0,
+      }),
+    );
   }
 
   async findById(workspaceId: string, id: string): Promise<Task | null> {
     assertLocalWorkspace(workspaceId);
-    const row = db.select().from(tasks).where(eq(tasks.id, id)).get();
+    const row = db
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)`.mapWith(Number),
+      })
+      .from(tasks)
+      .leftJoin(taskChecklistItems, eq(taskChecklistItems.taskId, tasks.id))
+      .where(eq(tasks.id, id))
+      .groupBy(tasks.id)
+      .get();
     if (!row) return null;
-    return toDomain(row, loadBlockedSet([id]).has(id));
+    return toDomain(row.task, loadBlockedSet([id]).has(id), {
+      total: row.checklistTotal ?? 0,
+      done: row.checklistDone ?? 0,
+    });
   }
 
   async create(
@@ -299,25 +340,47 @@ export class DrizzleTaskRepository implements TaskRepository {
   async listBlockers(workspaceId: string, taskId: string): Promise<Task[]> {
     assertLocalWorkspace(workspaceId);
     const rows = db
-      .select({ task: tasks })
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)`.mapWith(Number),
+      })
       .from(taskDependencies)
       .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+      .leftJoin(taskChecklistItems, eq(taskChecklistItems.taskId, tasks.id))
       .where(eq(taskDependencies.taskId, taskId))
+      .groupBy(tasks.id)
       .all();
     const blocked = loadBlockedSet(rows.map((r) => r.task.id));
-    return rows.map((r) => toDomain(r.task, blocked.has(r.task.id)));
+    return rows.map((r) =>
+      toDomain(r.task, blocked.has(r.task.id), {
+        total: r.checklistTotal ?? 0,
+        done: r.checklistDone ?? 0,
+      }),
+    );
   }
 
   async listDependents(workspaceId: string, taskId: string): Promise<Task[]> {
     assertLocalWorkspace(workspaceId);
     const rows = db
-      .select({ task: tasks })
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)`.mapWith(Number),
+      })
       .from(taskDependencies)
       .innerJoin(tasks, eq(tasks.id, taskDependencies.taskId))
+      .leftJoin(taskChecklistItems, eq(taskChecklistItems.taskId, tasks.id))
       .where(eq(taskDependencies.dependsOnTaskId, taskId))
+      .groupBy(tasks.id)
       .all();
     const blocked = loadBlockedSet(rows.map((r) => r.task.id));
-    return rows.map((r) => toDomain(r.task, blocked.has(r.task.id)));
+    return rows.map((r) =>
+      toDomain(r.task, blocked.has(r.task.id), {
+        total: r.checklistTotal ?? 0,
+        done: r.checklistDone ?? 0,
+      }),
+    );
   }
 
   async addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void> {

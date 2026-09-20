@@ -12,7 +12,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { getPgDb } from "../pg-client";
-import { taskDependencies, tasks, workspaceMembers } from "../schema.pg";
+import { taskChecklistItems, taskDependencies, tasks, workspaceMembers } from "../schema.pg";
 import type {
   Task,
   TaskCreateInput,
@@ -44,7 +44,11 @@ export interface PostgresTaskMutationOptions extends TaskMutationOptions {
   tx?: PgTransaction;
 }
 
-function toDomain(row: TaskRow, blocked: boolean): Task {
+function toDomain(
+  row: TaskRow,
+  blocked: boolean,
+  checklistCounts?: { done: number; total: number },
+): Task {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -62,6 +66,8 @@ function toDomain(row: TaskRow, blocked: boolean): Task {
     updatedAt: row.updatedAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
     blocked,
+    checklistTotal: checklistCounts?.total ?? 0,
+    checklistDone: checklistCounts?.done ?? 0,
   };
 }
 
@@ -296,9 +302,21 @@ export class PostgresTaskRepository implements TaskRepository {
     const conditions = [eq(tasks.projectId, projectId), ...queryConditions(workspaceId, query)];
 
     let statement = db
-      .select()
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+      })
       .from(tasks)
+      .leftJoin(
+        taskChecklistItems,
+        and(
+          eq(taskChecklistItems.taskId, tasks.id),
+          eq(taskChecklistItems.workspaceId, workspaceId),
+        ),
+      )
       .where(and(...conditions))
+      .groupBy(tasks.id)
       .orderBy(...orderByFor(query.sort))
       .$dynamic();
     if (query.limit) statement = statement.limit(query.limit);
@@ -306,9 +324,14 @@ export class PostgresTaskRepository implements TaskRepository {
     const rows = await statement;
     const blocked = await loadBlockedSet(
       workspaceId,
-      rows.map((r) => r.id),
+      rows.map((r) => r.task.id),
     );
-    return rows.map((row) => toDomain(row, blocked.has(row.id)));
+    return rows.map((row) =>
+      toDomain(row.task, blocked.has(row.task.id), {
+        total: row.checklistTotal ?? 0,
+        done: row.checklistDone ?? 0,
+      }),
+    );
   }
 
   async listForWorkspace(workspaceId: string, query: TaskQuery = {}): Promise<Task[]> {
@@ -316,9 +339,21 @@ export class PostgresTaskRepository implements TaskRepository {
     const conditions = queryConditions(workspaceId, query);
 
     let statement = db
-      .select()
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+      })
       .from(tasks)
+      .leftJoin(
+        taskChecklistItems,
+        and(
+          eq(taskChecklistItems.taskId, tasks.id),
+          eq(taskChecklistItems.workspaceId, workspaceId),
+        ),
+      )
       .where(and(...conditions))
+      .groupBy(tasks.id)
       .orderBy(...orderByFor(query.sort))
       .$dynamic();
     if (query.limit) statement = statement.limit(query.limit);
@@ -326,21 +361,41 @@ export class PostgresTaskRepository implements TaskRepository {
     const rows = await statement;
     const blocked = await loadBlockedSet(
       workspaceId,
-      rows.map((r) => r.id),
+      rows.map((r) => r.task.id),
     );
-    return rows.map((row) => toDomain(row, blocked.has(row.id)));
+    return rows.map((row) =>
+      toDomain(row.task, blocked.has(row.task.id), {
+        total: row.checklistTotal ?? 0,
+        done: row.checklistDone ?? 0,
+      }),
+    );
   }
 
   async findById(workspaceId: string, id: string): Promise<Task | null> {
     const db = getPgDb();
     const [row] = await db
-      .select()
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+      })
       .from(tasks)
+      .leftJoin(
+        taskChecklistItems,
+        and(
+          eq(taskChecklistItems.taskId, tasks.id),
+          eq(taskChecklistItems.workspaceId, workspaceId),
+        ),
+      )
       .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+      .groupBy(tasks.id)
       .limit(1);
     if (!row) return null;
     const blocked = await loadBlockedSet(workspaceId, [id]);
-    return toDomain(row, blocked.has(id));
+    return toDomain(row.task, blocked.has(id), {
+      total: row.checklistTotal ?? 0,
+      done: row.checklistDone ?? 0,
+    });
   }
 
   async create(
@@ -391,7 +446,7 @@ export class PostgresTaskRepository implements TaskRepository {
         .limit(1);
       if (!created) throw new Error("Failed to read back created task");
       const blocked = await loadBlockedSet(workspaceId, [id], tx);
-      return toDomain(created, blocked.has(id));
+      return toDomain(created, blocked.has(id), { total: 0, done: 0 });
     };
 
     if (options?.tx) {
@@ -408,7 +463,6 @@ export class PostgresTaskRepository implements TaskRepository {
     options?: TaskMutationOptions,
   ): Promise<Task | null> {
     const db = getPgDb();
-
     return db.transaction(async (tx) => {
       if (input.status !== undefined || input.parentTaskId !== undefined) {
         await acquireWorkspaceLock(tx, workspaceId, this.lockTimeoutMs);
@@ -421,11 +475,13 @@ export class PostgresTaskRepository implements TaskRepository {
         .limit(1);
       if (!existing) return null;
 
-      if (input.parentTaskId !== undefined) {
+      if (input.parentTaskId !== undefined && input.parentTaskId !== existing.parentTaskId) {
         await assertValidParentTask(tx, workspaceId, id, input.parentTaskId, existing.projectId);
       }
 
-      const patch: Partial<typeof tasks.$inferInsert> = { updatedAt: new Date() };
+      const patch: Partial<typeof tasks.$inferInsert> = {
+        updatedAt: new Date(),
+      };
 
       if (input.assigneeId !== undefined) {
         if (input.assigneeId === null) {
@@ -448,10 +504,12 @@ export class PostgresTaskRepository implements TaskRepository {
 
       if (input.title !== undefined) patch.title = input.title;
       if (input.description !== undefined) patch.description = input.description;
+      if (input.priority !== undefined) patch.priority = input.priority;
       if (input.milestoneId !== undefined) patch.milestoneId = input.milestoneId;
       if (input.parentTaskId !== undefined) patch.parentTaskId = input.parentTaskId;
-      if (input.priority !== undefined) patch.priority = input.priority;
-      if (input.dueDate !== undefined) patch.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+      if (input.dueDate !== undefined) {
+        patch.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+      }
 
       if (input.status !== undefined) {
         const movingToDone = input.status === "done";
@@ -479,13 +537,28 @@ export class PostgresTaskRepository implements TaskRepository {
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)));
 
       const [updated] = await tx
-        .select()
+        .select({
+          task: tasks,
+          checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+          checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+        })
         .from(tasks)
+        .leftJoin(
+          taskChecklistItems,
+          and(
+            eq(taskChecklistItems.taskId, tasks.id),
+            eq(taskChecklistItems.workspaceId, workspaceId),
+          ),
+        )
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+        .groupBy(tasks.id)
         .limit(1);
       if (!updated) return null;
       const blocked = await loadBlockedSet(workspaceId, [id], tx);
-      return toDomain(updated, blocked.has(id));
+      return toDomain(updated.task, blocked.has(id), {
+        total: updated.checklistTotal ?? 0,
+        done: updated.checklistDone ?? 0,
+      });
     });
   }
 
@@ -504,36 +577,70 @@ export class PostgresTaskRepository implements TaskRepository {
   async listBlockers(workspaceId: string, taskId: string): Promise<Task[]> {
     const db = getPgDb();
     const rows = await db
-      .select({ task: tasks })
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+      })
       .from(taskDependencies)
       .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+      .leftJoin(
+        taskChecklistItems,
+        and(
+          eq(taskChecklistItems.taskId, tasks.id),
+          eq(taskChecklistItems.workspaceId, workspaceId),
+        ),
+      )
       .where(
         and(eq(taskDependencies.workspaceId, workspaceId), eq(taskDependencies.taskId, taskId)),
-      );
+      )
+      .groupBy(tasks.id);
     const blocked = await loadBlockedSet(
       workspaceId,
       rows.map((r) => r.task.id),
     );
-    return rows.map((r) => toDomain(r.task, blocked.has(r.task.id)));
+    return rows.map((r) =>
+      toDomain(r.task, blocked.has(r.task.id), {
+        total: r.checklistTotal ?? 0,
+        done: r.checklistDone ?? 0,
+      }),
+    );
   }
 
   async listDependents(workspaceId: string, taskId: string): Promise<Task[]> {
     const db = getPgDb();
     const rows = await db
-      .select({ task: tasks })
+      .select({
+        task: tasks,
+        checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+        checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+      })
       .from(taskDependencies)
       .innerJoin(tasks, eq(tasks.id, taskDependencies.taskId))
+      .leftJoin(
+        taskChecklistItems,
+        and(
+          eq(taskChecklistItems.taskId, tasks.id),
+          eq(taskChecklistItems.workspaceId, workspaceId),
+        ),
+      )
       .where(
         and(
           eq(taskDependencies.workspaceId, workspaceId),
           eq(taskDependencies.dependsOnTaskId, taskId),
         ),
-      );
+      )
+      .groupBy(tasks.id);
     const blocked = await loadBlockedSet(
       workspaceId,
       rows.map((r) => r.task.id),
     );
-    return rows.map((r) => toDomain(r.task, blocked.has(r.task.id)));
+    return rows.map((r) =>
+      toDomain(r.task, blocked.has(r.task.id), {
+        total: r.checklistTotal ?? 0,
+        done: r.checklistDone ?? 0,
+      }),
+    );
   }
 
   async addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void> {

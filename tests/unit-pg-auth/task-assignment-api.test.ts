@@ -693,6 +693,8 @@ describe("Release 2C.2 Task Assignment API: Authorization Matrix & Validation", 
       "completedAt",
       "blocked",
       "isBlocked",
+      "checklistTotal",
+      "checklistDone",
     ]);
 
     for (const key of Object.keys(taskJson)) {

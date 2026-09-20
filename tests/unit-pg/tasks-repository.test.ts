@@ -22,6 +22,9 @@ let PostgresMilestoneRepository: typeof import(
 let PostgresTaskRepository: typeof import(
   "../../src/db/repositories/postgres-task-repository"
 ).PostgresTaskRepository;
+let PostgresChecklistRepository: typeof import(
+  "../../src/db/repositories/postgres-checklist-repository"
+).PostgresChecklistRepository;
 
 before(async () => {
   await migrate();
@@ -35,6 +38,9 @@ before(async () => {
     "../../src/db/repositories/postgres-milestone-repository"
   ));
   ({ PostgresTaskRepository } = await import("../../src/db/repositories/postgres-task-repository"));
+  ({ PostgresChecklistRepository } = await import(
+    "../../src/db/repositories/postgres-checklist-repository"
+  ));
 });
 
 after(() => cleanup());
@@ -414,5 +420,91 @@ describe("PostgresTaskRepository: dependencies + blocked state", () => {
     assert.ok(
       rejected[0]?.status === "rejected" && rejected[0].reason instanceof DependencyCycleError,
     );
+  });
+
+  describe("PostgresTaskRepository: grouped aggregate checklist counts", () => {
+    it("returns correct checklistDone and checklistTotal across list, findById, and mutations", async () => {
+      const taskRepo = new PostgresTaskRepository();
+      const checklistRepo = new PostgresChecklistRepository();
+      const { workspaceId, projectId } = await makeWorkspaceWithProject("Checklist Counts Test");
+
+      const t1 = await taskRepo.create(workspaceId, { projectId, title: "Task with checklist" });
+      const t2 = await taskRepo.create(workspaceId, { projectId, title: "Task without checklist" });
+
+      // Initial state: both have 0/0
+      const initialList = await taskRepo.list(workspaceId, projectId);
+      const initialT1 = initialList.find((t) => t.id === t1.id);
+      const initialT2 = initialList.find((t) => t.id === t2.id);
+      assert.equal(initialT1?.checklistTotal, 0);
+      assert.equal(initialT1?.checklistDone, 0);
+      assert.equal(initialT2?.checklistTotal, 0);
+      assert.equal(initialT2?.checklistDone, 0);
+
+      // Add 3 checklist items to t1 (item1: done, item2: not done, item3: done)
+      const item1 = await checklistRepo.create(workspaceId, t1.id, { text: "Item 1" });
+      const item2 = await checklistRepo.create(workspaceId, t1.id, { text: "Item 2" });
+      const item3 = await checklistRepo.create(workspaceId, t1.id, { text: "Item 3" });
+
+      await checklistRepo.complete(workspaceId, t1.id, item1.id);
+      await checklistRepo.complete(workspaceId, t1.id, item3.id);
+
+      // Verify list(workspaceId, projectId) returns 2 done / 3 total for t1, 0/0 for t2
+      const listAfter = await taskRepo.list(workspaceId, projectId);
+      const readT1 = listAfter.find((t) => t.id === t1.id);
+      const readT2 = listAfter.find((t) => t.id === t2.id);
+      assert.equal(readT1?.checklistTotal, 3);
+      assert.equal(readT1?.checklistDone, 2);
+      assert.equal(readT2?.checklistTotal, 0);
+      assert.equal(readT2?.checklistDone, 0);
+
+      // Verify listForWorkspace returns identical counts
+      const wsList = await taskRepo.listForWorkspace(workspaceId);
+      const wsT1 = wsList.find((t) => t.id === t1.id);
+      assert.equal(wsT1?.checklistTotal, 3);
+      assert.equal(wsT1?.checklistDone, 2);
+
+      // Verify findById returns identical counts
+      const directT1 = await taskRepo.findById(workspaceId, t1.id);
+      assert.equal(directT1?.checklistTotal, 3);
+      assert.equal(directT1?.checklistDone, 2);
+
+      // Complete item 2 -> counts become 3/3
+      await checklistRepo.complete(workspaceId, t1.id, item2.id);
+      const directT1AllDone = await taskRepo.findById(workspaceId, t1.id);
+      assert.equal(directT1AllDone?.checklistTotal, 3);
+      assert.equal(directT1AllDone?.checklistDone, 3);
+
+      // Reopen item 1 -> counts become 2/3
+      await checklistRepo.reopen(workspaceId, t1.id, item1.id);
+      const directT1Reopened = await taskRepo.findById(workspaceId, t1.id);
+      assert.equal(directT1Reopened?.checklistTotal, 3);
+      assert.equal(directT1Reopened?.checklistDone, 2);
+
+      // Delete item 2 -> counts become 1/2
+      await checklistRepo.delete(workspaceId, t1.id, item2.id);
+      const directT1Deleted = await taskRepo.findById(workspaceId, t1.id);
+      assert.equal(directT1Deleted?.checklistTotal, 2);
+      assert.equal(directT1Deleted?.checklistDone, 1);
+
+      // Convert item 3 to task -> t1 counts become 0/1, and converted task has 0/0
+      const converted = await checklistRepo.convertToTask(workspaceId, t1.id, item3.id);
+      assert.equal(converted.checklistTotal, 0);
+      assert.equal(converted.checklistDone, 0);
+
+      const directT1AfterConvert = await taskRepo.findById(workspaceId, t1.id);
+      assert.equal(directT1AfterConvert?.checklistTotal, 1);
+      assert.equal(directT1AfterConvert?.checklistDone, 0);
+
+      // Verify cross-workspace isolation: another workspace's tasks/items never affect counts
+      const otherWs = await makeWorkspaceWithProject("Other Workspace");
+      const otherT = await taskRepo.create(otherWs.workspaceId, {
+        projectId: otherWs.projectId,
+        title: "Other Task",
+      });
+      const otherList = await taskRepo.list(otherWs.workspaceId, otherWs.projectId);
+      const readOther = otherList.find((t) => t.id === otherT.id);
+      assert.equal(readOther?.checklistTotal, 0);
+      assert.equal(readOther?.checklistDone, 0);
+    });
   });
 });

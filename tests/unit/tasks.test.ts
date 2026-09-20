@@ -14,11 +14,12 @@ import { LOCAL_WORKSPACE_ID } from "../../src/db/repositories/project-repository
 let projectRepository: import("../../src/db/repositories/project-repository").ProjectRepository;
 let milestoneRepository: import("../../src/db/repositories/milestone-repository").MilestoneRepository;
 let taskRepository: import("../../src/db/repositories/task-repository").TaskRepository;
+let checklistRepository: import("../../src/db/repositories/checklist-repository").ChecklistRepository;
 let projectId: string;
 
 before(async () => {
   await migrate();
-  ({ projectRepository, milestoneRepository, taskRepository } = await import(
+  ({ projectRepository, milestoneRepository, taskRepository, checklistRepository } = await import(
     "../../src/db/repositories"
   ));
   const project = await projectRepository.create(LOCAL_WORKSPACE_ID, { name: "Test Project" });
@@ -552,3 +553,80 @@ describe("subtask hierarchy rules (SQLite)", () => {
     );
   });
 });
+
+describe("DrizzleTaskRepository: grouped aggregate checklist counts (SQLite)", () => {
+    it("returns correct checklistDone and checklistTotal across list, findById, and mutations", async () => {
+      const t1 = await taskRepository.create(LOCAL_WORKSPACE_ID, {
+        projectId,
+        title: "Task with checklist (SQLite)",
+      });
+      const t2 = await taskRepository.create(LOCAL_WORKSPACE_ID, {
+        projectId,
+        title: "Task without checklist (SQLite)",
+      });
+
+      // Initial state: 0/0
+      const initialList = await taskRepository.list(LOCAL_WORKSPACE_ID, projectId);
+      const initialT1 = initialList.find((t) => t.id === t1.id);
+      const initialT2 = initialList.find((t) => t.id === t2.id);
+      assert.equal(initialT1?.checklistTotal, 0);
+      assert.equal(initialT1?.checklistDone, 0);
+      assert.equal(initialT2?.checklistTotal, 0);
+      assert.equal(initialT2?.checklistDone, 0);
+
+      // Add 3 checklist items to t1 (item1: done, item2: not done, item3: done)
+      const item1 = await checklistRepository.create(LOCAL_WORKSPACE_ID, t1.id, { text: "Item 1" });
+      const item2 = await checklistRepository.create(LOCAL_WORKSPACE_ID, t1.id, { text: "Item 2" });
+      const item3 = await checklistRepository.create(LOCAL_WORKSPACE_ID, t1.id, { text: "Item 3" });
+
+      await checklistRepository.complete(LOCAL_WORKSPACE_ID, t1.id, item1.id);
+      await checklistRepository.complete(LOCAL_WORKSPACE_ID, t1.id, item3.id);
+
+      // Verify list(LOCAL_WORKSPACE_ID, projectId)
+      const listAfter = await taskRepository.list(LOCAL_WORKSPACE_ID, projectId);
+      const readT1 = listAfter.find((t) => t.id === t1.id);
+      const readT2 = listAfter.find((t) => t.id === t2.id);
+      assert.equal(readT1?.checklistTotal, 3);
+      assert.equal(readT1?.checklistDone, 2);
+      assert.equal(readT2?.checklistTotal, 0);
+      assert.equal(readT2?.checklistDone, 0);
+
+      // Verify listForWorkspace returns identical counts
+      const wsList = await taskRepository.listForWorkspace(LOCAL_WORKSPACE_ID);
+      const wsT1 = wsList.find((t) => t.id === t1.id);
+      assert.equal(wsT1?.checklistTotal, 3);
+      assert.equal(wsT1?.checklistDone, 2);
+
+      // Verify findById returns identical counts
+      const directT1 = await taskRepository.findById(LOCAL_WORKSPACE_ID, t1.id);
+      assert.equal(directT1?.checklistTotal, 3);
+      assert.equal(directT1?.checklistDone, 2);
+
+      // Complete item 2 -> counts become 3/3
+      await checklistRepository.complete(LOCAL_WORKSPACE_ID, t1.id, item2.id);
+      const directT1AllDone = await taskRepository.findById(LOCAL_WORKSPACE_ID, t1.id);
+      assert.equal(directT1AllDone?.checklistTotal, 3);
+      assert.equal(directT1AllDone?.checklistDone, 3);
+
+      // Reopen item 1 -> counts become 2/3
+      await checklistRepository.reopen(LOCAL_WORKSPACE_ID, t1.id, item1.id);
+      const directT1Reopened = await taskRepository.findById(LOCAL_WORKSPACE_ID, t1.id);
+      assert.equal(directT1Reopened?.checklistTotal, 3);
+      assert.equal(directT1Reopened?.checklistDone, 2);
+
+      // Delete item 2 -> counts become 1/2
+      await checklistRepository.delete(LOCAL_WORKSPACE_ID, t1.id, item2.id);
+      const directT1Deleted = await taskRepository.findById(LOCAL_WORKSPACE_ID, t1.id);
+      assert.equal(directT1Deleted?.checklistTotal, 2);
+      assert.equal(directT1Deleted?.checklistDone, 1);
+
+      // Convert item 3 to task -> t1 counts become 0/1, and converted task has 0/0
+      const converted = await checklistRepository.convertToTask(LOCAL_WORKSPACE_ID, t1.id, item3.id);
+      assert.equal(converted.checklistTotal, 0);
+      assert.equal(converted.checklistDone, 0);
+
+      const directT1AfterConvert = await taskRepository.findById(LOCAL_WORKSPACE_ID, t1.id);
+      assert.equal(directT1AfterConvert?.checklistTotal, 1);
+      assert.equal(directT1AfterConvert?.checklistDone, 0);
+    });
+  });

@@ -68,24 +68,6 @@ function MyWorkRow({
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checklistSummary, setChecklistSummary] = useState<{ done: number; total: number } | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch(`/api/tasks/${task.id}/checklist`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (active && data?.items) {
-          const total = data.items.length;
-          const done = data.items.filter((i: any) => i.done).length;
-          setChecklistSummary(total > 0 ? { done, total } : null);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [task.id]);
 
   async function changeStatus(status: string) {
     if (isViewer) return;
@@ -159,8 +141,8 @@ function MyWorkRow({
           {TASK_PRIORITY_META[task.priority].label}
         </Badge>
 
-        {checklistSummary ? (
-          <TaskChecklistBadge done={checklistSummary.done} total={checklistSummary.total} />
+        {(task.checklistTotal ?? 0) > 0 ? (
+          <TaskChecklistBadge done={task.checklistDone ?? 0} total={task.checklistTotal ?? 0} />
         ) : null}
 
         {task.blocked ? (

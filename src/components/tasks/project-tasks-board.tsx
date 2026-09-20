@@ -563,24 +563,18 @@ function TaskRow({
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [checklistSummary, setChecklistSummary] = useState<{ done: number; total: number } | null>(null);
+  const [progressOverride, setProgressOverride] = useState<{
+    taskId: string;
+    done: number;
+    total: number;
+  } | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    fetch(`/api/tasks/${task.id}/checklist`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (active && data?.items) {
-          const total = data.items.length;
-          const done = data.items.filter((i: any) => i.done).length;
-          setChecklistSummary(total > 0 ? { done, total } : null);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [task.id]);
+  const checklistSummary =
+    progressOverride && progressOverride.taskId === task.id
+      ? { done: progressOverride.done, total: progressOverride.total }
+      : (task.checklistTotal ?? 0) > 0
+      ? { done: task.checklistDone ?? 0, total: task.checklistTotal ?? 0 }
+      : null;
 
   async function changeStatus(status: string) {
     if (isViewer) return;
@@ -740,7 +734,7 @@ function TaskRow({
             taskId={task.id}
             isViewer={isViewer}
             onProgressChange={(done, total) => {
-              setChecklistSummary(total > 0 ? { done, total } : null);
+              setProgressOverride({ taskId: task.id, done, total });
             }}
             onTaskCreated={onChanged}
           />

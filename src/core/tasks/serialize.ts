@@ -9,14 +9,20 @@ import { isAccountsMode } from "@/lib/auth-mode";
  * to preserve the legacy desktop response shape.
  */
 export function serializeTaskResponse(task: Task): Record<string, unknown> {
+  const base = {
+    ...task,
+    checklistDone: task.checklistDone ?? 0,
+    checklistTotal: task.checklistTotal ?? 0,
+  };
+
   if (isAccountsMode()) {
     return {
-      ...task,
+      ...base,
       assignedBy: task.assignedBy ?? null,
       assignedAt: task.assignedAt ?? null,
     };
   }
 
-  const { assignedBy: _by, assignedAt: _at, ...rest } = task;
+  const { assignedBy: _by, assignedAt: _at, ...rest } = base;
   return rest;
 }
