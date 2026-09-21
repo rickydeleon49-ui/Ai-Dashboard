@@ -33,6 +33,7 @@
  */
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { inArray } from "drizzle-orm";
 import { cleanup, migrate } from "../helpers/db.pg";
 
 let db: typeof import("../../src/db/pg-client").getPgDb;
@@ -61,6 +62,7 @@ let PostgresActivityRepository: typeof import(
 
 let InvalidMentionError: typeof import("../../src/core/tasks/errors").InvalidMentionError;
 let InvalidCommentError: typeof import("../../src/core/tasks/errors").InvalidCommentError;
+let InvalidPaginationError: typeof import("../../src/core/tasks/errors").InvalidPaginationError;
 
 let projectRepo: import("../../src/db/repositories/postgres-project-repository").PostgresProjectRepository;
 let taskRepo: import("../../src/db/repositories/postgres-task-repository").PostgresTaskRepository;
@@ -74,7 +76,7 @@ const workspaceB = "ws-comments-pg-b";
 
 const userActive = "usr-active-1111-1111-1111-111111111111";
 const userInvited = "usr-invited-2222-2222-2222-222222222222";
-const userSuspended = "usr-suspended-3333-3333-333333333333";
+const userSuspended = "usr-suspended-3333-3333-3333-333333333333";
 const userRemoved = "usr-removed-4444-4444-4444-444444444444";
 const userOutsider = "usr-outsider-5555-5555-5555-555555555555";
 
@@ -111,7 +113,9 @@ before(async () => {
     await import("../../src/db/repositories/postgres-activity-repository")
   ).PostgresActivityRepository;
 
-  ({ InvalidMentionError, InvalidCommentError } = await import("../../src/core/tasks/errors"));
+  ({ InvalidMentionError, InvalidCommentError, InvalidPaginationError } = await import(
+    "../../src/core/tasks/errors"
+  ));
 
   projectRepo = new PostgresProjectRepository();
   taskRepo = new PostgresTaskRepository();
@@ -252,6 +256,68 @@ describe("PostgreSQL CommentRepository & ActivityRepository", () => {
     });
     assert.equal(page3.comments.length, 1);
     assert.equal(page3.nextCursor, null);
+  });
+
+  it("preserves stable ordering and pagination across equal timestamps in PostgreSQL (createdAt ASC, id ASC)", async () => {
+    const timestampTask = await taskRepo.create(
+      workspaceA,
+      { projectId: projectA, title: "PG Same Timestamp Task" },
+      { actorUserId: userActive },
+    );
+
+    const c1 = await commentRepo.create(
+      workspaceA,
+      timestampTask.id,
+      { body: "PG Comment timestamp A" },
+      { actorUserId: userActive },
+    );
+    const c2 = await commentRepo.create(
+      workspaceA,
+      timestampTask.id,
+      { body: "PG Comment timestamp B" },
+      { actorUserId: userActive },
+    );
+
+    // Force exact identical createdAt timestamp
+    const fixedTime = new Date("2026-09-20T12:00:00.000Z");
+    const pg = db();
+    await pg
+      .update(taskCommentsTable)
+      .set({ createdAt: fixedTime })
+      .where(inArray(taskCommentsTable.id, [c1.id, c2.id]));
+
+    const expectedOrder = [c1.id, c2.id].sort();
+    const firstId = expectedOrder[0]!;
+    const secondId = expectedOrder[1]!;
+
+    // Fetch page 1 with limit 1
+    const p1 = await commentRepo.list(workspaceA, timestampTask.id, { limit: 1 });
+    assert.equal(p1.comments.length, 1);
+    assert.equal(p1.comments[0]?.id, firstId);
+    assert.ok(p1.nextCursor);
+
+    // Fetch page 2 with limit 1 and cursor
+    const p2 = await commentRepo.list(workspaceA, timestampTask.id, {
+      limit: 1,
+      cursor: p1.nextCursor,
+    });
+    assert.equal(p2.comments.length, 1);
+    assert.equal(p2.comments[0]?.id, secondId);
+    assert.equal(p2.nextCursor, null);
+  });
+
+  it("throws InvalidPaginationError on malformed cursor in PostgreSQL and never silently restarts", async () => {
+    await assert.rejects(async () => {
+      await commentRepo.list(workspaceA, taskA1, {
+        cursor: "not-valid-base64url!@#",
+      });
+    }, InvalidPaginationError);
+
+    await assert.rejects(async () => {
+      await commentRepo.list(workspaceA, taskA1, {
+        cursor: Buffer.from("invalid-json").toString("base64url"),
+      });
+    }, InvalidPaginationError);
   });
 
   it("updates a comment and records previous body in edit history", async () => {
@@ -469,7 +535,7 @@ describe("PostgreSQL CommentRepository & ActivityRepository", () => {
     const remEvents2 = eventsAfterRem2.filter((e) => e.type === "task.dependency_removed");
     assert.equal(remEvents2.length, 1, "Idempotent dependency remove must not emit second activity event");
 
-    // 3. Checklist state transitions
+    // 3. Checklist state transitions with actor attribution
     const checkItem = await checklistRepo.create(workspaceA, taskA1, { text: "PG transition item" }, { actorUserId: userActive });
 
     // Complete transition (false -> true)
@@ -477,6 +543,7 @@ describe("PostgreSQL CommentRepository & ActivityRepository", () => {
     const eventsAfterComp1 = await activityRepo.listByTask(workspaceA, taskA1);
     const compEvents1 = eventsAfterComp1.filter((e) => e.type === "checklist.item_completed");
     assert.equal(compEvents1.length, 2); // 1 from earlier test + 1 now
+    assert.equal(compEvents1[1]?.actorId, userActive, "Checklist complete event must contain authenticated actor");
 
     // Repeat complete (true -> true, no-op)
     await checklistRepo.complete(workspaceA, taskA1, checkItem.id, { actorUserId: userActive });
@@ -485,16 +552,24 @@ describe("PostgreSQL CommentRepository & ActivityRepository", () => {
     assert.equal(compEvents2.length, 2, "Idempotent checklist complete must not emit second activity event");
 
     // Reopen transition (true -> false)
-    await checklistRepo.reopen(workspaceA, taskA1, checkItem.id);
+    await checklistRepo.reopen(workspaceA, taskA1, checkItem.id, { actorUserId: userActive });
     const eventsAfterReopen1 = await activityRepo.listByTask(workspaceA, taskA1);
     const reopenEvents1 = eventsAfterReopen1.filter((e) => e.type === "checklist.item_reopened");
     assert.equal(reopenEvents1.length, 1);
+    assert.equal(reopenEvents1[0]?.actorId, userActive, "Checklist reopen event must contain authenticated actor");
 
     // Repeat reopen (false -> false, no-op)
-    await checklistRepo.reopen(workspaceA, taskA1, checkItem.id);
+    await checklistRepo.reopen(workspaceA, taskA1, checkItem.id, { actorUserId: userActive });
     const eventsAfterReopen2 = await activityRepo.listByTask(workspaceA, taskA1);
     const reopenEvents2 = eventsAfterReopen2.filter((e) => e.type === "checklist.item_reopened");
     assert.equal(reopenEvents2.length, 1, "Idempotent checklist reopen must not emit second activity event");
+
+    // 4. Delete item with actor attribution
+    await checklistRepo.delete(workspaceA, taskA1, checkItem.id, { actorUserId: userActive });
+    const eventsAfterDelete = await activityRepo.listByTask(workspaceA, taskA1);
+    const deleteEvents = eventsAfterDelete.filter((e) => e.type === "checklist.item_deleted");
+    assert.equal(deleteEvents.length, 1);
+    assert.equal(deleteEvents[0]?.actorId, userActive, "Checklist delete event must contain authenticated actor");
   });
 
   it("strictly enforces cross-workspace isolation", async () => {

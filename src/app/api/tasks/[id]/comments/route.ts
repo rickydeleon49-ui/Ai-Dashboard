@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { commentRepository, taskRepository } from "@/db/repositories";
 import { ensureDatabaseReady } from "@/db/bootstrap";
-import { commentCreateSchema } from "@/core/tasks/schema";
+import { commentCreateSchema, commentPaginationQuerySchema } from "@/core/tasks/schema";
 import {
   CommentNotFoundError,
   InvalidCommentError,
   InvalidMentionError,
+  InvalidPaginationError,
 } from "@/core/tasks/errors";
 import {
   resolveWorkspaceAndUserForRequest,
@@ -51,22 +52,35 @@ export async function GET(request: NextRequest, { params }: Context) {
   if (!task) return taskNotFoundResponse();
 
   const { searchParams } = new URL(request.url);
-  const rawLimit = searchParams.get("limit");
-  const cursor = searchParams.get("cursor") ?? undefined;
-  let limit: number | undefined;
-  if (rawLimit !== null) {
-    const parsedLimit = parseInt(rawLimit, 10);
-    if (isNaN(parsedLimit) || parsedLimit < 1) {
+  const rawQuery: Record<string, unknown> = {};
+  if (searchParams.has("limit")) {
+    rawQuery.limit = searchParams.get("limit");
+  }
+  if (searchParams.has("cursor")) {
+    rawQuery.cursor = searchParams.get("cursor");
+  }
+
+  const parsed = commentPaginationQuerySchema.safeParse(rawQuery);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return NextResponse.json(
+      { error: first?.message ?? "Invalid pagination query", issues: parsed.error.issues },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  try {
+    const result = await commentRepository.list(workspaceId, id, parsed.data);
+    return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    if (error instanceof InvalidPaginationError) {
       return NextResponse.json(
-        { error: "Invalid limit parameter. Must be an integer between 1 and 100." },
+        { error: error.message },
         { status: 422, headers: { "Cache-Control": "no-store" } },
       );
     }
-    limit = Math.min(parsedLimit, 100);
+    throw error;
   }
-
-  const result = await commentRepository.list(workspaceId, id, { limit, cursor });
-  return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** POST /api/tasks/:id/comments — creates a new comment on a task. */

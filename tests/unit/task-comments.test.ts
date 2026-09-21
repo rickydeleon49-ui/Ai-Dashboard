@@ -13,9 +13,12 @@
  */
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { inArray } from "drizzle-orm";
 import { cleanup, migrate } from "../helpers/db";
 import { LOCAL_WORKSPACE_ID } from "../../src/db/repositories/project-repository";
 import { DrizzleChecklistRepository } from "../../src/db/repositories/drizzle-checklist-repository";
+import { db } from "../../src/db/client";
+import { taskComments } from "../../src/db/schema";
 
 let projectRepository: import("../../src/db/repositories/project-repository").ProjectRepository;
 let taskRepository: import("../../src/db/repositories/task-repository").TaskRepository;
@@ -25,6 +28,7 @@ let checklistRepository: DrizzleChecklistRepository;
 
 let InvalidMentionError: typeof import("../../src/core/tasks/errors").InvalidMentionError;
 let InvalidCommentError: typeof import("../../src/core/tasks/errors").InvalidCommentError;
+let InvalidPaginationError: typeof import("../../src/core/tasks/errors").InvalidPaginationError;
 
 let projectId: string;
 let taskId: string;
@@ -35,7 +39,9 @@ before(async () => {
     "../../src/db/repositories"
   ));
   checklistRepository = new DrizzleChecklistRepository(taskRepository);
-  ({ InvalidMentionError, InvalidCommentError } = await import("../../src/core/tasks/errors"));
+  ({ InvalidMentionError, InvalidCommentError, InvalidPaginationError } = await import(
+    "../../src/core/tasks/errors"
+  ));
 
   const project = await projectRepository.create(LOCAL_WORKSPACE_ID, { name: "Desktop Project" });
   projectId = project.id;
@@ -113,6 +119,60 @@ describe("Task Comments & Activity (SQLite / Desktop)", () => {
     });
     assert.equal(page3.comments.length, 1);
     assert.equal(page3.nextCursor, null);
+  });
+
+  it("preserves stable ordering and pagination across equal timestamps (createdAt ASC, id ASC)", async () => {
+    const timestampTask = await taskRepository.create(LOCAL_WORKSPACE_ID, {
+      projectId,
+      title: "Same Timestamp Task",
+    });
+
+    const c1 = await commentRepository.create(LOCAL_WORKSPACE_ID, timestampTask.id, {
+      body: "Comment timestamp A",
+    });
+    const c2 = await commentRepository.create(LOCAL_WORKSPACE_ID, timestampTask.id, {
+      body: "Comment timestamp B",
+    });
+
+    // Force exact identical createdAt timestamp
+    const fixedTime = "2026-09-20T12:00:00.000Z";
+    db.update(taskComments)
+      .set({ createdAt: fixedTime })
+      .where(inArray(taskComments.id, [c1.id, c2.id]))
+      .run();
+
+    const expectedOrder = [c1.id, c2.id].sort();
+    const firstId = expectedOrder[0]!;
+    const secondId = expectedOrder[1]!;
+
+    // Fetch page 1 with limit 1
+    const p1 = await commentRepository.list(LOCAL_WORKSPACE_ID, timestampTask.id, { limit: 1 });
+    assert.equal(p1.comments.length, 1);
+    assert.equal(p1.comments[0]?.id, firstId);
+    assert.ok(p1.nextCursor);
+
+    // Fetch page 2 with limit 1 and cursor
+    const p2 = await commentRepository.list(LOCAL_WORKSPACE_ID, timestampTask.id, {
+      limit: 1,
+      cursor: p1.nextCursor,
+    });
+    assert.equal(p2.comments.length, 1);
+    assert.equal(p2.comments[0]?.id, secondId);
+    assert.equal(p2.nextCursor, null);
+  });
+
+  it("throws InvalidPaginationError on malformed cursor and never silently restarts", async () => {
+    await assert.rejects(async () => {
+      await commentRepository.list(LOCAL_WORKSPACE_ID, taskId, {
+        cursor: "not-valid-base64url!@#",
+      });
+    }, InvalidPaginationError);
+
+    await assert.rejects(async () => {
+      await commentRepository.list(LOCAL_WORKSPACE_ID, taskId, {
+        cursor: Buffer.from("invalid-json").toString("base64url"),
+      });
+    }, InvalidPaginationError);
   });
 
   it("updates a comment and records previous body in edit history", async () => {
@@ -354,5 +414,94 @@ describe("Task Comments & Activity (SQLite / Desktop)", () => {
       const eventsAfter = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, conversionTask.id);
       assert.equal(eventsAfter.length, initialEvents.length);
     });
+  });
+
+  it("maintains null actor attribution on desktop SQLite for checklist operations and suppresses no-op events", async () => {
+    const chkTask = await taskRepository.create(LOCAL_WORKSPACE_ID, {
+      projectId,
+      title: "Checklist Attribution Task",
+    });
+
+    const item = await checklistRepository.create(
+      LOCAL_WORKSPACE_ID,
+      chkTask.id,
+      { text: "Desktop checklist item" },
+      { actorUserId: "mock-desktop-actor" },
+    );
+
+    const initialEvents = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, chkTask.id);
+    const addedEvent = initialEvents.find(
+      (e) => e.type === "checklist.item_added" && (e.details as any).itemId === item.id,
+    );
+    assert.ok(addedEvent);
+    assert.equal(addedEvent.actorId, null, "Desktop SQLite must record null actorId on item_added");
+
+    // Complete transition
+    await checklistRepository.complete(
+      LOCAL_WORKSPACE_ID,
+      chkTask.id,
+      item.id,
+      { actorUserId: "mock-desktop-actor" },
+    );
+    const eventsAfterComp1 = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, chkTask.id);
+    const compEvents1 = eventsAfterComp1.filter(
+      (e) => e.type === "checklist.item_completed" && (e.details as any).itemId === item.id,
+    );
+    assert.equal(compEvents1.length, 1);
+    assert.equal(compEvents1[0]?.actorId, null, "Desktop SQLite must record null actorId on item_completed");
+
+    // Repeated complete (no-op)
+    await checklistRepository.complete(
+      LOCAL_WORKSPACE_ID,
+      chkTask.id,
+      item.id,
+      { actorUserId: "mock-desktop-actor" },
+    );
+    const eventsAfterComp2 = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, chkTask.id);
+    const compEvents2 = eventsAfterComp2.filter(
+      (e) => e.type === "checklist.item_completed" && (e.details as any).itemId === item.id,
+    );
+    assert.equal(compEvents2.length, 1, "Idempotent completion must not emit extra events on desktop SQLite");
+
+    // Reopen transition
+    await checklistRepository.reopen(
+      LOCAL_WORKSPACE_ID,
+      chkTask.id,
+      item.id,
+      { actorUserId: "mock-desktop-actor" },
+    );
+    const eventsAfterReopen1 = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, chkTask.id);
+    const reopenEvents1 = eventsAfterReopen1.filter(
+      (e) => e.type === "checklist.item_reopened" && (e.details as any).itemId === item.id,
+    );
+    assert.equal(reopenEvents1.length, 1);
+    assert.equal(reopenEvents1[0]?.actorId, null, "Desktop SQLite must record null actorId on item_reopened");
+
+    // Repeated reopen (no-op)
+    await checklistRepository.reopen(
+      LOCAL_WORKSPACE_ID,
+      chkTask.id,
+      item.id,
+      { actorUserId: "mock-desktop-actor" },
+    );
+    const eventsAfterReopen2 = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, chkTask.id);
+    const reopenEvents2 = eventsAfterReopen2.filter(
+      (e) => e.type === "checklist.item_reopened" && (e.details as any).itemId === item.id,
+    );
+    assert.equal(reopenEvents2.length, 1, "Idempotent reopen must not emit extra events on desktop SQLite");
+
+    // Delete item
+    await checklistRepository.delete(
+      LOCAL_WORKSPACE_ID,
+      chkTask.id,
+      item.id,
+      { actorUserId: "mock-desktop-actor" },
+    );
+    const eventsAfterDelete = await activityRepository.listByTask(LOCAL_WORKSPACE_ID, chkTask.id);
+    const deleteEvents = eventsAfterDelete.filter(
+      (e) => e.type === "checklist.item_deleted" && (e.details as any).itemId === item.id,
+    );
+    assert.equal(deleteEvents.length, 1);
+    assert.equal(deleteEvents[0]?.actorId, null, "Desktop SQLite must record null actorId on item_deleted");
   });
 });

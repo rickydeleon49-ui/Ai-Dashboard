@@ -139,3 +139,13 @@ export class CommentPermissionError extends Error {
     this.name = "CommentPermissionError";
   }
 }
+
+/**
+ * Thrown when comment pagination parameters (limit or cursor) are invalid or malformed.
+ */
+export class InvalidPaginationError extends Error {
+  constructor(message = "Invalid pagination query.") {
+    super(message);
+    this.name = "InvalidPaginationError";
+  }
+}

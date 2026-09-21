@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { MILESTONE_STATUSES, TASK_PRIORITIES, TASK_STATUSES } from "./types";
+import { decodeCommentCursor } from "./comment-cursor";
 
 /** Empty strings from a form should become null, not "". */
 const optionalText = z
@@ -141,7 +142,56 @@ export const commentUpdateSchema = z.object({
   mentions: z.array(z.string().trim()).optional(),
 });
 
+const strictIntegerRegex = /^(0|[1-9]\d*)$/;
+
 export const commentPaginationQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: z.string().trim().optional(),
+  limit: z
+    .union([z.number(), z.string()])
+    .optional()
+    .transform((val, ctx) => {
+      if (val === undefined) return 50;
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        if (!trimmed || !strictIntegerRegex.test(trimmed)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Limit must be a valid integer between 1 and 100",
+          });
+          return z.NEVER;
+        }
+        const parsed = Number(trimmed);
+        if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Limit must be between 1 and 100",
+          });
+          return z.NEVER;
+        }
+        return parsed;
+      }
+      if (!Number.isSafeInteger(val) || val < 1 || val > 100) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Limit must be an integer between 1 and 100",
+        });
+        return z.NEVER;
+      }
+      return val;
+    }),
+  cursor: z
+    .string()
+    .optional()
+    .transform((val, ctx) => {
+      if (val === undefined) return undefined;
+      try {
+        decodeCommentCursor(val);
+        return val;
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err instanceof Error ? err.message : "Invalid pagination cursor",
+        });
+        return z.NEVER;
+      }
+    }),
 });

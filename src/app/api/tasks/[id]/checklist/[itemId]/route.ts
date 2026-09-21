@@ -75,7 +75,9 @@ export async function PATCH(request: NextRequest, { params }: Context) {
         actorUserId: userId ?? undefined,
       });
     } else if (parsed.data.done === false) {
-      item = await checklistRepository.reopen(workspaceId, id, itemId);
+      item = await checklistRepository.reopen(workspaceId, id, itemId, {
+        actorUserId: userId ?? undefined,
+      });
     }
 
     if (parsed.data.text !== undefined) {
@@ -120,7 +122,9 @@ export async function DELETE(request: NextRequest, { params }: Context) {
   const task = await taskRepository.findById(workspaceId, id);
   if (!task) return notFoundResponse();
 
-  const deleted = await checklistRepository.delete(workspaceId, id, itemId);
+  const deleted = await checklistRepository.delete(workspaceId, id, itemId, {
+    actorUserId: userId ?? undefined,
+  });
   if (!deleted) return notFoundResponse();
 
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

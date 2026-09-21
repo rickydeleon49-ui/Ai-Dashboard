@@ -205,6 +205,126 @@ describe("Desktop comments and activity routes", () => {
     assert.equal(badRes.status, 422);
   });
 
+  it("strictly validates pagination limit parameter against malformed inputs", async () => {
+    const invalidLimits = [
+      "1abc",
+      "0",
+      "-1",
+      "-10",
+      "1.5",
+      "101",
+      "Infinity",
+      "",
+      "abc",
+      "null",
+      "true",
+    ];
+
+    for (const badLimit of invalidLimits) {
+      const req = new NextRequest(
+        `http://localhost/api/tasks/${taskId}/comments?limit=${encodeURIComponent(badLimit)}`,
+      );
+      const res = await commentsRoute.GET(req, { params: Promise.resolve({ id: taskId }) });
+      assert.equal(
+        res.status,
+        422,
+        `Expected limit="${badLimit}" to return 422, got ${res.status}`,
+      );
+      const json = (await res.json()) as { error: string };
+      assert.ok(json.error, `Expected error message for limit="${badLimit}"`);
+    }
+  });
+
+  it("strictly validates pagination cursor and rejects malformed cursors with 422", async () => {
+    const invalidCursors = [
+      { name: "invalid base64url characters", cursor: "bad!@#$" },
+      { name: "invalid JSON", cursor: Buffer.from("not-json").toString("base64url") },
+      {
+        name: "invalid date timestamp",
+        cursor: Buffer.from(JSON.stringify({ id: "c1", createdAt: "invalid-date" })).toString("base64url"),
+      },
+      {
+        name: "missing id field",
+        cursor: Buffer.from(JSON.stringify({ createdAt: "2026-09-20T12:00:00.000Z" })).toString("base64url"),
+      },
+      {
+        name: "empty id field",
+        cursor: Buffer.from(JSON.stringify({ id: "", createdAt: "2026-09-20T12:00:00.000Z" })).toString("base64url"),
+      },
+      {
+        name: "whitespace only id",
+        cursor: Buffer.from(JSON.stringify({ id: "   ", createdAt: "2026-09-20T12:00:00.000Z" })).toString("base64url"),
+      },
+      {
+        name: "non-string id",
+        cursor: Buffer.from(JSON.stringify({ id: 12345, createdAt: "2026-09-20T12:00:00.000Z" })).toString("base64url"),
+      },
+      {
+        name: "missing createdAt field",
+        cursor: Buffer.from(JSON.stringify({ id: "c1" })).toString("base64url"),
+      },
+      {
+        name: "empty createdAt field",
+        cursor: Buffer.from(JSON.stringify({ id: "c1", createdAt: "" })).toString("base64url"),
+      },
+      {
+        name: "extra unexpected property",
+        cursor: Buffer.from(
+          JSON.stringify({ id: "c1", createdAt: "2026-09-20T12:00:00.000Z", extraField: "bad" }),
+        ).toString("base64url"),
+      },
+      {
+        name: "JSON array instead of object",
+        cursor: Buffer.from(JSON.stringify(["c1", "2026-09-20T12:00:00.000Z"])).toString("base64url"),
+      },
+      {
+        name: "oversized cursor string exceeding 1024 characters",
+        cursor: "a".repeat(1025),
+      },
+    ];
+
+    for (const tc of invalidCursors) {
+      const req = new NextRequest(
+        `http://localhost/api/tasks/${taskId}/comments?cursor=${encodeURIComponent(tc.cursor)}`,
+      );
+      const res = await commentsRoute.GET(req, { params: Promise.resolve({ id: taskId }) });
+      assert.equal(
+        res.status,
+        422,
+        `Expected cursor case "${tc.name}" to return 422, got ${res.status}`,
+      );
+      const json = (await res.json()) as { error: string };
+      assert.ok(json.error, `Expected error message for cursor case "${tc.name}"`);
+    }
+  });
+
+  it("never silently restarts pagination at page one on malformed cursor", async () => {
+    // When comments exist on the task, passing a malformed cursor must return 422 and NEVER 200 with comments
+    const badCursor = Buffer.from("corrupted-payload").toString("base64url");
+    const req = new NextRequest(
+      `http://localhost/api/tasks/${taskId}/comments?cursor=${badCursor}`,
+    );
+    const res = await commentsRoute.GET(req, { params: Promise.resolve({ id: taskId }) });
+    assert.equal(res.status, 422);
+    assert.notEqual(res.status, 200, "Must not silently return 200 on malformed cursor");
+  });
+
+  it("handles valid cursor from an empty final page returning empty comments and null cursor", async () => {
+    // A cursor referencing a point past all existing comments
+    const futureCursor = Buffer.from(
+      JSON.stringify({ id: "99999999-9999-9999-9999-999999999999", createdAt: "2099-01-01T00:00:00.000Z" }),
+    ).toString("base64url");
+
+    const req = new NextRequest(
+      `http://localhost/api/tasks/${taskId}/comments?cursor=${futureCursor}`,
+    );
+    const res = await commentsRoute.GET(req, { params: Promise.resolve({ id: taskId }) });
+    assert.equal(res.status, 200);
+    const data = (await res.json()) as { comments: TaskComment[]; nextCursor: string | null };
+    assert.deepEqual(data.comments, []);
+    assert.equal(data.nextCursor, null);
+  });
+
   it("DELETE soft-deletes a comment preserving audit trail", async () => {
     const req = new NextRequest(
       `http://localhost/api/tasks/${taskId}/comments/${createdCommentId}`,

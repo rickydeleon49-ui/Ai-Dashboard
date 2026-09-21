@@ -62,3 +62,5 @@ export interface PaginatedComments {
   comments: TaskComment[];
   nextCursor: string | null;
 }
+
+export * from "./comment-cursor";

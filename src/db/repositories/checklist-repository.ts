@@ -58,6 +58,7 @@ export interface ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
+    options?: ChecklistItemActorOptions,
   ): Promise<TaskChecklistItem | null>;
 
   /** Deletes an item and shifts subsequent positions down. */
@@ -65,6 +66,7 @@ export interface ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
+    options?: ChecklistItemActorOptions,
   ): Promise<boolean>;
 
   /**

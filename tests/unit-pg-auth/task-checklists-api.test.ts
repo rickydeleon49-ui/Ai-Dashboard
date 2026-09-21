@@ -34,6 +34,7 @@ type ChecklistRoute = typeof import("../../src/app/api/tasks/[id]/checklist/rout
 type ChecklistItemRoute = typeof import("../../src/app/api/tasks/[id]/checklist/[itemId]/route");
 type ChecklistConvertRoute = typeof import("../../src/app/api/tasks/[id]/checklist/[itemId]/convert/route");
 type ChecklistReorderRoute = typeof import("../../src/app/api/tasks/[id]/checklist/reorder/route");
+type TaskActivityRoute = typeof import("../../src/app/api/tasks/[id]/activity/route");
 
 let projectsRoute: ProjectsRoute;
 let projectTasksRoute: ProjectTasksRoute;
@@ -41,6 +42,7 @@ let checklistRoute: ChecklistRoute;
 let checklistItemRoute: ChecklistItemRoute;
 let checklistConvertRoute: ChecklistConvertRoute;
 let checklistReorderRoute: ChecklistReorderRoute;
+let taskActivityRoute: TaskActivityRoute;
 
 let handlers: typeof import("../../src/auth").handlers;
 let NextRequest: typeof import("next/server").NextRequest;
@@ -57,6 +59,14 @@ let suspendedCookie: string;
 let removedCookie: string;
 let outsiderCookie: string;
 
+let ownerId: string;
+let adminId: string;
+let memberId: string;
+let viewerId: string;
+let suspendedId: string;
+let removedId: string;
+let outsiderId: string;
+
 let workspaceA: string;
 let workspaceB: string;
 let projectAId: string;
@@ -70,6 +80,7 @@ before(async () => {
   checklistItemRoute = await import("../../src/app/api/tasks/[id]/checklist/[itemId]/route");
   checklistConvertRoute = await import("../../src/app/api/tasks/[id]/checklist/[itemId]/convert/route");
   checklistReorderRoute = await import("../../src/app/api/tasks/[id]/checklist/reorder/route");
+  taskActivityRoute = await import("../../src/app/api/tasks/[id]/activity/route");
 
   ({ handlers } = await import("../../src/auth"));
   ({ NextRequest } = await import("next/server"));
@@ -90,13 +101,13 @@ before(async () => {
   const allUsers = await pgDb.select().from(users);
   const userMap = new Map(allUsers.map((u) => [u.email, u.id]));
 
-  const ownerId = userMap.get("chk_owner@example.com")!;
-  const adminId = userMap.get("chk_admin@example.com")!;
-  const memberId = userMap.get("chk_member@example.com")!;
-  const viewerId = userMap.get("chk_viewer@example.com")!;
-  const suspendedId = userMap.get("chk_suspended@example.com")!;
-  const removedId = userMap.get("chk_removed@example.com")!;
-  const outsiderId = userMap.get("chk_outsider@example.com")!;
+  ownerId = userMap.get("chk_owner@example.com")!;
+  adminId = userMap.get("chk_admin@example.com")!;
+  memberId = userMap.get("chk_member@example.com")!;
+  viewerId = userMap.get("chk_viewer@example.com")!;
+  suspendedId = userMap.get("chk_suspended@example.com")!;
+  removedId = userMap.get("chk_removed@example.com")!;
+  outsiderId = userMap.get("chk_outsider@example.com")!;
 
   // Create Workspace A and memberships
   const wsA = await workspacesService.createTeamWorkspace(ownerId, "Checklist WS A");
@@ -416,5 +427,149 @@ describe("Task Checklists API: Validation and limits", () => {
     });
     const badReorderRes = await checklistRoute.PUT(badReorder, { params: Promise.resolve({ id: taskId }) });
     assert.equal(badReorderRes.status, 422);
+  });
+});
+
+describe("Task Checklists API: Actor Attribution and No-Op Event Suppression", () => {
+  it("records authenticated actorId for completion, reopening, and deletion and ignores body spoofing", async () => {
+    // 1. Create a checklist item as member with spoofed actor in body
+    const createReq = apiRequest("POST", `/api/tasks/${taskId}/checklist`, {
+      cookie: memberCookie,
+      body: { text: "Attribution test item", actorUserId: "spoofed-user-id" },
+    });
+    const createRes = await checklistRoute.POST(createReq, { params: Promise.resolve({ id: taskId }) });
+    assert.equal(createRes.status, 201);
+    const createJson = (await createRes.json()) as { item: { id: string } };
+    const testItemId = createJson.item.id;
+
+    // Verify item_added activity event attributes authenticated memberId
+    const actRes1 = await taskActivityRoute.GET(
+      apiRequest("GET", `/api/tasks/${taskId}/activity`, { cookie: memberCookie }),
+      { params: Promise.resolve({ id: taskId }) },
+    );
+    assert.equal(actRes1.status, 200);
+    const act1 = (await actRes1.json()) as {
+      events: Array<{ type: string; actorId: string | null; details: { itemId?: string } }>;
+    };
+    const addedEvents = act1.events.filter(
+      (e) => e.type === "checklist.item_added" && e.details?.itemId === testItemId,
+    );
+    assert.equal(addedEvents.length, 1);
+    assert.equal(addedEvents[0]?.actorId, memberId, "item_added must attribute authenticated member");
+
+    // 2. Complete checklist item as admin with spoofed actor in body
+    const compReq = apiRequest("PATCH", `/api/tasks/${taskId}/checklist/${testItemId}`, {
+      cookie: adminCookie,
+      body: { done: true, actorUserId: "spoofed-user-id" },
+    });
+    const compRes = await checklistItemRoute.PATCH(compReq, {
+      params: Promise.resolve({ id: taskId, itemId: testItemId }),
+    });
+    assert.equal(compRes.status, 200);
+
+    // Verify item_completed activity event attributes authenticated adminId
+    const actRes2 = await taskActivityRoute.GET(
+      apiRequest("GET", `/api/tasks/${taskId}/activity`, { cookie: adminCookie }),
+      { params: Promise.resolve({ id: taskId }) },
+    );
+    const act2 = (await actRes2.json()) as {
+      events: Array<{ type: string; actorId: string | null; details: { itemId?: string } }>;
+    };
+    const compEvents1 = act2.events.filter(
+      (e) => e.type === "checklist.item_completed" && e.details?.itemId === testItemId,
+    );
+    assert.equal(compEvents1.length, 1);
+    assert.equal(compEvents1[0]?.actorId, adminId, "item_completed must attribute authenticated admin");
+
+    // 3. Repeated completion (no-op) creates NO extra activity events
+    const compReq2 = apiRequest("PATCH", `/api/tasks/${taskId}/checklist/${testItemId}`, {
+      cookie: adminCookie,
+      body: { done: true },
+    });
+    const compRes2 = await checklistItemRoute.PATCH(compReq2, {
+      params: Promise.resolve({ id: taskId, itemId: testItemId }),
+    });
+    assert.equal(compRes2.status, 200);
+
+    const actRes3 = await taskActivityRoute.GET(
+      apiRequest("GET", `/api/tasks/${taskId}/activity`, { cookie: adminCookie }),
+      { params: Promise.resolve({ id: taskId }) },
+    );
+    const act3 = (await actRes3.json()) as {
+      events: Array<{ type: string; details: { itemId?: string } }>;
+    };
+    const compEvents2 = act3.events.filter(
+      (e) => e.type === "checklist.item_completed" && e.details?.itemId === testItemId,
+    );
+    assert.equal(compEvents2.length, 1, "Repeated completion must not emit duplicate activity events");
+
+    // 4. Reopen checklist item as member with spoofed actor in body
+    const reopenReq = apiRequest("PATCH", `/api/tasks/${taskId}/checklist/${testItemId}`, {
+      cookie: memberCookie,
+      body: { done: false, actorUserId: "spoofed-user-id" },
+    });
+    const reopenRes = await checklistItemRoute.PATCH(reopenReq, {
+      params: Promise.resolve({ id: taskId, itemId: testItemId }),
+    });
+    assert.equal(reopenRes.status, 200);
+
+    // Verify item_reopened activity event attributes authenticated memberId
+    const actRes4 = await taskActivityRoute.GET(
+      apiRequest("GET", `/api/tasks/${taskId}/activity`, { cookie: memberCookie }),
+      { params: Promise.resolve({ id: taskId }) },
+    );
+    const act4 = (await actRes4.json()) as {
+      events: Array<{ type: string; actorId: string | null; details: { itemId?: string } }>;
+    };
+    const reopenEvents1 = act4.events.filter(
+      (e) => e.type === "checklist.item_reopened" && e.details?.itemId === testItemId,
+    );
+    assert.equal(reopenEvents1.length, 1);
+    assert.equal(reopenEvents1[0]?.actorId, memberId, "item_reopened must attribute authenticated member");
+
+    // 5. Repeated reopen (no-op) creates NO extra activity events
+    const reopenReq2 = apiRequest("PATCH", `/api/tasks/${taskId}/checklist/${testItemId}`, {
+      cookie: memberCookie,
+      body: { done: false },
+    });
+    const reopenRes2 = await checklistItemRoute.PATCH(reopenReq2, {
+      params: Promise.resolve({ id: taskId, itemId: testItemId }),
+    });
+    assert.equal(reopenRes2.status, 200);
+
+    const actRes5 = await taskActivityRoute.GET(
+      apiRequest("GET", `/api/tasks/${taskId}/activity`, { cookie: memberCookie }),
+      { params: Promise.resolve({ id: taskId }) },
+    );
+    const act5 = (await actRes5.json()) as {
+      events: Array<{ type: string; details: { itemId?: string } }>;
+    };
+    const reopenEvents2 = act5.events.filter(
+      (e) => e.type === "checklist.item_reopened" && e.details?.itemId === testItemId,
+    );
+    assert.equal(reopenEvents2.length, 1, "Repeated reopen must not emit duplicate activity events");
+
+    // 6. Delete checklist item as owner
+    const delReq = apiRequest("DELETE", `/api/tasks/${taskId}/checklist/${testItemId}`, {
+      cookie: ownerCookie,
+    });
+    const delRes = await checklistItemRoute.DELETE(delReq, {
+      params: Promise.resolve({ id: taskId, itemId: testItemId }),
+    });
+    assert.equal(delRes.status, 200);
+
+    // Verify item_deleted activity event attributes authenticated ownerId
+    const actRes6 = await taskActivityRoute.GET(
+      apiRequest("GET", `/api/tasks/${taskId}/activity`, { cookie: ownerCookie }),
+      { params: Promise.resolve({ id: taskId }) },
+    );
+    const act6 = (await actRes6.json()) as {
+      events: Array<{ type: string; actorId: string | null; details: { itemId?: string } }>;
+    };
+    const deleteEvents = act6.events.filter(
+      (e) => e.type === "checklist.item_deleted" && e.details?.itemId === testItemId,
+    );
+    assert.equal(deleteEvents.length, 1);
+    assert.equal(deleteEvents[0]?.actorId, ownerId, "item_deleted must attribute authenticated owner");
   });
 });

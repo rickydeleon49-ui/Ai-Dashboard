@@ -351,6 +351,7 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
+    options?: ChecklistItemActorOptions,
   ): Promise<TaskChecklistItem | null> {
     const db = getPgDb();
     const now = new Date();
@@ -401,7 +402,7 @@ export class PostgresChecklistRepository implements ChecklistRepository {
           workspaceId,
           projectId: parentTask.projectId,
           taskId,
-          actorId: null,
+          actorId: options?.actorUserId ?? null,
           type: "checklist.item_reopened",
           details: { itemId, text: updated.text },
         });
@@ -415,6 +416,7 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
+    options?: ChecklistItemActorOptions,
   ): Promise<boolean> {
     const db = getPgDb();
 
@@ -469,7 +471,7 @@ export class PostgresChecklistRepository implements ChecklistRepository {
           workspaceId,
           projectId: parentTask.projectId,
           taskId,
-          actorId: null,
+          actorId: options?.actorUserId ?? null,
           type: "checklist.item_deleted",
           details: { itemId, text: item.text },
         });

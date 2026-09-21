@@ -365,6 +365,7 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
+    _options?: ChecklistItemActorOptions,
   ): Promise<TaskChecklistItem | null> {
     assertLocalWorkspace(workspaceId);
     const timestamp = nowIso();
@@ -441,6 +442,7 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
+    _options?: ChecklistItemActorOptions,
   ): Promise<boolean> {
     assertLocalWorkspace(workspaceId);
 

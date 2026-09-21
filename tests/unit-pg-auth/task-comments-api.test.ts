@@ -940,9 +940,9 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       );
       assert.equal(actRes1.status, 200);
       const act1 = (await actRes1.json()) as {
-        activity: Array<{ type: string; actorId: string | null; data: unknown }>;
+        events: Array<{ type: string; actorId: string | null; data?: unknown }>;
       };
-      const depAddedEvents = act1.activity.filter((e) => e.type === "task.dependency_added");
+      const depAddedEvents = act1.events.filter((e) => e.type === "task.dependency_added");
       assert.ok(depAddedEvents.length >= 1);
       const latestAdd = depAddedEvents[0];
       assert.equal(latestAdd?.actorId, memberId, "Dependency added event must attribute authenticated actor");
@@ -965,9 +965,9 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
         { params: Promise.resolve({ id: taskAId }) },
       );
       const act2 = (await actRes2.json()) as {
-        activity: Array<{ type: string }>;
+        events: Array<{ type: string }>;
       };
-      const depAddedEventsAfter = act2.activity.filter((e) => e.type === "task.dependency_added");
+      const depAddedEventsAfter = act2.events.filter((e) => e.type === "task.dependency_added");
       assert.equal(
         depAddedEventsAfter.length,
         depAddedEvents.length,
@@ -991,9 +991,9 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
         { params: Promise.resolve({ id: taskAId }) },
       );
       const act3 = (await actRes3.json()) as {
-        activity: Array<{ type: string; actorId: string | null }>;
+        events: Array<{ type: string; actorId: string | null }>;
       };
-      const depRemovedEvents = act3.activity.filter((e) => e.type === "task.dependency_removed");
+      const depRemovedEvents = act3.events.filter((e) => e.type === "task.dependency_removed");
       assert.ok(depRemovedEvents.length >= 1);
       assert.equal(depRemovedEvents[0]?.actorId, adminId, "Dependency removed event must attribute admin actor");
 
@@ -1014,9 +1014,9 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
         { params: Promise.resolve({ id: taskAId }) },
       );
       const act4 = (await actRes4.json()) as {
-        activity: Array<{ type: string }>;
+        events: Array<{ type: string }>;
       };
-      const depRemovedEventsAfter = act4.activity.filter((e) => e.type === "task.dependency_removed");
+      const depRemovedEventsAfter = act4.events.filter((e) => e.type === "task.dependency_removed");
       assert.equal(
         depRemovedEventsAfter.length,
         depRemovedEvents.length,

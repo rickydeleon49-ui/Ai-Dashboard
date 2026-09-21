@@ -17,7 +17,9 @@ import {
   CommentNotFoundError,
   InvalidCommentError,
   InvalidMentionError,
+  InvalidPaginationError,
 } from "@/core/tasks/errors";
+import { decodeCommentCursor, encodeCommentCursor } from "@/core/tasks/comment-cursor";
 import { extractAndValidateMentions } from "@/core/tasks/mention-utils";
 import { db } from "../client";
 import {
@@ -40,23 +42,19 @@ export class DrizzleCommentRepository implements CommentRepository {
     taskId: string,
     query?: CommentPaginationQuery,
   ): Promise<PaginatedComments> {
-    const limit = Math.min(
-      Math.max(query?.limit ?? DEFAULT_COMMENT_PAGE_SIZE, 1),
-      MAX_COMMENT_PAGE_SIZE,
-    );
+    if (query?.limit !== undefined) {
+      if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > MAX_COMMENT_PAGE_SIZE) {
+        throw new InvalidPaginationError(`Limit must be an integer between 1 and ${MAX_COMMENT_PAGE_SIZE}.`);
+      }
+    }
+    const limit = query?.limit ?? DEFAULT_COMMENT_PAGE_SIZE;
 
     let cursorCreatedAt: string | null = null;
     let cursorId: string | null = null;
-    if (query?.cursor) {
-      try {
-        const decoded = JSON.parse(Buffer.from(query.cursor, "base64url").toString("utf-8"));
-        if (decoded && typeof decoded.createdAt === "string" && typeof decoded.id === "string") {
-          cursorCreatedAt = decoded.createdAt;
-          cursorId = decoded.id;
-        }
-      } catch {
-        // Ignore malformed cursor, start from beginning
-      }
+    if (query?.cursor !== undefined) {
+      const decoded = decodeCommentCursor(query.cursor);
+      cursorCreatedAt = decoded.createdAt;
+      cursorId = decoded.id;
     }
 
     const whereConditions = [
@@ -88,12 +86,11 @@ export class DrizzleCommentRepository implements CommentRepository {
     if (hasMore && pageRows.length > 0) {
       const last = pageRows[pageRows.length - 1];
       if (last) {
-        nextCursor = Buffer.from(
-          JSON.stringify({
-            createdAt: last.createdAt,
-            id: last.id,
-          }),
-        ).toString("base64url");
+        const lastIso = typeof last.createdAt === "string" ? new Date(last.createdAt).toISOString() : (last.createdAt as any).toISOString();
+        nextCursor = encodeCommentCursor({
+          createdAt: lastIso,
+          id: last.id,
+        });
       }
     }
 
