@@ -456,17 +456,19 @@ export class DrizzleTaskRepository implements TaskRepository {
     );
   }
 
-  async addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void> {
+  async addDependency(
+    workspaceId: string,
+    taskId: string,
+    dependsOnTaskId: string,
+    _options?: TaskMutationOptions,
+  ): Promise<void> {
     assertLocalWorkspace(workspaceId);
     if (taskId === dependsOnTaskId) throw new DependencyCycleError();
 
     db.transaction((tx) => {
-      const existing = tx
-        .select({ id: tasks.id })
-        .from(tasks)
-        .where(inArray(tasks.id, [taskId, dependsOnTaskId]))
-        .all();
-      if (existing.length < 2) {
+      const a = tx.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, taskId)).get();
+      const b = tx.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, dependsOnTaskId)).get();
+      if (!a || !b) {
         throw new Error(`Tasks "${taskId}" and "${dependsOnTaskId}" must both exist.`);
       }
 
@@ -488,26 +490,28 @@ export class DrizzleTaskRepository implements TaskRepository {
       `);
       if (cycle) throw new DependencyCycleError();
 
-      tx.insert(taskDependencies).values({ taskId, dependsOnTaskId }).onConflictDoNothing().run();
+      const res = tx.insert(taskDependencies).values({ taskId, dependsOnTaskId }).onConflictDoNothing().run();
 
-      const taskRow = tx
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(eq(tasks.id, taskId))
-        .get();
-      if (taskRow) {
-        tx.insert(taskActivityEvents)
-          .values({
-            id: crypto.randomUUID(),
-            workspaceId: LOCAL_WORKSPACE_ID,
-            projectId: taskRow.projectId,
-            taskId,
-            actorId: null,
-            type: "task.dependency_added",
-            details: JSON.stringify({ dependsOnTaskId }),
-            createdAt: nowIso(),
-          })
-          .run();
+      if (res.changes > 0) {
+        const taskRow = tx
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(eq(tasks.id, taskId))
+          .get();
+        if (taskRow) {
+          tx.insert(taskActivityEvents)
+            .values({
+              id: crypto.randomUUID(),
+              workspaceId: LOCAL_WORKSPACE_ID,
+              projectId: taskRow.projectId,
+              taskId,
+              actorId: null,
+              type: "task.dependency_added",
+              details: JSON.stringify({ dependsOnTaskId }),
+              createdAt: nowIso(),
+            })
+            .run();
+        }
       }
       return true;
     });
@@ -517,16 +521,11 @@ export class DrizzleTaskRepository implements TaskRepository {
     workspaceId: string,
     taskId: string,
     dependsOnTaskId: string,
+    _options?: TaskMutationOptions,
   ): Promise<void> {
     assertLocalWorkspace(workspaceId);
     db.transaction(() => {
-      const taskRow = db
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(eq(tasks.id, taskId))
-        .get();
-
-      db.delete(taskDependencies)
+      const res = db.delete(taskDependencies)
         .where(
           and(
             eq(taskDependencies.taskId, taskId),
@@ -535,21 +534,28 @@ export class DrizzleTaskRepository implements TaskRepository {
         )
         .run();
 
-      if (taskRow) {
-        db.insert(taskActivityEvents)
-          .values({
-            id: crypto.randomUUID(),
-            workspaceId: LOCAL_WORKSPACE_ID,
-            projectId: taskRow.projectId,
-            taskId,
-            actorId: null,
-            type: "task.dependency_removed",
-            details: JSON.stringify({ dependsOnTaskId }),
-            createdAt: nowIso(),
-          })
-          .run();
+      if (res.changes > 0) {
+        const taskRow = db
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(eq(tasks.id, taskId))
+          .get();
+
+        if (taskRow) {
+          db.insert(taskActivityEvents)
+            .values({
+              id: crypto.randomUUID(),
+              workspaceId: LOCAL_WORKSPACE_ID,
+              projectId: taskRow.projectId,
+              taskId,
+              actorId: null,
+              type: "task.dependency_removed",
+              details: JSON.stringify({ dependsOnTaskId }),
+              createdAt: nowIso(),
+            })
+            .run();
+        }
       }
     });
   }
 }
-

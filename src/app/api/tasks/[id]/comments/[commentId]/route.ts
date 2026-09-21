@@ -28,7 +28,7 @@ function notFoundResponse(message = "Comment not found"): NextResponse {
   );
 }
 
-/** GET /api/tasks/:id/comments/:commentId — returns comment details and edit history. */
+/** GET /api/tasks/:id/comments/:commentId — returns comment details without exposing edit history. */
 export async function GET(request: NextRequest, { params }: Context) {
   ensureDatabaseReady();
   const resolved = await resolveWorkspaceAndUserForRequest(request);
@@ -51,8 +51,7 @@ export async function GET(request: NextRequest, { params }: Context) {
   const comment = await commentRepository.findById(workspaceId, id, commentId);
   if (!comment) return notFoundResponse("Comment not found");
 
-  const history = await commentRepository.getEditHistory(workspaceId, id, commentId);
-  return NextResponse.json({ comment, history }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ comment }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** PATCH /api/tasks/:id/comments/:commentId — edits comment body (author only). */

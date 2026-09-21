@@ -65,4 +65,3 @@ export type { ChecklistRepository } from "./checklist-repository";
 export type { CommentRepository } from "./comment-repository";
 export type { ActivityRepository } from "./activity-repository";
 export { LOCAL_WORKSPACE_ID } from "./project-repository";
-

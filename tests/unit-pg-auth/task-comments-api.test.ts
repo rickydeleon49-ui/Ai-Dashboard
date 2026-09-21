@@ -42,6 +42,8 @@ type CommentsRoute = typeof import("../../src/app/api/tasks/[id]/comments/route"
 type CommentItemRoute = typeof import("../../src/app/api/tasks/[id]/comments/[commentId]/route");
 type TaskActivityRoute = typeof import("../../src/app/api/tasks/[id]/activity/route");
 type ProjectActivityRoute = typeof import("../../src/app/api/projects/[id]/activity/route");
+type CommentHistoryRoute = typeof import("../../src/app/api/tasks/[id]/comments/[commentId]/history/route");
+type TaskDependenciesRoute = typeof import("../../src/app/api/tasks/[id]/dependencies/route");
 
 let projectsRoute: ProjectsRoute;
 let projectTasksRoute: ProjectTasksRoute;
@@ -49,6 +51,8 @@ let commentsRoute: CommentsRoute;
 let commentItemRoute: CommentItemRoute;
 let taskActivityRoute: TaskActivityRoute;
 let projectActivityRoute: ProjectActivityRoute;
+let commentHistoryRoute: CommentHistoryRoute;
+let taskDependenciesRoute: TaskDependenciesRoute;
 
 let handlers: typeof import("../../src/auth").handlers;
 let NextRequest: typeof import("next/server").NextRequest;
@@ -88,6 +92,8 @@ before(async () => {
   commentItemRoute = await import("../../src/app/api/tasks/[id]/comments/[commentId]/route");
   taskActivityRoute = await import("../../src/app/api/tasks/[id]/activity/route");
   projectActivityRoute = await import("../../src/app/api/projects/[id]/activity/route");
+  commentHistoryRoute = await import("../../src/app/api/tasks/[id]/comments/[commentId]/history/route");
+  taskDependenciesRoute = await import("../../src/app/api/tasks/[id]/dependencies/route");
 
   ({ handlers } = await import("../../src/auth"));
   ({ NextRequest } = await import("next/server"));
@@ -473,7 +479,7 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       assert.equal(json.comment.body, "Updated body by author");
       assert.equal(json.comment.editCount, 1);
 
-      // Verify edit history via GET
+      // Verify ordinary GET returns comment without history
       const getRes = await commentItemRoute.GET(
         apiRequest("GET", `/api/tasks/${taskAId}/comments/${commentId}`, {
           cookie: memberCookie,
@@ -481,9 +487,22 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
         { params: Promise.resolve({ id: taskAId, commentId }) },
       );
       assert.equal(getRes.status, 200);
-      const getJson = (await getRes.json()) as { history: Array<{ previousBody: string }> };
-      assert.equal(getJson.history.length, 1);
-      assert.equal(getJson.history[0]?.previousBody, "Original body to be edited");
+      const getJson = (await getRes.json()) as { comment: { body: string; editCount: number }; history?: unknown };
+      assert.equal(getJson.comment.body, "Updated body by author");
+      assert.equal(getJson.comment.editCount, 1);
+      assert.equal("history" in getJson, false, "Ordinary comment item GET must not include history");
+
+      // Verify privileged history audit endpoint allows admin
+      const adminHistRes = await commentHistoryRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments/${commentId}/history`, {
+          cookie: adminCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId }) },
+      );
+      assert.equal(adminHistRes.status, 200);
+      const adminHistJson = (await adminHistRes.json()) as { history: Array<{ previousBody: string }> };
+      assert.equal(adminHistJson.history.length, 1);
+      assert.equal(adminHistJson.history[0]?.previousBody, "Original body to be edited");
     });
 
     it("another member cannot edit the comment (403)", async () => {
@@ -768,8 +787,357 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
     });
   });
 
-  describe("Stored-XSS handling", () => {
-    it("stores raw HTML/script payload without execution and returns it accurately", async () => {
+  describe("Edit-history privacy leakage prevention", () => {
+    it("deleted comments redact author and body, hide history from viewers, and restrict audit to admin", async () => {
+      // 1. Member creates sensitive comment
+      const originalSensitiveBody = "SensitiveOriginalKey_XYZ_999";
+      const createRes = await commentsRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+          body: { body: originalSensitiveBody },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(createRes.status, 201);
+      const { comment } = (await createRes.json()) as { comment: { id: string } };
+
+      // 2. Member edits comment
+      const editedSensitiveBody = "SensitiveEditedToken_ABC_111";
+      const editRes = await commentItemRoute.PATCH(
+        apiRequest("PATCH", `/api/tasks/${taskAId}/comments/${comment.id}`, {
+          cookie: memberCookie,
+          body: { body: editedSensitiveBody },
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(editRes.status, 200);
+
+      // 3. Member deletes comment
+      const deleteRes = await commentItemRoute.DELETE(
+        apiRequest("DELETE", `/api/tasks/${taskAId}/comments/${comment.id}`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(deleteRes.status, 200);
+
+      // 4. Viewer attempts to retrieve comment via normal GET
+      const viewerGetRes = await commentItemRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments/${comment.id}`, {
+          cookie: viewerCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(viewerGetRes.status, 200);
+      const viewerGetJson = (await viewerGetRes.json()) as {
+        comment: {
+          id: string;
+          body: string;
+          authorId: string | null;
+          deletedBy: string | null;
+          isDeleted: boolean;
+        };
+        history?: unknown;
+      };
+      assert.equal(viewerGetJson.comment.isDeleted, true);
+      assert.equal(viewerGetJson.comment.body, "[This comment was deleted]");
+      assert.equal(viewerGetJson.comment.authorId, null);
+      assert.equal(viewerGetJson.comment.deletedBy, null);
+      assert.equal("history" in viewerGetJson, false, "Normal comment GET must not expose history");
+
+      // Assert that neither original nor previous body is present anywhere in viewer response
+      const viewerRawString = JSON.stringify(viewerGetJson);
+      assert.equal(viewerRawString.includes(originalSensitiveBody), false);
+      assert.equal(viewerRawString.includes(editedSensitiveBody), false);
+
+      // 5. Viewer attempts to list comments
+      const viewerListRes = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments`, {
+          cookie: viewerCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(viewerListRes.status, 200);
+      const viewerListJson = await viewerListRes.json();
+      const viewerListRaw = JSON.stringify(viewerListJson);
+      assert.equal(viewerListRaw.includes(originalSensitiveBody), false);
+      assert.equal(viewerListRaw.includes(editedSensitiveBody), false);
+
+      // 6. Viewer attempts to access privileged history endpoint (403)
+      const viewerHistRes = await commentHistoryRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments/${comment.id}/history`, {
+          cookie: viewerCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(viewerHistRes.status, 403);
+      const viewerHistJson = await viewerHistRes.json();
+      const viewerHistRaw = JSON.stringify(viewerHistJson);
+      assert.equal(viewerHistRaw.includes(originalSensitiveBody), false);
+      assert.equal(viewerHistRaw.includes(editedSensitiveBody), false);
+
+      // 7. Regular member attempts to access privileged history endpoint (403)
+      const memberHistRes = await commentHistoryRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments/${comment.id}/history`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(memberHistRes.status, 403);
+
+      // 8. Admin accesses privileged audit history endpoint (200)
+      const adminHistRes = await commentHistoryRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments/${comment.id}/history`, {
+          cookie: adminCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(adminHistRes.status, 200);
+      const adminHistJson = (await adminHistRes.json()) as { history: Array<{ previousBody: string }> };
+      assert.equal(adminHistJson.history.length, 1);
+      assert.equal(adminHistJson.history[0]?.previousBody, originalSensitiveBody);
+
+      // 9. Cross-workspace request to history returns 404 (indistinguishable from missing)
+      const outsiderHistRes = await commentHistoryRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments/${comment.id}/history`, {
+          cookie: outsiderCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId, commentId: comment.id }) },
+      );
+      assert.equal(outsiderHistRes.status, 404);
+    });
+  });
+
+  describe("Preserve actor attribution in hosted dependency events and transition idempotency", () => {
+    it("records authenticated actorId for dependency events and ignores body spoofing", async () => {
+      // Create a second task in project A
+      const targetTaskReq = apiRequest("POST", `/api/projects/${projectAId}/tasks`, {
+        cookie: ownerCookie,
+        body: { title: "Dependency Target Task" },
+      });
+      const targetTaskRes = await projectTasksRoute.POST(targetTaskReq, {
+        params: Promise.resolve({ id: projectAId }),
+      });
+      const targetTaskJson = (await targetTaskRes.json()) as { task: { id: string } };
+      const targetTaskId = targetTaskJson.task.id;
+
+      // Add dependency as member, attempting to spoof actor in body
+      const addRes = await taskDependenciesRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/dependencies`, {
+          cookie: memberCookie,
+          body: { dependsOnTaskId: targetTaskId, actorUserId: "attacker-spoofed-id" },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(addRes.status, 201);
+
+      // Verify activity contains event with authenticated actor (memberId, not spoofed id)
+      const actRes1 = await taskActivityRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/activity`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(actRes1.status, 200);
+      const act1 = (await actRes1.json()) as {
+        activity: Array<{ type: string; actorId: string | null; data: unknown }>;
+      };
+      const depAddedEvents = act1.activity.filter((e) => e.type === "task.dependency_added");
+      assert.ok(depAddedEvents.length >= 1);
+      const latestAdd = depAddedEvents[0];
+      assert.equal(latestAdd?.actorId, memberId, "Dependency added event must attribute authenticated actor");
+
+      // Idempotent repeat: add the same dependency again
+      const addRes2 = await taskDependenciesRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/dependencies`, {
+          cookie: memberCookie,
+          body: { dependsOnTaskId: targetTaskId },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(addRes2.status, 201);
+
+      // Verify activity count has NOT increased
+      const actRes2 = await taskActivityRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/activity`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      const act2 = (await actRes2.json()) as {
+        activity: Array<{ type: string }>;
+      };
+      const depAddedEventsAfter = act2.activity.filter((e) => e.type === "task.dependency_added");
+      assert.equal(
+        depAddedEventsAfter.length,
+        depAddedEvents.length,
+        "Idempotent dependency add must not create duplicate activity events",
+      );
+
+      // Remove dependency as admin
+      const delRes1 = await taskDependenciesRoute.DELETE(
+        apiRequest("DELETE", `/api/tasks/${taskAId}/dependencies?dependsOnTaskId=${targetTaskId}`, {
+          cookie: adminCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(delRes1.status, 200);
+
+      // Verify activity contains removal event with admin actor
+      const actRes3 = await taskActivityRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/activity`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      const act3 = (await actRes3.json()) as {
+        activity: Array<{ type: string; actorId: string | null }>;
+      };
+      const depRemovedEvents = act3.activity.filter((e) => e.type === "task.dependency_removed");
+      assert.ok(depRemovedEvents.length >= 1);
+      assert.equal(depRemovedEvents[0]?.actorId, adminId, "Dependency removed event must attribute admin actor");
+
+      // Idempotent repeat: delete the same dependency again
+      const delRes2 = await taskDependenciesRoute.DELETE(
+        apiRequest("DELETE", `/api/tasks/${taskAId}/dependencies?dependsOnTaskId=${targetTaskId}`, {
+          cookie: adminCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(delRes2.status, 200);
+
+      // Verify removal event count has NOT increased
+      const actRes4 = await taskActivityRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/activity`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      const act4 = (await actRes4.json()) as {
+        activity: Array<{ type: string }>;
+      };
+      const depRemovedEventsAfter = act4.activity.filter((e) => e.type === "task.dependency_removed");
+      assert.equal(
+        depRemovedEventsAfter.length,
+        depRemovedEvents.length,
+        "Idempotent dependency removal must not create duplicate activity events",
+      );
+    });
+  });
+
+  describe("Workload bounds: mention limits and cursor pagination", () => {
+    it("rejects malformed mention user IDs with 422", async () => {
+      const res = await commentsRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+          body: { body: "Hey @[not-a-valid-uuid], please review" },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(res.status, 422);
+      const json = (await res.json()) as { error: string };
+      assert.match(json.error, /valid user id/i);
+    });
+
+    it("rejects requests exceeding maximum 50 mentions with 422 before query", async () => {
+      const mentions = Array.from(
+        { length: 51 },
+        (_, i) => `@00000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
+      ).join(" ");
+
+      const res = await commentsRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+          body: { body: `Too many: ${mentions}` },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(res.status, 422);
+      const json = (await res.json()) as { error: string };
+      assert.match(json.error, /exceeds maximum allowed 50/i);
+    });
+
+    it("deduplicates identical mentions without exceeding bounds", async () => {
+      const res = await commentsRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+          body: `Duplicate mention @${memberId} and @${memberId}`,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(res.status, 201);
+    });
+
+    it("supports capped cursor-based pagination and stable ordering", async () => {
+      // Create separate task for pagination testing
+      const pTaskReq = apiRequest("POST", `/api/projects/${projectAId}/tasks`, {
+        cookie: ownerCookie,
+        body: { title: "Pagination Task" },
+      });
+      const pTaskRes = await projectTasksRoute.POST(pTaskReq, {
+        params: Promise.resolve({ id: projectAId }),
+      });
+      const pTaskJson = (await pTaskRes.json()) as { task: { id: string } };
+      const pTaskId = pTaskJson.task.id;
+
+      // Create 4 comments
+      for (let i = 1; i <= 4; i++) {
+        await commentsRoute.POST(
+          apiRequest("POST", `/api/tasks/${pTaskId}/comments`, {
+            cookie: memberCookie,
+            body: `Pagination comment ${i}`,
+          }),
+          { params: Promise.resolve({ id: pTaskId }) },
+        );
+      }
+
+      // Page 1: limit 2
+      const page1Res = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${pTaskId}/comments?limit=2`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: pTaskId }) },
+      );
+      assert.equal(page1Res.status, 200);
+      const page1 = (await page1Res.json()) as {
+        comments: Array<{ id: string; body: string }>;
+        nextCursor: string | null;
+      };
+      assert.equal(page1.comments.length, 2);
+      assert.ok(page1.nextCursor !== null);
+
+      // Page 2: limit 2 with cursor
+      const page2Res = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${pTaskId}/comments?limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: pTaskId }) },
+      );
+      assert.equal(page2Res.status, 200);
+      const page2 = (await page2Res.json()) as {
+        comments: Array<{ id: string; body: string }>;
+        nextCursor: string | null;
+      };
+      assert.equal(page2.comments.length, 2);
+      assert.equal(page2.nextCursor, null);
+      assert.notEqual(page1.comments[0]?.id, page2.comments[0]?.id);
+
+      // Oversized limit is bounded without error
+      const cappedRes = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${pTaskId}/comments?limit=500`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: pTaskId }) },
+      );
+      assert.equal(cappedRes.status, 200);
+    });
+  });
+
+  describe("Stored-XSS and output safety", () => {
+    // Note: Comment bodies are stored as raw text and transmitted as JSON.
+    // The UI must render comment bodies as standard React text nodes ({comment.body}),
+    // which automatically escapes HTML in DOM text nodes. dangerouslySetInnerHTML must NEVER be used.
+    it("stores raw HTML/script payload, serves application/json, and avoids execution", async () => {
       const xssPayload = `<script>alert('xss')</script><img src="x" onerror="alert(1)">`;
       const res = await commentsRoute.POST(
         apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
@@ -779,9 +1147,23 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
         { params: Promise.resolve({ id: taskAId }) },
       );
       assert.equal(res.status, 201);
+      assert.match(res.headers.get("content-type") ?? "", /application\/json/i);
       const json = (await res.json()) as { comment: { body: string } };
-      // Raw string is stored accurately
+      // Raw string is preserved faithfully in JSON transport
       assert.equal(json.comment.body, xssPayload);
+
+      // Verify GET listing also serves application/json and preserves raw string
+      const listRes = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(listRes.status, 200);
+      assert.match(listRes.headers.get("content-type") ?? "", /application\/json/i);
+      const listJson = (await listRes.json()) as { comments: Array<{ body: string }> };
+      const found = listJson.comments.find((c) => c.body === xssPayload);
+      assert.ok(found, "Raw XSS payload should be preserved in JSON response without HTML alteration");
     });
   });
 });

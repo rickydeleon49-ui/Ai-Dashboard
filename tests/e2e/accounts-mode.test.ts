@@ -210,7 +210,7 @@ before(async () => {
   // Seed Users
   await dbClient.query(`
     INSERT INTO "user" ("id", "name", "email", "emailVerified")
-    VALUES 
+    VALUES
       ('usr_owner', 'Alice Owner', '${OWNER_EMAIL}', NOW()),
       ('usr_member', 'Bob Member', '${MEMBER_EMAIL}', NOW()),
       ('usr_viewer', 'Charlie Viewer', '${VIEWER_EMAIL}', NOW()),
@@ -227,7 +227,7 @@ before(async () => {
   // Seed Memberships
   await dbClient.query(`
     INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
-    VALUES 
+    VALUES
       ('${WS_ID}', 'usr_owner', 'owner', 'active', NOW()),
       ('${WS_ID}', 'usr_member', 'member', 'active', NOW()),
       ('${WS_ID}', 'usr_viewer', 'viewer', 'active', NOW()),
@@ -250,7 +250,7 @@ before(async () => {
       "id", "workspace_id", "project_id", "title", "status", "priority",
       "assignee_id", "assigned_by", "assigned_at", "created_at", "updated_at"
     )
-    VALUES 
+    VALUES
       ('task_suspended', '${WS_ID}', '${PROJ_ID}', 'Task with Suspended Assignee', 'todo', 'medium', 'usr_suspended', 'usr_owner', NOW(), NOW(), NOW()),
       ('task_unassigned', '${WS_ID}', '${PROJ_ID}', 'Unassigned Task', 'todo', 'medium', NULL, NULL, NULL, NOW(), NOW()),
       ('task_member_assigned', '${WS_ID}', '${PROJ_ID}', 'Task Assigned By Member', 'todo', 'high', 'usr_member', 'usr_member', NOW(), NOW(), NOW())

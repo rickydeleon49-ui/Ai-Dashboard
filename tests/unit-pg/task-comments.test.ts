@@ -4,29 +4,32 @@
  * Verifies:
  * 1. Comment CRUD & edit history:
  *    - create comment with author attribution, task, and workspace scoping
- *    - list comments in chronological order with editCount
+ *    - list comments in chronological order with paginated envelope and bounded editCount
  *    - findById
  *    - update comment creates audit snapshot in task_comment_edit and bumps editCount
  * 2. Soft deletion preserving history:
- *    - delete marks deletedAt and deletedBy, preserving row
- *    - read queries return placeholder text "[This comment was deleted]" and null authorId
+ *    - delete marks deletedAt, redacting author and body on domain reads
+ *    - read queries return placeholder text "[This comment was deleted]", null authorId, and null deletedBy
  *    - getEditHistory remains accessible for deleted comments
- * 3. Mention validation against workspace membership:
+ * 3. Mention validation & bounds:
  *    - mentioning active member succeeds
  *    - mentioning invited member succeeds
  *    - mentioning outsider fails with InvalidMentionError
  *    - mentioning suspended member fails with InvalidMentionError
  *    - mentioning removed member fails with InvalidMentionError
+ *    - mentioning > 50 members fails with InvalidMentionError
+ *    - mentioning malformed user ID fails with InvalidMentionError
  * 4. Activity events:
  *    - written in same transaction for comment create, edit, delete
  *    - task status and priority changes write activity events
  *    - checklist complete writes activity events
  *    - listByTask and listByProject retrieve chronological events
+ *    - idempotent operations (dependency add/remove, checklist complete/reopen) do not increase event counts
+ *    - dependency activity events record actor attribution
  * 5. Cross-workspace isolation:
  *    - workspace B cannot read, update, or delete comments or activity from workspace A
  * 6. Stored-XSS protection:
  *    - raw payload stored verbatim without modification
- *    - escapeHtml helper safely escapes script tags
  */
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
@@ -58,109 +61,129 @@ let PostgresActivityRepository: typeof import(
 
 let InvalidMentionError: typeof import("../../src/core/tasks/errors").InvalidMentionError;
 let InvalidCommentError: typeof import("../../src/core/tasks/errors").InvalidCommentError;
-let escapeHtml: typeof import("../../src/core/tasks/mention-utils").escapeHtml;
 
-let projectRepo: import("../../src/db/repositories/project-repository").ProjectRepository;
-let taskRepo: import("../../src/db/repositories/task-repository").TaskRepository;
-let checklistRepo: import("../../src/db/repositories/checklist-repository").ChecklistRepository;
-let commentRepo: import("../../src/db/repositories/comment-repository").CommentRepository;
-let activityRepo: import("../../src/db/repositories/activity-repository").ActivityRepository;
+let projectRepo: import("../../src/db/repositories/postgres-project-repository").PostgresProjectRepository;
+let taskRepo: import("../../src/db/repositories/postgres-task-repository").PostgresTaskRepository;
+let checklistRepo: import("../../src/db/repositories/postgres-checklist-repository").PostgresChecklistRepository;
+let commentRepo: import("../../src/db/repositories/postgres-comment-repository").PostgresCommentRepository;
+let activityRepo: import("../../src/db/repositories/postgres-activity-repository").PostgresActivityRepository;
 
-let workspaceA: string;
-let workspaceB: string;
-let userActive: string;
-let userInvited: string;
-let userSuspended: string;
-let userRemoved: string;
-let userOutsider: string;
+// Workspaces and users
+const workspaceA = "ws-comments-pg-a";
+const workspaceB = "ws-comments-pg-b";
+
+const userActive = "usr-active-1111-1111-1111-111111111111";
+const userInvited = "usr-invited-2222-2222-2222-222222222222";
+const userSuspended = "usr-suspended-3333-3333-333333333333";
+const userRemoved = "usr-removed-4444-4444-4444-444444444444";
+const userOutsider = "usr-outsider-5555-5555-5555-555555555555";
 
 let projectA: string;
 let taskA1: string;
+let taskA2: string;
 
 before(async () => {
   await migrate();
+  const pgClient = await import("../../src/db/pg-client");
+  db = pgClient.getPgDb;
 
-  ({ getPgDb: db } = await import("../../src/db/pg-client"));
-  ({
-    users,
-    workspaces: workspacesTable,
-    workspaceMembers,
-    taskComments: taskCommentsTable,
-    taskCommentEdits: taskCommentEditsTable,
-    taskActivityEvents: taskActivityEventsTable,
-  } = await import("../../src/db/schema.pg"));
+  const schema = await import("../../src/db/schema.pg");
+  users = schema.users;
+  workspacesTable = schema.workspaces;
+  workspaceMembers = schema.workspaceMembers;
+  taskCommentsTable = schema.taskComments;
+  taskCommentEditsTable = schema.taskCommentEdits;
+  taskActivityEventsTable = schema.taskActivityEvents;
 
-  ({ PostgresProjectRepository } = await import("../../src/db/repositories/postgres-project-repository"));
-  ({ PostgresTaskRepository } = await import("../../src/db/repositories/postgres-task-repository"));
-  ({ PostgresChecklistRepository } = await import("../../src/db/repositories/postgres-checklist-repository"));
-  ({ PostgresCommentRepository } = await import("../../src/db/repositories/postgres-comment-repository"));
-  ({ PostgresActivityRepository } = await import("../../src/db/repositories/postgres-activity-repository"));
+  PostgresProjectRepository = (
+    await import("../../src/db/repositories/postgres-project-repository")
+  ).PostgresProjectRepository;
+  PostgresTaskRepository = (
+    await import("../../src/db/repositories/postgres-task-repository")
+  ).PostgresTaskRepository;
+  PostgresChecklistRepository = (
+    await import("../../src/db/repositories/postgres-checklist-repository")
+  ).PostgresChecklistRepository;
+  PostgresCommentRepository = (
+    await import("../../src/db/repositories/postgres-comment-repository")
+  ).PostgresCommentRepository;
+  PostgresActivityRepository = (
+    await import("../../src/db/repositories/postgres-activity-repository")
+  ).PostgresActivityRepository;
 
   ({ InvalidMentionError, InvalidCommentError } = await import("../../src/core/tasks/errors"));
-  ({ escapeHtml } = await import("../../src/core/tasks/mention-utils"));
 
   projectRepo = new PostgresProjectRepository();
   taskRepo = new PostgresTaskRepository();
-  checklistRepo = new PostgresChecklistRepository();
+  checklistRepo = new PostgresChecklistRepository(taskRepo);
   commentRepo = new PostgresCommentRepository();
   activityRepo = new PostgresActivityRepository();
 
-  const pgDb = db();
+  const pg = db();
 
-  // Seed Users
-  userActive = crypto.randomUUID();
-  userInvited = crypto.randomUUID();
-  userSuspended = crypto.randomUUID();
-  userRemoved = crypto.randomUUID();
-  userOutsider = crypto.randomUUID();
+  // Seed users
+  for (const uid of [userActive, userInvited, userSuspended, userRemoved, userOutsider]) {
+    await pg
+      .insert(users)
+      .values({
+        id: uid,
+        name: `User ${uid}`,
+        email: `${uid}@example.com`,
+      })
+      .onConflictDoNothing();
+  }
 
-  await pgDb.insert(users).values([
-    { id: userActive, name: "Active User", email: "active@example.com" },
-    { id: userInvited, name: "Invited User", email: "invited@example.com" },
-    { id: userSuspended, name: "Suspended User", email: "suspended@example.com" },
-    { id: userRemoved, name: "Removed User", email: "removed@example.com" },
-    { id: userOutsider, name: "Outsider User", email: "outsider@example.com" },
-  ]);
+  // Seed workspaces
+  for (const wid of [workspaceA, workspaceB]) {
+    await pg
+      .insert(workspacesTable)
+      .values({
+        id: wid,
+        name: `Workspace ${wid}`,
+        slug: wid,
+        kind: "team",
+      })
+      .onConflictDoNothing();
+  }
 
-  // Seed Workspaces
-  workspaceA = "ws-cm-a";
-  workspaceB = "ws-cm-b";
+  // Seed members for Workspace A
+  await pg
+    .insert(workspaceMembers)
+    .values([
+      { workspaceId: workspaceA, userId: userActive, role: "member", status: "active" },
+      { workspaceId: workspaceA, userId: userInvited, role: "member", status: "invited" },
+      { workspaceId: workspaceA, userId: userSuspended, role: "member", status: "suspended" },
+      { workspaceId: workspaceA, userId: userRemoved, role: "member", status: "removed" },
+    ])
+    .onConflictDoNothing();
 
-  await pgDb.insert(workspacesTable).values([
-    { id: workspaceA, name: "Workspace A", slug: "workspace-a", kind: "team", createdBy: userActive },
-    { id: workspaceB, name: "Workspace B", slug: "workspace-b", kind: "team", createdBy: userOutsider },
-  ]);
+  // Create Project & Tasks in Workspace A
+  const proj = await projectRepo.create(workspaceA, { name: "Project Alpha" });
+  projectA = proj.id;
 
-  // Seed Workspace Memberships for Workspace A
-  await pgDb.insert(workspaceMembers).values([
-    { workspaceId: workspaceA, userId: userActive, role: "owner", status: "active" },
-    { workspaceId: workspaceA, userId: userInvited, role: "member", status: "invited" },
-    { workspaceId: workspaceA, userId: userSuspended, role: "member", status: "suspended" },
-    { workspaceId: workspaceA, userId: userRemoved, role: "member", status: "removed" },
-    // Outsider belongs only to Workspace B
-    { workspaceId: workspaceB, userId: userOutsider, role: "owner", status: "active" },
-  ]);
-
-  // Seed Project and Task in Workspace A
-  const pA = await projectRepo.create(workspaceA, { name: "Project A" });
-  projectA = pA.id;
-
-  const tA = await taskRepo.create(
+  const t1 = await taskRepo.create(
     workspaceA,
-    { projectId: projectA, title: "Task A1", priority: "medium" },
+    { projectId: projectA, title: "Task Alpha 1" },
     { actorUserId: userActive },
   );
-  taskA1 = tA.id;
+  taskA1 = t1.id;
+
+  const t2 = await taskRepo.create(
+    workspaceA,
+    { projectId: projectA, title: "Task Alpha 2" },
+    { actorUserId: userActive },
+  );
+  taskA2 = t2.id;
 });
 
 after(async () => {
   await cleanup();
 });
 
-describe("PostgreSQL Task Comments & Activity Repository", () => {
+describe("PostgreSQL CommentRepository & ActivityRepository", () => {
   let createdCommentId: string;
 
-  it("creates a comment and logs a comment.created activity event", async () => {
+  it("creates a comment with author attribution and logs activity in same transaction", async () => {
     const comment = await commentRepo.create(
       workspaceA,
       taskA1,
@@ -186,7 +209,7 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
     assert.equal(createdEvent.details.commentId, comment.id);
   });
 
-  it("lists comments in chronological order", async () => {
+  it("lists comments in chronological order with pagination envelope", async () => {
     const comment2 = await commentRepo.create(
       workspaceA,
       taskA1,
@@ -194,10 +217,41 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
       { actorUserId: userActive },
     );
 
-    const list = await commentRepo.list(workspaceA, taskA1);
-    assert.equal(list.length, 2);
-    assert.equal(list[0]?.id, createdCommentId);
-    assert.equal(list[1]?.id, comment2.id);
+    const page = await commentRepo.list(workspaceA, taskA1);
+    assert.equal(page.comments.length, 2);
+    assert.equal(page.comments[0]?.id, createdCommentId);
+    assert.equal(page.comments[1]?.id, comment2.id);
+    assert.equal(page.nextCursor, null);
+  });
+
+  it("paginates comments with stable cursor and bounded limits", async () => {
+    for (let i = 1; i <= 3; i++) {
+      await commentRepo.create(
+        workspaceA,
+        taskA1,
+        { body: `PG pagination test comment ${i}` },
+        { actorUserId: userActive },
+      );
+    }
+
+    const page1 = await commentRepo.list(workspaceA, taskA1, { limit: 2 });
+    assert.equal(page1.comments.length, 2);
+    assert.ok(page1.nextCursor);
+
+    const page2 = await commentRepo.list(workspaceA, taskA1, {
+      limit: 2,
+      cursor: page1.nextCursor,
+    });
+    assert.equal(page2.comments.length, 2);
+    assert.notEqual(page1.comments[0]?.id, page2.comments[0]?.id);
+    assert.ok(page2.nextCursor);
+
+    const page3 = await commentRepo.list(workspaceA, taskA1, {
+      limit: 2,
+      cursor: page2.nextCursor,
+    });
+    assert.equal(page3.comments.length, 1);
+    assert.equal(page3.nextCursor, null);
   });
 
   it("updates a comment and records previous body in edit history", async () => {
@@ -226,7 +280,7 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
     assert.equal(editEvent.details.commentId, createdCommentId);
   });
 
-  it("soft-deletes a comment preserving audit history", async () => {
+  it("soft-deletes a comment preserving audit history and redacting body/author/deletedBy on reads", async () => {
     const deleted = await commentRepo.delete(
       workspaceA,
       taskA1,
@@ -241,9 +295,10 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
     assert.equal(fetched.isDeleted, true);
     assert.equal(fetched.body, "[This comment was deleted]");
     assert.equal(fetched.authorId, null);
+    assert.equal(fetched.deletedBy, null);
     assert.ok(fetched.deletedAt);
 
-    // Edit history is still accessible
+    // Edit history is still accessible via repository
     const history = await commentRepo.getEditHistory(workspaceA, taskA1, createdCommentId);
     assert.equal(history.length, 1);
     assert.equal(history[0]?.previousBody, "First comment on task A1");
@@ -263,7 +318,7 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
     assert.equal(deleteEvent.details.commentId, createdCommentId);
   });
 
-  it("validates mentions against workspace membership", async () => {
+  it("validates mentions against workspace membership and workload bounds", async () => {
     // Active member mention succeeds
     const commentWithActive = await commentRepo.create(
       workspaceA,
@@ -320,6 +375,36 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
       },
       InvalidMentionError,
     );
+
+    // Malformed UUID mention fails
+    await assert.rejects(
+      async () => {
+        await commentRepo.create(
+          workspaceA,
+          taskA1,
+          { body: "Hello @not-a-valid-uuid" },
+          { actorUserId: userActive },
+        );
+      },
+      InvalidMentionError,
+    );
+
+    // Excess mentions (>50) fails
+    const excessMentions: string[] = [];
+    for (let i = 0; i < 51; i++) {
+      excessMentions.push(crypto.randomUUID());
+    }
+    await assert.rejects(
+      async () => {
+        await commentRepo.create(
+          workspaceA,
+          taskA1,
+          { body: "Oversized mentions", mentions: excessMentions },
+          { actorUserId: userActive },
+        );
+      },
+      /cannot mention more than 50 users/i,
+    );
   });
 
   it("records activity events for task updates and checklist mutations", async () => {
@@ -357,10 +442,65 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
     assert.equal(checklistEvent.details.itemId, item.id);
   });
 
+  it("emits activity events only for real state transitions and preserves actor attribution", async () => {
+    // 1. Dependency addition with actor attribution
+    await taskRepo.addDependency(workspaceA, taskA1, taskA2, { actorUserId: userActive });
+    const eventsAfterAdd1 = await activityRepo.listByTask(workspaceA, taskA1);
+    const addEvents1 = eventsAfterAdd1.filter((e) => e.type === "task.dependency_added");
+    assert.equal(addEvents1.length, 1);
+    assert.equal(addEvents1[0]?.actorId, userActive, "Dependency add event must contain authenticated actor");
+
+    // Repeat dependency addition (no-op)
+    await taskRepo.addDependency(workspaceA, taskA1, taskA2, { actorUserId: userActive });
+    const eventsAfterAdd2 = await activityRepo.listByTask(workspaceA, taskA1);
+    const addEvents2 = eventsAfterAdd2.filter((e) => e.type === "task.dependency_added");
+    assert.equal(addEvents2.length, 1, "Idempotent dependency add must not emit second activity event");
+
+    // 2. Dependency removal with actor attribution
+    await taskRepo.removeDependency(workspaceA, taskA1, taskA2, { actorUserId: userActive });
+    const eventsAfterRem1 = await activityRepo.listByTask(workspaceA, taskA1);
+    const remEvents1 = eventsAfterRem1.filter((e) => e.type === "task.dependency_removed");
+    assert.equal(remEvents1.length, 1);
+    assert.equal(remEvents1[0]?.actorId, userActive, "Dependency removal event must contain authenticated actor");
+
+    // Repeat dependency removal (no-op)
+    await taskRepo.removeDependency(workspaceA, taskA1, taskA2, { actorUserId: userActive });
+    const eventsAfterRem2 = await activityRepo.listByTask(workspaceA, taskA1);
+    const remEvents2 = eventsAfterRem2.filter((e) => e.type === "task.dependency_removed");
+    assert.equal(remEvents2.length, 1, "Idempotent dependency remove must not emit second activity event");
+
+    // 3. Checklist state transitions
+    const checkItem = await checklistRepo.create(workspaceA, taskA1, { text: "PG transition item" }, { actorUserId: userActive });
+
+    // Complete transition (false -> true)
+    await checklistRepo.complete(workspaceA, taskA1, checkItem.id, { actorUserId: userActive });
+    const eventsAfterComp1 = await activityRepo.listByTask(workspaceA, taskA1);
+    const compEvents1 = eventsAfterComp1.filter((e) => e.type === "checklist.item_completed");
+    assert.equal(compEvents1.length, 2); // 1 from earlier test + 1 now
+
+    // Repeat complete (true -> true, no-op)
+    await checklistRepo.complete(workspaceA, taskA1, checkItem.id, { actorUserId: userActive });
+    const eventsAfterComp2 = await activityRepo.listByTask(workspaceA, taskA1);
+    const compEvents2 = eventsAfterComp2.filter((e) => e.type === "checklist.item_completed");
+    assert.equal(compEvents2.length, 2, "Idempotent checklist complete must not emit second activity event");
+
+    // Reopen transition (true -> false)
+    await checklistRepo.reopen(workspaceA, taskA1, checkItem.id);
+    const eventsAfterReopen1 = await activityRepo.listByTask(workspaceA, taskA1);
+    const reopenEvents1 = eventsAfterReopen1.filter((e) => e.type === "checklist.item_reopened");
+    assert.equal(reopenEvents1.length, 1);
+
+    // Repeat reopen (false -> false, no-op)
+    await checklistRepo.reopen(workspaceA, taskA1, checkItem.id);
+    const eventsAfterReopen2 = await activityRepo.listByTask(workspaceA, taskA1);
+    const reopenEvents2 = eventsAfterReopen2.filter((e) => e.type === "checklist.item_reopened");
+    assert.equal(reopenEvents2.length, 1, "Idempotent checklist reopen must not emit second activity event");
+  });
+
   it("strictly enforces cross-workspace isolation", async () => {
     // Workspace B cannot list comments for task in Workspace A
     const listFromB = await commentRepo.list(workspaceB, taskA1);
-    assert.equal(listFromB.length, 0);
+    assert.equal(listFromB.comments.length, 0);
 
     // Workspace B cannot access activity events for task in Workspace A
     const activityFromB = await activityRepo.listByTask(workspaceB, taskA1);
@@ -371,7 +511,7 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
     assert.equal(foundFromB, null);
   });
 
-  it("stores raw payload for stored-XSS protection and escapes output safely", async () => {
+  it("stores raw payload for stored-XSS protection without modification", async () => {
     const xssPayload = "<script>alert('xss')</script><img src=x onerror=alert(1)>";
 
     const comment = await commentRepo.create(
@@ -381,13 +521,9 @@ describe("PostgreSQL Task Comments & Activity Repository", () => {
       { actorUserId: userActive },
     );
 
-    // 1. Raw body in DB is preserved verbatim
+    // Raw body in DB is preserved verbatim
     assert.equal(comment.body, xssPayload);
-
-    // 2. Output escaping helper escapes HTML entities
-    const escaped = escapeHtml(comment.body);
-    assert.ok(!escaped.includes("<script>"));
-    assert.ok(escaped.includes("&lt;script&gt;"));
-    assert.ok(escaped.includes("&lt;img src=x onerror=alert(1)&gt;"));
+    const read = await commentRepo.findById(workspaceA, taskA1, comment.id);
+    assert.equal(read?.body, xssPayload);
   });
 });

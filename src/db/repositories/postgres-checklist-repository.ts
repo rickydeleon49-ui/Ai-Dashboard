@@ -292,6 +292,23 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     const now = new Date();
 
     return db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.workspaceId, workspaceId),
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .for("update");
+
+      if (!existing) return null;
+      if (existing.done) {
+        return toDomain(existing);
+      }
+
       const [parentTask] = await tx
         .select({ projectId: tasks.projectId })
         .from(tasks)
@@ -339,6 +356,23 @@ export class PostgresChecklistRepository implements ChecklistRepository {
     const now = new Date();
 
     return db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.workspaceId, workspaceId),
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .for("update");
+
+      if (!existing) return null;
+      if (!existing.done) {
+        return toDomain(existing);
+      }
+
       const [parentTask] = await tx
         .select({ projectId: tasks.projectId })
         .from(tasks)

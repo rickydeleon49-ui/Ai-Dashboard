@@ -3,7 +3,9 @@
  */
 import type {
   CommentActorOptions,
+  CommentPaginationQuery,
   CreateCommentInput,
+  PaginatedComments,
   TaskComment,
   TaskCommentEdit,
   UpdateCommentInput,
@@ -11,10 +13,16 @@ import type {
 
 export const MIN_COMMENT_BODY_LENGTH = 1;
 export const MAX_COMMENT_BODY_LENGTH = 10000;
+export const DEFAULT_COMMENT_PAGE_SIZE = 50;
+export const MAX_COMMENT_PAGE_SIZE = 100;
 
 export interface CommentRepository {
-  /** Returns all comments for a task ordered by createdAt ascending. */
-  list(workspaceId: string, taskId: string): Promise<TaskComment[]>;
+  /** Returns comments for a task with capped pagination and stable ordering. */
+  list(
+    workspaceId: string,
+    taskId: string,
+    query?: CommentPaginationQuery,
+  ): Promise<PaginatedComments>;
 
   /** Finds a single comment by ID. */
   findById(workspaceId: string, taskId: string, commentId: string): Promise<TaskComment | null>;
@@ -44,6 +52,6 @@ export interface CommentRepository {
     options?: CommentActorOptions,
   ): Promise<boolean>;
 
-  /** Returns edit history snapshots for a comment. */
+  /** Returns edit history snapshots for a comment (privileged audit). */
   getEditHistory(workspaceId: string, taskId: string, commentId: string): Promise<TaskCommentEdit[]>;
 }

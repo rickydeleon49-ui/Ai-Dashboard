@@ -1,5 +1,5 @@
 /**
- * Comment and activity domain types (Phase 2C, release C.4).
+ * Domain types for Task Comments & Activity History (Release 2C.4).
  */
 
 export interface TaskComment {
@@ -13,7 +13,7 @@ export interface TaskComment {
   deletedBy: string | null;
   createdAt: string;
   updatedAt: string;
-  editCount?: number;
+  editCount: number;
 }
 
 export interface TaskCommentEdit {
@@ -51,4 +51,14 @@ export interface CommentActorOptions {
 
 export interface ActivityActorOptions {
   actorUserId?: string;
+}
+
+export interface CommentPaginationQuery {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PaginatedComments {
+  comments: TaskComment[];
+  nextCursor: string | null;
 }

@@ -14,6 +14,8 @@ import type {
   CreateChecklistItemInput,
   Task,
   TaskChecklistItem,
+  TaskPriority,
+  TaskStatus,
   UpdateChecklistItemInput,
 } from "@/core/tasks/types";
 import {
@@ -66,6 +68,7 @@ function validateText(text: string): string {
 
 export class DrizzleChecklistRepository implements ChecklistRepository {
   private taskRepo: TaskRepository;
+  public __testFaultHook?: (stage: "delete" | "reindex" | "activity") => void;
 
   constructor(taskRepo?: TaskRepository) {
     this.taskRepo = taskRepo ?? new DrizzleTaskRepository();
@@ -291,6 +294,22 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     const timestamp = nowIso();
 
     return db.transaction(() => {
+      const existing = db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .get();
+
+      if (!existing) return null;
+      if (existing.done) {
+        return toDomain(existing);
+      }
+
       const parentTask = db
         .select({ projectId: tasks.projectId })
         .from(tasks)
@@ -351,6 +370,22 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     const timestamp = nowIso();
 
     return db.transaction(() => {
+      const existing = db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .get();
+
+      if (!existing) return null;
+      if (!existing.done) {
+        return toDomain(existing);
+      }
+
       const parentTask = db
         .select({ projectId: tasks.projectId })
         .from(tasks)
@@ -474,96 +509,154 @@ export class DrizzleChecklistRepository implements ChecklistRepository {
     workspaceId: string,
     taskId: string,
     itemId: string,
-    options?: ChecklistItemActorOptions,
+    _options?: ChecklistItemActorOptions,
   ): Promise<Task> {
     assertLocalWorkspace(workspaceId);
 
-    const parentTask = db
-      .select()
-      .from(tasks)
-      .where(eq(tasks.id, taskId))
-      .get();
+    return db.transaction(() => {
+      const parentTask = db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
 
-    if (!parentTask) {
-      throw new ChecklistItemNotFoundError(`Parent task "${taskId}" not found.`);
-    }
+      if (!parentTask) {
+        throw new ChecklistItemNotFoundError(`Parent task "${taskId}" not found.`);
+      }
 
-    const item = db
-      .select()
-      .from(taskChecklistItems)
-      .where(
-        and(
-          eq(taskChecklistItems.taskId, taskId),
-          eq(taskChecklistItems.id, itemId),
-        ),
-      )
-      .get();
+      const item = db
+        .select()
+        .from(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .get();
 
-    if (!item) {
-      throw new ChecklistItemNotFoundError(`Checklist item "${itemId}" not found.`);
-    }
+      if (!item) {
+        throw new ChecklistItemNotFoundError(`Checklist item "${itemId}" not found.`);
+      }
 
-    // Convert through normal task invariants and create
-    let createdTask: Task;
-    try {
-      createdTask = await this.taskRepo.create(
-        workspaceId,
-        {
+      const newTaskId = createId("tsk");
+      const timestamp = nowIso();
+
+      // 1. Create task preserving normal task invariants
+      db.insert(tasks)
+        .values({
+          id: newTaskId,
           projectId: parentTask.projectId,
+          milestoneId: null,
+          parentTaskId: null,
           title: item.text,
-        },
-        options,
-      );
-    } catch (err) {
-      throw err;
-    }
+          description: null,
+          status: "todo",
+          priority: "medium",
+          assigneeId: null,
+          dueDate: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          completedAt: null,
+        })
+        .run();
 
-    try {
-      db.transaction(() => {
-        // Delete checklist item
-        db.delete(taskChecklistItems)
-          .where(
-            and(
-              eq(taskChecklistItems.taskId, taskId),
-              eq(taskChecklistItems.id, itemId),
-            ),
-          )
-          .run();
+      db.insert(taskActivityEvents)
+        .values({
+          id: crypto.randomUUID(),
+          workspaceId: LOCAL_WORKSPACE_ID,
+          projectId: parentTask.projectId,
+          taskId: newTaskId,
+          actorId: null,
+          type: "task.created",
+          details: JSON.stringify({ title: item.text }),
+          createdAt: timestamp,
+        })
+        .run();
 
-        // Re-index remaining positions
-        db.update(taskChecklistItems)
-          .set({
-            position: sql`${taskChecklistItems.position} - 1`,
-            updatedAt: nowIso(),
-          })
-          .where(
-            and(
-              eq(taskChecklistItems.taskId, taskId),
-              sql`${taskChecklistItems.position} > ${item.position}`,
-            ),
-          )
-          .run();
+      // Deterministic fault-injection hook point 1: deletion
+      if (this.__testFaultHook) {
+        this.__testFaultHook("delete");
+      }
 
-        db.insert(taskActivityEvents)
-          .values({
-            id: crypto.randomUUID(),
-            workspaceId: LOCAL_WORKSPACE_ID,
-            projectId: parentTask.projectId,
-            taskId,
-            actorId: null,
-            type: "checklist.item_converted",
-            details: JSON.stringify({ itemId, createdTaskId: createdTask.id }),
-            createdAt: nowIso(),
-          })
-          .run();
-      });
-    } catch (err) {
-      console.error(
-        `Failed to delete checklist item ${itemId} after converting to task ${createdTask.id}:`,
-        err,
-      );
-    }
+      // 2. Delete checklist item
+      db.delete(taskChecklistItems)
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            eq(taskChecklistItems.id, itemId),
+          ),
+        )
+        .run();
 
-    return createdTask;
+      // Deterministic fault-injection hook point 2: reindex
+      if (this.__testFaultHook) {
+        this.__testFaultHook("reindex");
+      }
+
+      // 3. Re-index remaining positions
+      db.update(taskChecklistItems)
+        .set({
+          position: sql`${taskChecklistItems.position} - 1`,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(taskChecklistItems.taskId, taskId),
+            sql`${taskChecklistItems.position} > ${item.position}`,
+          ),
+        )
+        .run();
+
+      // Deterministic fault-injection hook point 3: activity
+      if (this.__testFaultHook) {
+        this.__testFaultHook("activity");
+      }
+
+      // 4. Record converted activity event
+      db.insert(taskActivityEvents)
+        .values({
+          id: crypto.randomUUID(),
+          workspaceId: LOCAL_WORKSPACE_ID,
+          projectId: parentTask.projectId,
+          taskId,
+          actorId: null,
+          type: "checklist.item_converted",
+          details: JSON.stringify({ itemId, createdTaskId: newTaskId }),
+          createdAt: timestamp,
+        })
+        .run();
+
+      const created = db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.id, newTaskId))
+        .get();
+
+      if (!created) {
+        throw new Error("Failed to read back created task.");
+      }
+
+      return {
+        id: created.id,
+        projectId: created.projectId,
+        milestoneId: created.milestoneId,
+        parentTaskId: created.parentTaskId,
+        title: created.title,
+        description: created.description,
+        status: created.status as TaskStatus,
+        priority: created.priority as TaskPriority,
+        assigneeId: null,
+        assignedBy: null,
+        assignedAt: null,
+        dueDate: created.dueDate,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+        completedAt: created.completedAt,
+        blocked: false,
+        checklistTotal: 0,
+        checklistDone: 0,
+      };
+    });
   }
 }

@@ -725,7 +725,12 @@ export class PostgresTaskRepository implements TaskRepository {
     );
   }
 
-  async addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void> {
+  async addDependency(
+    workspaceId: string,
+    taskId: string,
+    dependsOnTaskId: string,
+    options?: TaskMutationOptions,
+  ): Promise<void> {
     if (taskId === dependsOnTaskId) throw new DependencyCycleError();
     const db = getPgDb();
 
@@ -760,25 +765,29 @@ export class PostgresTaskRepository implements TaskRepository {
       `);
       if (cycle.rows.length > 0) throw new DependencyCycleError();
 
-      await tx
+      const inserted = await tx
         .insert(taskDependencies)
         .values({ taskId, dependsOnTaskId, workspaceId })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning();
 
-      const [taskRow] = await tx
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
-      if (taskRow) {
-        await tx.insert(taskActivityEvents).values({
-          id: crypto.randomUUID(),
-          workspaceId,
-          projectId: taskRow.projectId,
-          taskId,
-          actorId: null,
-          type: "task.dependency_added",
-          details: { dependsOnTaskId },
-        });
+      // Only record activity event if a new row was actually inserted
+      if (inserted.length > 0) {
+        const [taskRow] = await tx
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
+        if (taskRow) {
+          await tx.insert(taskActivityEvents).values({
+            id: crypto.randomUUID(),
+            workspaceId,
+            projectId: taskRow.projectId,
+            taskId,
+            actorId: options?.actorUserId ?? null,
+            type: "task.dependency_added",
+            details: { dependsOnTaskId },
+          });
+        }
       }
     });
   }
@@ -787,15 +796,11 @@ export class PostgresTaskRepository implements TaskRepository {
     workspaceId: string,
     taskId: string,
     dependsOnTaskId: string,
+    options?: TaskMutationOptions,
   ): Promise<void> {
     const db = getPgDb();
     await db.transaction(async (tx) => {
-      const [taskRow] = await tx
-        .select({ projectId: tasks.projectId })
-        .from(tasks)
-        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
-
-      await tx
+      const deleted = await tx
         .delete(taskDependencies)
         .where(
           and(
@@ -803,20 +808,28 @@ export class PostgresTaskRepository implements TaskRepository {
             eq(taskDependencies.taskId, taskId),
             eq(taskDependencies.dependsOnTaskId, dependsOnTaskId),
           ),
-        );
+        )
+        .returning();
 
-      if (taskRow) {
-        await tx.insert(taskActivityEvents).values({
-          id: crypto.randomUUID(),
-          workspaceId,
-          projectId: taskRow.projectId,
-          taskId,
-          actorId: null,
-          type: "task.dependency_removed",
-          details: { dependsOnTaskId },
-        });
+      // Only record activity event if an existing row was actually deleted
+      if (deleted.length > 0) {
+        const [taskRow] = await tx
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, taskId)));
+
+        if (taskRow) {
+          await tx.insert(taskActivityEvents).values({
+            id: crypto.randomUUID(),
+            workspaceId,
+            projectId: taskRow.projectId,
+            taskId,
+            actorId: options?.actorUserId ?? null,
+            type: "task.dependency_removed",
+            details: { dependsOnTaskId },
+          });
+        }
       }
     });
   }
 }
-

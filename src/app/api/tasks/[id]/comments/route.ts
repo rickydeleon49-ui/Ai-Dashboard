@@ -50,8 +50,23 @@ export async function GET(request: NextRequest, { params }: Context) {
   const task = await taskRepository.findById(workspaceId, id);
   if (!task) return taskNotFoundResponse();
 
-  const comments = await commentRepository.list(workspaceId, id);
-  return NextResponse.json({ comments }, { headers: { "Cache-Control": "no-store" } });
+  const { searchParams } = new URL(request.url);
+  const rawLimit = searchParams.get("limit");
+  const cursor = searchParams.get("cursor") ?? undefined;
+  let limit: number | undefined;
+  if (rawLimit !== null) {
+    const parsedLimit = parseInt(rawLimit, 10);
+    if (isNaN(parsedLimit) || parsedLimit < 1) {
+      return NextResponse.json(
+        { error: "Invalid limit parameter. Must be an integer between 1 and 100." },
+        { status: 422, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    limit = Math.min(parsedLimit, 100);
+  }
+
+  const result = await commentRepository.list(workspaceId, id, { limit, cursor });
+  return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** POST /api/tasks/:id/comments — creates a new comment on a task. */

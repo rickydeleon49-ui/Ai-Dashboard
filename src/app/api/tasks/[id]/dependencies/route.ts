@@ -89,7 +89,9 @@ export async function POST(request: NextRequest, { params }: Context) {
   }
 
   try {
-    await taskRepository.addDependency(workspaceId, id, parsed.data.dependsOnTaskId);
+    await taskRepository.addDependency(workspaceId, id, parsed.data.dependsOnTaskId, {
+      actorUserId: userId ?? undefined,
+    });
   } catch (error) {
     if (error instanceof DependencyCycleError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
@@ -131,6 +133,8 @@ export async function DELETE(request: NextRequest, { params }: Context) {
     return NextResponse.json({ error: "dependsOnTaskId query parameter is required" }, { status: 400 });
   }
 
-  await taskRepository.removeDependency(workspaceId, id, dependsOnTaskId);
+  await taskRepository.removeDependency(workspaceId, id, dependsOnTaskId, {
+    actorUserId: userId ?? undefined,
+  });
   return NextResponse.json({ ok: true });
 }

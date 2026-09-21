@@ -141,3 +141,7 @@ export const commentUpdateSchema = z.object({
   mentions: z.array(z.string().trim()).optional(),
 });
 
+export const commentPaginationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().trim().optional(),
+});

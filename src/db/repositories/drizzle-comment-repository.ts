@@ -1,11 +1,14 @@
 /**
  * SQLite implementation of CommentRepository (Release 2C.4).
- * Single-tenant desktop supported with soft-deletion and activity logging.
+ * Single-tenant desktop supported with soft-deletion, activity logging,
+ * capped cursor pagination, and bounded edit counting.
  */
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type {
   CommentActorOptions,
+  CommentPaginationQuery,
   CreateCommentInput,
+  PaginatedComments,
   TaskComment,
   TaskCommentEdit,
   UpdateCommentInput,
@@ -15,7 +18,7 @@ import {
   InvalidCommentError,
   InvalidMentionError,
 } from "@/core/tasks/errors";
-import { extractMentions } from "@/core/tasks/mention-utils";
+import { extractAndValidateMentions } from "@/core/tasks/mention-utils";
 import { db } from "../client";
 import {
   taskActivityEvents,
@@ -25,38 +28,97 @@ import {
 } from "../schema";
 import {
   type CommentRepository,
+  DEFAULT_COMMENT_PAGE_SIZE,
   MAX_COMMENT_BODY_LENGTH,
+  MAX_COMMENT_PAGE_SIZE,
   MIN_COMMENT_BODY_LENGTH,
 } from "./comment-repository";
 
 export class DrizzleCommentRepository implements CommentRepository {
-  async list(workspaceId: string, taskId: string): Promise<TaskComment[]> {
-    const rows = db
-      .select()
-      .from(taskComments)
-      .where(
-        and(
-          eq(taskComments.workspaceId, workspaceId),
-          eq(taskComments.taskId, taskId),
-        ),
-      )
-      .orderBy(asc(taskComments.createdAt))
-      .all();
+  async list(
+    workspaceId: string,
+    taskId: string,
+    query?: CommentPaginationQuery,
+  ): Promise<PaginatedComments> {
+    const limit = Math.min(
+      Math.max(query?.limit ?? DEFAULT_COMMENT_PAGE_SIZE, 1),
+      MAX_COMMENT_PAGE_SIZE,
+    );
 
-    const commentIds = rows.map((r) => r.id);
-    const editCounts = new Map<string, number>();
-    if (commentIds.length > 0) {
-      const edits = db
-        .select({ commentId: taskCommentEdits.commentId })
-        .from(taskCommentEdits)
-        .where(inArray(taskCommentEdits.commentId, commentIds))
-        .all();
-      for (const e of edits) {
-        editCounts.set(e.commentId, (editCounts.get(e.commentId) ?? 0) + 1);
+    let cursorCreatedAt: string | null = null;
+    let cursorId: string | null = null;
+    if (query?.cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(query.cursor, "base64url").toString("utf-8"));
+        if (decoded && typeof decoded.createdAt === "string" && typeof decoded.id === "string") {
+          cursorCreatedAt = decoded.createdAt;
+          cursorId = decoded.id;
+        }
+      } catch {
+        // Ignore malformed cursor, start from beginning
       }
     }
 
-    return rows.map((r) => this.mapRow(r, editCounts.get(r.id) ?? 0));
+    const whereConditions = [
+      eq(taskComments.workspaceId, workspaceId),
+      eq(taskComments.taskId, taskId),
+    ];
+
+    if (cursorCreatedAt && cursorId) {
+      whereConditions.push(
+        or(
+          gt(taskComments.createdAt, cursorCreatedAt),
+          and(eq(taskComments.createdAt, cursorCreatedAt), gt(taskComments.id, cursorId)),
+        )!,
+      );
+    }
+
+    const rows = db
+      .select()
+      .from(taskComments)
+      .where(and(...whereConditions))
+      .orderBy(asc(taskComments.createdAt), asc(taskComments.id))
+      .limit(limit + 1)
+      .all();
+
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+    let nextCursor: string | null = null;
+    if (hasMore && pageRows.length > 0) {
+      const last = pageRows[pageRows.length - 1];
+      if (last) {
+        nextCursor = Buffer.from(
+          JSON.stringify({
+            createdAt: last.createdAt,
+            id: last.id,
+          }),
+        ).toString("base64url");
+      }
+    }
+
+    // Get bounded edit counts using aggregate query on page rows only
+    const commentIds = pageRows.map((r) => r.id);
+    const editCounts = new Map<string, number>();
+    if (commentIds.length > 0) {
+      const counts = db
+        .select({
+          commentId: taskCommentEdits.commentId,
+          count: sql<number>`count(*)`.mapWith(Number),
+        })
+        .from(taskCommentEdits)
+        .where(inArray(taskCommentEdits.commentId, commentIds))
+        .groupBy(taskCommentEdits.commentId)
+        .all();
+      for (const c of counts) {
+        editCounts.set(c.commentId, c.count);
+      }
+    }
+
+    return {
+      comments: pageRows.map((r) => this.mapRow(r, editCounts.get(r.id) ?? 0)),
+      nextCursor,
+    };
   }
 
   async findById(workspaceId: string, taskId: string, commentId: string): Promise<TaskComment | null> {
@@ -74,13 +136,13 @@ export class DrizzleCommentRepository implements CommentRepository {
 
     if (!row) return null;
 
-    const edits = db
-      .select({ id: taskCommentEdits.id })
+    const countRow = db
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(taskCommentEdits)
       .where(eq(taskCommentEdits.commentId, commentId))
-      .all();
+      .get();
 
-    return this.mapRow(row, edits.length);
+    return this.mapRow(row, countRow?.count ?? 0);
   }
 
   async create(
@@ -217,11 +279,11 @@ export class DrizzleCommentRepository implements CommentRepository {
         .run();
     });
 
-    const edits = db
-      .select({ id: taskCommentEdits.id })
+    const countRow = db
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(taskCommentEdits)
       .where(eq(taskCommentEdits.commentId, commentId))
-      .all();
+      .get();
 
     return {
       id: commentId,
@@ -234,7 +296,7 @@ export class DrizzleCommentRepository implements CommentRepository {
       deletedBy: null,
       createdAt: existing.createdAt,
       updatedAt: now,
-      editCount: edits.length,
+      editCount: countRow?.count ?? 0,
     };
   }
 
@@ -348,8 +410,7 @@ export class DrizzleCommentRepository implements CommentRepository {
   }
 
   private validateMentions(body: string, explicitMentions?: string[]): void {
-    const extracted = extractMentions(body);
-    const allMentions = [...extracted, ...(explicitMentions ?? [])];
+    const allMentions = extractAndValidateMentions(body, explicitMentions);
     if (allMentions.length > 0) {
       throw new InvalidMentionError("Mentions are not supported in desktop mode.");
     }
@@ -365,7 +426,7 @@ export class DrizzleCommentRepository implements CommentRepository {
       body: isDeleted ? "[This comment was deleted]" : row.body,
       isDeleted,
       deletedAt: row.deletedAt,
-      deletedBy: row.deletedBy,
+      deletedBy: isDeleted ? null : row.deletedBy,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       editCount,

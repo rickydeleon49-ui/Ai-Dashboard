@@ -1,12 +1,15 @@
 /**
  * PostgreSQL implementation of CommentRepository (Release 2C.4).
  * Enforces workspace scoping, transactional activity event logging,
- * soft deletion, and member-mention validation.
+ * soft deletion, member-mention validation, capped cursor pagination,
+ * and bounded edit counting.
  */
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type {
   CommentActorOptions,
+  CommentPaginationQuery,
   CreateCommentInput,
+  PaginatedComments,
   TaskComment,
   TaskCommentEdit,
   UpdateCommentInput,
@@ -16,7 +19,7 @@ import {
   InvalidCommentError,
   InvalidMentionError,
 } from "@/core/tasks/errors";
-import { extractMentions } from "@/core/tasks/mention-utils";
+import { extractAndValidateMentions } from "@/core/tasks/mention-utils";
 import { getPgDb } from "../pg-client";
 import {
   taskActivityEvents,
@@ -27,38 +30,96 @@ import {
 } from "../schema.pg";
 import {
   type CommentRepository,
+  DEFAULT_COMMENT_PAGE_SIZE,
   MAX_COMMENT_BODY_LENGTH,
+  MAX_COMMENT_PAGE_SIZE,
   MIN_COMMENT_BODY_LENGTH,
 } from "./comment-repository";
 
 export class PostgresCommentRepository implements CommentRepository {
-  async list(workspaceId: string, taskId: string): Promise<TaskComment[]> {
+  async list(
+    workspaceId: string,
+    taskId: string,
+    query?: CommentPaginationQuery,
+  ): Promise<PaginatedComments> {
     const db = getPgDb();
-    const rows = await db
-      .select()
-      .from(taskComments)
-      .where(
-        and(
-          eq(taskComments.workspaceId, workspaceId),
-          eq(taskComments.taskId, taskId),
-        ),
-      )
-      .orderBy(asc(taskComments.createdAt));
+    const limit = Math.min(
+      Math.max(query?.limit ?? DEFAULT_COMMENT_PAGE_SIZE, 1),
+      MAX_COMMENT_PAGE_SIZE,
+    );
 
-    // Get edit counts for these comments
-    const commentIds = rows.map((r) => r.id);
-    const editCounts = new Map<string, number>();
-    if (commentIds.length > 0) {
-      const edits = await db
-        .select({ commentId: taskCommentEdits.commentId })
-        .from(taskCommentEdits)
-        .where(inArray(taskCommentEdits.commentId, commentIds));
-      for (const e of edits) {
-        editCounts.set(e.commentId, (editCounts.get(e.commentId) ?? 0) + 1);
+    let cursorDate: Date | null = null;
+    let cursorId: string | null = null;
+    if (query?.cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(query.cursor, "base64url").toString("utf-8"));
+        if (decoded && typeof decoded.createdAt === "string" && typeof decoded.id === "string") {
+          cursorDate = new Date(decoded.createdAt);
+          cursorId = decoded.id;
+        }
+      } catch {
+        // Ignore malformed cursor, start from beginning
       }
     }
 
-    return rows.map((r) => this.mapRow(r, editCounts.get(r.id) ?? 0));
+    const whereConditions = [
+      eq(taskComments.workspaceId, workspaceId),
+      eq(taskComments.taskId, taskId),
+    ];
+
+    if (cursorDate && cursorId) {
+      whereConditions.push(
+        or(
+          gt(taskComments.createdAt, cursorDate),
+          and(eq(taskComments.createdAt, cursorDate), gt(taskComments.id, cursorId)),
+        )!,
+      );
+    }
+
+    const rows = await db
+      .select()
+      .from(taskComments)
+      .where(and(...whereConditions))
+      .orderBy(asc(taskComments.createdAt), asc(taskComments.id))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+    let nextCursor: string | null = null;
+    if (hasMore && pageRows.length > 0) {
+      const last = pageRows[pageRows.length - 1];
+      if (last) {
+        nextCursor = Buffer.from(
+          JSON.stringify({
+            createdAt: last.createdAt.toISOString(),
+            id: last.id,
+          }),
+        ).toString("base64url");
+      }
+    }
+
+    // Get bounded edit counts using aggregate query on page rows only
+    const commentIds = pageRows.map((r) => r.id);
+    const editCounts = new Map<string, number>();
+    if (commentIds.length > 0) {
+      const counts = await db
+        .select({
+          commentId: taskCommentEdits.commentId,
+          count: sql<number>`count(*)::int`.mapWith(Number),
+        })
+        .from(taskCommentEdits)
+        .where(inArray(taskCommentEdits.commentId, commentIds))
+        .groupBy(taskCommentEdits.commentId);
+      for (const c of counts) {
+        editCounts.set(c.commentId, c.count);
+      }
+    }
+
+    return {
+      comments: pageRows.map((r) => this.mapRow(r, editCounts.get(r.id) ?? 0)),
+      nextCursor,
+    };
   }
 
   async findById(workspaceId: string, taskId: string, commentId: string): Promise<TaskComment | null> {
@@ -76,12 +137,12 @@ export class PostgresCommentRepository implements CommentRepository {
 
     if (!row) return null;
 
-    const edits = await db
-      .select({ id: taskCommentEdits.id })
+    const [countRow] = await db
+      .select({ count: sql<number>`count(*)::int`.mapWith(Number) })
       .from(taskCommentEdits)
       .where(eq(taskCommentEdits.commentId, commentId));
 
-    return this.mapRow(row, edits.length);
+    return this.mapRow(row, countRow?.count ?? 0);
   }
 
   async create(
@@ -104,7 +165,7 @@ export class PostgresCommentRepository implements CommentRepository {
       throw new Error("Task not found in this workspace.");
     }
 
-    // Validate mentions against workspace members and extract validated IDs
+    // Validate mentions against format, bounds, and workspace members before starting transaction
     const mentions = await this.validateMentions(workspaceId, input.body, input.mentions);
 
     return db.transaction(async (tx) => {
@@ -205,13 +266,13 @@ export class PostgresCommentRepository implements CommentRepository {
         details: { commentId },
       });
 
-      const edits = await tx
-        .select({ id: taskCommentEdits.id })
+      const [countRow] = await tx
+        .select({ count: sql<number>`count(*)::int`.mapWith(Number) })
         .from(taskCommentEdits)
         .where(eq(taskCommentEdits.commentId, commentId));
 
       if (!updated) return null;
-      return this.mapRow(updated, edits.length);
+      return this.mapRow(updated, countRow?.count ?? 0);
     });
   }
 
@@ -321,8 +382,8 @@ export class PostgresCommentRepository implements CommentRepository {
     body: string,
     explicitMentions?: string[],
   ): Promise<string[]> {
-    const extracted = extractMentions(body);
-    const allMentionIds = Array.from(new Set([...extracted, ...(explicitMentions ?? [])]));
+    // Validates formats, deduplicates, and validates mention count limit (<= 50) BEFORE database queries
+    const allMentionIds = extractAndValidateMentions(body, explicitMentions);
 
     if (allMentionIds.length === 0) return [];
 
@@ -362,7 +423,7 @@ export class PostgresCommentRepository implements CommentRepository {
       body: isDeleted ? "[This comment was deleted]" : row.body,
       isDeleted,
       deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
-      deletedBy: row.deletedBy,
+      deletedBy: isDeleted ? null : row.deletedBy,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       editCount,

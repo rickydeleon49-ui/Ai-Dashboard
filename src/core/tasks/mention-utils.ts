@@ -1,42 +1,62 @@
-/**
- * Mention parsing and output sanitization utilities (Release 2C.4).
- */
+import { InvalidMentionError } from "./errors";
+
+export const MAX_MENTIONS_PER_COMMENT = 50;
+export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidUserId(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
 
 /**
  * Extracts target user IDs from comment text.
- * Mentions can be formatted as:
- * 1. Markdown mention link: @[DisplayName](userId)
- * 2. Plain UUID mention: @<uuid>
+ * Supports:
+ * - Markdown link mentions: `@[Jane Doe](userId)`
+ * - Bare @uuid mentions: `@userId`
  */
 export function extractMentions(text: string): string[] {
   const mentions = new Set<string>();
 
-  // 1. Markdown mention: @[Display Name](userId)
+  // Format 1: @[Display Name](userId)
   const markdownRegex = /@\[[^\]]+\]\(([^)]+)\)/g;
   let match: RegExpExecArray | null;
   while ((match = markdownRegex.exec(text)) !== null) {
-    const id = match[1]?.trim();
-    if (id) mentions.add(id);
+    if (match[1]) mentions.add(match[1].trim());
   }
 
-  // 2. Standalone @uuid
-  const uuidRegex = /@([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/gi;
-  while ((match = uuidRegex.exec(text)) !== null) {
-    if (match[1]) mentions.add(match[1]);
+  // Format 2: @<uuid>
+  const bareRegex = /@([0-9a-fA-F-]{36})/g;
+  while ((match = bareRegex.exec(text)) !== null) {
+    if (match[1]) mentions.add(match[1].trim());
   }
 
   return Array.from(mentions);
 }
 
 /**
- * Escapes HTML characters to prevent XSS.
- * Used when converting raw comment text to safe HTML/text representations.
+ * Extracts, deduplicates, and validates mention user IDs against the format and maximum count limits.
+ * Rejects invalid UUID formats and counts exceeding 50 before database queries.
  */
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+export function extractAndValidateMentions(
+  body: string,
+  explicitMentions?: string[],
+): string[] {
+  const extracted = extractMentions(body);
+  const allMentionIds = Array.from(new Set([...extracted, ...(explicitMentions ?? [])]));
+
+  if (allMentionIds.length > MAX_MENTIONS_PER_COMMENT) {
+    throw new InvalidMentionError(
+      `A comment cannot mention more than ${MAX_MENTIONS_PER_COMMENT} users.`,
+    );
+  }
+
+  for (const id of allMentionIds) {
+    if (!isValidUserId(id)) {
+      throw new InvalidMentionError(
+        `Mention target ID is invalid: "${id}". Mentions must reference valid user IDs.`,
+        id,
+      );
+    }
+  }
+
+  return allMentionIds;
 }

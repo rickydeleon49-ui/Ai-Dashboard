@@ -139,4 +139,3 @@ export class CommentPermissionError extends Error {
     this.name = "CommentPermissionError";
   }
 }
-

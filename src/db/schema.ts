@@ -548,4 +548,3 @@ export type AiMessageRow = typeof aiMessages.$inferSelect;
 export type TaskCommentRow = typeof taskComments.$inferSelect;
 export type TaskCommentEditRow = typeof taskCommentEdits.$inferSelect;
 export type TaskActivityEventRow = typeof taskActivityEvents.$inferSelect;
-

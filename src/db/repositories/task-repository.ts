@@ -54,7 +54,17 @@ export interface TaskRepository {
    * `DependencyCycleError` (see `core/tasks/errors.ts`) — including for
    * `taskId === dependsOnTaskId` — without writing anything.
    */
-  addDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void>;
+  addDependency(
+    workspaceId: string,
+    taskId: string,
+    dependsOnTaskId: string,
+    options?: TaskMutationOptions,
+  ): Promise<void>;
   /** Idempotent — removing an edge that doesn't exist is a no-op. */
-  removeDependency(workspaceId: string, taskId: string, dependsOnTaskId: string): Promise<void>;
+  removeDependency(
+    workspaceId: string,
+    taskId: string,
+    dependsOnTaskId: string,
+    options?: TaskMutationOptions,
+  ): Promise<void>;
 }
