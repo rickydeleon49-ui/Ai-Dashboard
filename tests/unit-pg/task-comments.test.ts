@@ -74,11 +74,11 @@ let activityRepo: import("../../src/db/repositories/postgres-activity-repository
 const workspaceA = "ws-comments-pg-a";
 const workspaceB = "ws-comments-pg-b";
 
-const userActive = "usr-active-1111-1111-1111-111111111111";
-const userInvited = "usr-invited-2222-2222-2222-222222222222";
-const userSuspended = "usr-suspended-3333-3333-3333-333333333333";
-const userRemoved = "usr-removed-4444-4444-4444-444444444444";
-const userOutsider = "usr-outsider-5555-5555-5555-555555555555";
+const userActive = "11111111-1111-4111-8111-111111111111";
+const userInvited = "22222222-2222-4222-8222-222222222222";
+const userSuspended = "33333333-3333-4333-8333-333333333333";
+const userRemoved = "44444444-4444-4444-8444-444444444444";
+const userOutsider = "55555555-5555-4555-8555-555555555555";
 
 let projectA: string;
 let taskA1: string;
@@ -229,33 +229,68 @@ describe("PostgreSQL CommentRepository & ActivityRepository", () => {
   });
 
   it("paginates comments with stable cursor and bounded limits", async () => {
-    for (let i = 1; i <= 3; i++) {
-      await commentRepo.create(
+    const paginationTask = await taskRepo.create(
+      workspaceA,
+      { projectId: projectA, title: "PG Dedicated Pagination Task" },
+      { actorUserId: userActive },
+    );
+    const createdComments: Array<{ id: string; createdAt: string }> = [];
+    for (let i = 1; i <= 5; i++) {
+      const c = await commentRepo.create(
         workspaceA,
-        taskA1,
+        paginationTask.id,
         { body: `PG pagination test comment ${i}` },
         { actorUserId: userActive },
       );
+      createdComments.push({ id: c.id, createdAt: c.createdAt });
+      // Small pause to give distinct timestamps where supported
+      await new Promise((r) => setTimeout(r, 5));
     }
 
-    const page1 = await commentRepo.list(workspaceA, taskA1, { limit: 2 });
+    // Sort expected comments by the canonical database ordering: createdAt ASC, then id ASC
+    createdComments.sort((a, b) => {
+      const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return diff !== 0 ? diff : a.id.localeCompare(b.id);
+    });
+
+    // Page 1: limit 2
+    const page1 = await commentRepo.list(workspaceA, paginationTask.id, { limit: 2 });
     assert.equal(page1.comments.length, 2);
+    assert.equal(page1.comments[0]?.id, createdComments[0]!.id);
+    assert.equal(page1.comments[1]?.id, createdComments[1]!.id);
     assert.ok(page1.nextCursor);
 
-    const page2 = await commentRepo.list(workspaceA, taskA1, {
+    // Page 2: limit 2 with cursor
+    const page2 = await commentRepo.list(workspaceA, paginationTask.id, {
       limit: 2,
       cursor: page1.nextCursor,
     });
     assert.equal(page2.comments.length, 2);
-    assert.notEqual(page1.comments[0]?.id, page2.comments[0]?.id);
+    assert.equal(page2.comments[0]?.id, createdComments[2]!.id);
+    assert.equal(page2.comments[1]?.id, createdComments[3]!.id);
     assert.ok(page2.nextCursor);
 
-    const page3 = await commentRepo.list(workspaceA, taskA1, {
+    // Page 3: limit 2 with cursor -> returns the final comment
+    const page3 = await commentRepo.list(workspaceA, paginationTask.id, {
       limit: 2,
       cursor: page2.nextCursor,
     });
     assert.equal(page3.comments.length, 1);
+    assert.equal(page3.comments[0]?.id, createdComments[4]!.id);
     assert.equal(page3.nextCursor, null);
+
+    // Assert exact IDs and stable (createdAt, id) ordering across every page
+    const allFetched = [...page1.comments, ...page2.comments, ...page3.comments];
+    assert.deepEqual(allFetched.map((c) => c.id), createdComments.map((c) => c.id));
+    for (let i = 1; i < allFetched.length; i++) {
+      const prev = allFetched[i - 1]!;
+      const curr = allFetched[i]!;
+      const timeDiff = new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime();
+      assert.ok(
+        timeDiff > 0 || (timeDiff === 0 && curr.id > prev.id),
+        "Comments must be ordered strictly ascending by (createdAt, id)",
+      );
+    }
   });
 
   it("preserves stable ordering and pagination across equal timestamps in PostgreSQL (createdAt ASC, id ASC)", async () => {
@@ -448,7 +483,7 @@ describe("PostgreSQL CommentRepository & ActivityRepository", () => {
         await commentRepo.create(
           workspaceA,
           taskA1,
-          { body: "Hello @not-a-valid-uuid" },
+          { body: "Hello @[Invalid](not-a-valid-uuid)" },
           { actorUserId: userActive },
         );
       },

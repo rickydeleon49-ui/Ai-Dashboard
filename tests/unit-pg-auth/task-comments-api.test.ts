@@ -1030,13 +1030,34 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       const res = await commentsRoute.POST(
         apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
           cookie: memberCookie,
-          body: { body: "Hey @[not-a-valid-uuid], please review" },
+          body: { body: "Hey @[Invalid](not-a-valid-uuid), please review" },
         }),
         { params: Promise.resolve({ id: taskAId }) },
       );
       assert.equal(res.status, 422);
-      const json = (await res.json()) as { error: string };
+      const json = (await res.json()) as { error: string; invalidUserId?: string };
       assert.match(json.error, /valid user id/i);
+      assert.equal(json.invalidUserId, "not-a-valid-uuid");
+
+      // Verify explicit mentions array also rejects malformed IDs
+      const explicitRes = await commentsRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+          body: { body: "Valid prose", mentions: ["not-a-valid-uuid"] },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(explicitRes.status, 422);
+
+      // Ordinary prose containing @word remains valid
+      const proseRes = await commentsRoute.POST(
+        apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
+          cookie: memberCookie,
+          body: { body: "Contact me at user@example.com or ping @channel for updates." },
+        }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(proseRes.status, 201);
     });
 
     it("rejects requests exceeding maximum 50 mentions with 422 before query", async () => {
@@ -1054,18 +1075,38 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       );
       assert.equal(res.status, 422);
       const json = (await res.json()) as { error: string };
-      assert.match(json.error, /exceeds maximum allowed 50/i);
+      assert.match(json.error, /cannot mention more than 50/i);
     });
 
     it("deduplicates identical mentions without exceeding bounds", async () => {
       const res = await commentsRoute.POST(
         apiRequest("POST", `/api/tasks/${taskAId}/comments`, {
           cookie: memberCookie,
-          body: `Duplicate mention @${memberId} and @${memberId}`,
+          body: { body: `Duplicate mention @${memberId} and @${memberId}` },
         }),
         { params: Promise.resolve({ id: taskAId }) },
       );
       assert.equal(res.status, 201);
+      const json = (await res.json()) as { comment: { id: string } };
+      assert.ok(json.comment?.id);
+
+      // Verify activity recorded the mention only once
+      const actRes = await taskActivityRoute.GET(
+        apiRequest("GET", `/api/tasks/${taskAId}/activity`, { cookie: memberCookie }),
+        { params: Promise.resolve({ id: taskAId }) },
+      );
+      assert.equal(actRes.status, 200);
+      const actJson = (await actRes.json()) as {
+        events: Array<{
+          type: string;
+          details?: { commentId?: string; mentions?: string[] };
+        }>;
+      };
+      const createdEvent = actJson.events.find(
+        (e) => e.type === "comment.created" && e.details?.commentId === json.comment.id,
+      );
+      assert.ok(createdEvent, "Activity event for created comment must exist");
+      assert.deepEqual(createdEvent.details?.mentions, [memberId]);
     });
 
     it("supports capped cursor-based pagination and stable ordering", async () => {
@@ -1077,19 +1118,28 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       const pTaskRes = await projectTasksRoute.POST(pTaskReq, {
         params: Promise.resolve({ id: projectAId }),
       });
+      assert.equal(pTaskRes.status, 201);
       const pTaskJson = (await pTaskRes.json()) as { task: { id: string } };
       const pTaskId = pTaskJson.task.id;
 
-      // Create 4 comments
+      // Create 4 comments with verified setup responses
+      const createdCommentIds: string[] = [];
       for (let i = 1; i <= 4; i++) {
-        await commentsRoute.POST(
+        const cRes = await commentsRoute.POST(
           apiRequest("POST", `/api/tasks/${pTaskId}/comments`, {
             cookie: memberCookie,
-            body: `Pagination comment ${i}`,
+            body: { body: `Pagination comment ${i}` },
           }),
           { params: Promise.resolve({ id: pTaskId }) },
         );
+        assert.equal(cRes.status, 201, `Setup comment ${i} creation must return 201`);
+        const cJson = (await cRes.json()) as { comment: { id: string } };
+        assert.ok(cJson.comment?.id, `Setup comment ${i} must return a comment ID`);
+        createdCommentIds.push(cJson.comment.id);
+        // Ensure distinct timestamps
+        await new Promise((r) => setTimeout(r, 5));
       }
+      assert.equal(createdCommentIds.length, 4);
 
       // Page 1: limit 2
       const page1Res = await commentsRoute.GET(
@@ -1100,10 +1150,12 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       );
       assert.equal(page1Res.status, 200);
       const page1 = (await page1Res.json()) as {
-        comments: Array<{ id: string; body: string }>;
+        comments: Array<{ id: string; body: string; createdAt: string }>;
         nextCursor: string | null;
       };
       assert.equal(page1.comments.length, 2);
+      assert.equal(page1.comments[0]?.id, createdCommentIds[0]);
+      assert.equal(page1.comments[1]?.id, createdCommentIds[1]);
       assert.ok(page1.nextCursor !== null);
 
       // Page 2: limit 2 with cursor
@@ -1115,21 +1167,55 @@ describe("Release 2C.4 Task Comments & Activity API", () => {
       );
       assert.equal(page2Res.status, 200);
       const page2 = (await page2Res.json()) as {
-        comments: Array<{ id: string; body: string }>;
+        comments: Array<{ id: string; body: string; createdAt: string }>;
         nextCursor: string | null;
       };
       assert.equal(page2.comments.length, 2);
+      assert.equal(page2.comments[0]?.id, createdCommentIds[2]);
+      assert.equal(page2.comments[1]?.id, createdCommentIds[3]);
       assert.equal(page2.nextCursor, null);
-      assert.notEqual(page1.comments[0]?.id, page2.comments[0]?.id);
 
-      // Oversized limit is bounded without error
-      const cappedRes = await commentsRoute.GET(
+      // No duplicate or skipped IDs occur
+      const allFetchedIds = [...page1.comments.map((c) => c.id), ...page2.comments.map((c) => c.id)];
+      assert.deepEqual(allFetchedIds, createdCommentIds);
+
+      // Ordering is stable: (createdAt ASC, id ASC)
+      const allFetched = [...page1.comments, ...page2.comments];
+      for (let i = 1; i < allFetched.length; i++) {
+        const prev = allFetched[i - 1]!;
+        const curr = allFetched[i]!;
+        const prevTime = new Date(prev.createdAt).getTime();
+        const currTime = new Date(curr.createdAt).getTime();
+        assert.ok(
+          currTime > prevTime || (currTime === prevTime && curr.id > prev.id),
+          "Ordering must be strictly stable by (createdAt ASC, id ASC)",
+        );
+      }
+
+      // Invalid and oversized limits retain their intended strict behavior (422)
+      const oversizedRes = await commentsRoute.GET(
         apiRequest("GET", `/api/tasks/${pTaskId}/comments?limit=500`, {
           cookie: memberCookie,
         }),
         { params: Promise.resolve({ id: pTaskId }) },
       );
-      assert.equal(cappedRes.status, 200);
+      assert.equal(oversizedRes.status, 422, "Limit > 100 must be rejected with 422");
+
+      const zeroLimitRes = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${pTaskId}/comments?limit=0`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: pTaskId }) },
+      );
+      assert.equal(zeroLimitRes.status, 422, "Limit <= 0 must be rejected with 422");
+
+      const malformedLimitRes = await commentsRoute.GET(
+        apiRequest("GET", `/api/tasks/${pTaskId}/comments?limit=1abc`, {
+          cookie: memberCookie,
+        }),
+        { params: Promise.resolve({ id: pTaskId }) },
+      );
+      assert.equal(malformedLimitRes.status, 422, "Non-integer limit must be rejected with 422");
     });
   });
 

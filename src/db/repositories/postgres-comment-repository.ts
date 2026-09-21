@@ -168,6 +168,7 @@ export class PostgresCommentRepository implements CommentRepository {
       const id = crypto.randomUUID();
       const authorId = options?.actorUserId ?? null;
 
+      const now = new Date();
       const [row] = await tx
         .insert(taskComments)
         .values({
@@ -176,6 +177,8 @@ export class PostgresCommentRepository implements CommentRepository {
           taskId,
           authorId,
           body: input.body,
+          createdAt: now,
+          updatedAt: now,
         })
         .returning();
 
