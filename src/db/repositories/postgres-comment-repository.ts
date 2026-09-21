@@ -38,6 +38,17 @@ import {
   MIN_COMMENT_BODY_LENGTH,
 } from "./comment-repository";
 
+/**
+ * Authoritative write time for task_comment timestamps, taken from the
+ * database rather than the app clock, so every horizontally scaled instance
+ * orders comments against one clock. Truncated to milliseconds because the
+ * cursor round-trips through a JavaScript Date; statement_timestamp() is stable
+ * within one statement, so created_at and updated_at written together match.
+ * Pinned to UTC because the columns are `timestamp` without time zone and
+ * Drizzle reads them as UTC, whatever the server's TimeZone setting.
+ */
+const DB_NOW_MS = sql<Date>`date_trunc('milliseconds', statement_timestamp() AT TIME ZONE 'UTC')`;
+
 export class PostgresCommentRepository implements CommentRepository {
   async list(
     workspaceId: string,
@@ -168,7 +179,6 @@ export class PostgresCommentRepository implements CommentRepository {
       const id = crypto.randomUUID();
       const authorId = options?.actorUserId ?? null;
 
-      const now = new Date();
       const [row] = await tx
         .insert(taskComments)
         .values({
@@ -177,8 +187,8 @@ export class PostgresCommentRepository implements CommentRepository {
           taskId,
           authorId,
           body: input.body,
-          createdAt: now,
-          updatedAt: now,
+          createdAt: DB_NOW_MS,
+          updatedAt: DB_NOW_MS,
         })
         .returning();
 
@@ -249,7 +259,7 @@ export class PostgresCommentRepository implements CommentRepository {
         .update(taskComments)
         .set({
           body: input.body,
-          updatedAt: new Date(),
+          updatedAt: DB_NOW_MS,
         })
         .where(eq(taskComments.id, commentId))
         .returning();
@@ -308,9 +318,9 @@ export class PostgresCommentRepository implements CommentRepository {
       await tx
         .update(taskComments)
         .set({
-          deletedAt: new Date(),
+          deletedAt: DB_NOW_MS,
           deletedBy: options?.actorUserId ?? null,
-          updatedAt: new Date(),
+          updatedAt: DB_NOW_MS,
         })
         .where(eq(taskComments.id, commentId));
 
