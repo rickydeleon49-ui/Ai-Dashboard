@@ -10,7 +10,7 @@
  * editing, or mid-create) is genuinely shared across milestone groups and
  * their tasks, not independent per row.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -37,6 +37,7 @@ import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/worksp
 import { cn, formatDate } from "@/lib/utils";
 import { AssigneeBadge, AssigneePicker } from "./assignee-picker";
 import { TaskChecklist, TaskChecklistBadge } from "./task-checklist";
+import { BulkActionsBar } from "./bulk-actions-bar";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
@@ -87,6 +88,7 @@ export function ProjectTasksBoard({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [assignmentFilter, setAssignmentFilter] = useState<"all" | "to_me" | "by_me" | "unassigned">("all");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
 
   const isViewer = accountsMode && callerRole === "viewer";
   const membersMap = new Map<string, WorkspaceMemberDisplaySummary>(
@@ -100,6 +102,57 @@ export function ProjectTasksBoard({
     if (assignmentFilter === "unassigned") return !task.assigneeId;
     return true;
   });
+
+  const visibleIds = useMemo(() => filteredTasks.map((t) => t.id), [filteredTasks]);
+  const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds]);
+
+  const effectiveSelectedTaskIds = useMemo(() => {
+    const next = new Set<string>();
+    for (const id of selectedTaskIds) {
+      if (visibleIdSet.has(id)) next.add(id);
+    }
+    return next;
+  }, [selectedTaskIds, visibleIdSet]);
+
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => effectiveSelectedTaskIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => effectiveSelectedTaskIds.has(id));
+
+  function toggleSelectTask(id: string) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    if (allVisibleSelected) {
+      setSelectedTaskIds((prev) => {
+        const next = new Set(prev);
+        for (const id of visibleIds) {
+          next.delete(id);
+        }
+        return next;
+      });
+    } else {
+      setSelectedTaskIds((prev) => {
+        const next = new Set(prev);
+        for (const id of visibleIds) {
+          next.add(id);
+        }
+        return next;
+      });
+    }
+  }
+
+  function clearSelection() {
+    setSelectedTaskIds(new Set());
+  }
 
   const groups: { milestone: Milestone | null; tasks: Task[] }[] = [
     ...milestones.map((milestone) => ({
@@ -130,30 +183,51 @@ export function ProjectTasksBoard({
         ) : null}
       </div>
 
-      {accountsMode ? (
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Select
-            aria-label="Filter tasks by assignment"
-            value={assignmentFilter}
-            onChange={(e) => setAssignmentFilter(e.target.value as typeof assignmentFilter)}
-            className="w-auto min-w-36 text-[12.5px]"
-          >
-            <option value="all">All assignees</option>
-            <option value="to_me">Assigned to me</option>
-            <option value="by_me">Assigned by me</option>
-            <option value="unassigned">Unassigned</option>
-          </Select>
-          {assignmentFilter !== "all" ? (
+          {accountsMode ? (
+            <Select
+              aria-label="Filter tasks by assignment"
+              value={assignmentFilter}
+              onChange={(e) => setAssignmentFilter(e.target.value as typeof assignmentFilter)}
+              className="w-auto min-w-36 text-[12.5px]"
+            >
+              <option value="all">All assignees</option>
+              <option value="to_me">Assigned to me</option>
+              <option value="by_me">Assigned by me</option>
+              <option value="unassigned">Unassigned</option>
+            </Select>
+          ) : null}
+          {accountsMode && assignmentFilter !== "all" ? (
             <button
               type="button"
               onClick={() => setAssignmentFilter("all")}
               className="h-8 rounded-md px-2 text-[12.5px] text-faint transition-colors hover:text-fg"
             >
-              Clear
+              Clear filter
             </button>
           ) : null}
         </div>
-      ) : null}
+
+        {!isViewer && filteredTasks.length > 0 ? (
+          <label className="flex cursor-pointer items-center gap-2 select-none text-[12.5px] text-faint hover:text-fg">
+            <input
+              type="checkbox"
+              aria-label="Select all visible tasks"
+              checked={allVisibleSelected}
+              ref={(el) => {
+                if (el) {
+                  el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                }
+              }}
+              onChange={toggleSelectAllVisible}
+              className="h-3.5 w-3.5 rounded border-line bg-surface text-accent focus:ring-accent"
+            />
+            <span>Select all visible ({filteredTasks.length})</span>
+          </label>
+        ) : null}
+      </div>
+
 
       {creatingMilestone && !isViewer ? (
         <MilestoneFormInline
@@ -238,6 +312,8 @@ export function ProjectTasksBoard({
                   otherTasks={tasks.filter((t) => t.id !== task.id)}
                   editing={editingTaskId === task.id && !isViewer}
                   expanded={expandedTaskId === task.id}
+                  selected={effectiveSelectedTaskIds.has(task.id)}
+                  onToggleSelect={() => toggleSelectTask(task.id)}
                   onEditToggle={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
                   onExpandToggle={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                   onChanged={refresh}
@@ -280,6 +356,21 @@ export function ProjectTasksBoard({
           </Card>
         ))
       )}
+
+      {!isViewer ? (
+        <BulkActionsBar
+          selectedTaskIds={effectiveSelectedTaskIds}
+          allVisibleTasks={filteredTasks}
+          milestones={milestones}
+          members={initialMembers}
+          accountsMode={accountsMode}
+          isViewer={isViewer}
+          workspaceId={workspaceId}
+          onClearSelection={clearSelection}
+          onSelectionChange={setSelectedTaskIds}
+          onRefresh={refresh}
+        />
+      ) : null}
     </div>
   );
 }
@@ -536,6 +627,8 @@ function TaskRow({
   milestones,
   editing,
   expanded,
+  selected,
+  onToggleSelect,
   onEditToggle,
   onExpandToggle,
   onChanged,
@@ -551,6 +644,8 @@ function TaskRow({
   milestones: Milestone[];
   editing: boolean;
   expanded: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   onEditToggle: () => void;
   onExpandToggle: () => void;
   onChanged: () => void;
@@ -625,6 +720,16 @@ function TaskRow({
   return (
     <div className="rounded-lg border border-line bg-[var(--bg-subtle)]/40">
       <div className="flex items-center gap-2 px-2.5 py-2">
+        {!isViewer && onToggleSelect ? (
+          <input
+            type="checkbox"
+            aria-label={`Select task ${task.title}`}
+            checked={Boolean(selected)}
+            onChange={onToggleSelect}
+            className="h-3.5 w-3.5 shrink-0 rounded border-line bg-surface text-accent focus:ring-accent"
+          />
+        ) : null}
+
         <Select
           value={task.status}
           disabled={statusSaving || isViewer}

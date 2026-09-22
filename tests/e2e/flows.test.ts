@@ -6,7 +6,7 @@
  * GitHub hub degrading to demo data without losing anything.
  */
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import type { Page } from "playwright";
 import { baseURL, newPage, start, stop } from "./helpers";
 
@@ -26,6 +26,24 @@ async function createProject(fields: Record<string, unknown>): Promise<string> {
   });
   assert.equal(response.status(), 201, await response.text());
   return (await response.json()).project.id as string;
+}
+
+/** Creates a task through the API and returns its id. */
+async function createTask(projectId: string, fields: Record<string, unknown>): Promise<string> {
+  const response = await page.request.post(`${baseURL}/api/projects/${projectId}/tasks`, {
+    data: { status: "todo", priority: "medium", ...fields },
+  });
+  assert.equal(response.status(), 201, await response.text());
+  return (await response.json()).task.id as string;
+}
+
+/** Creates a milestone through the API and returns its id. */
+async function createMilestone(projectId: string, fields: Record<string, unknown>): Promise<string> {
+  const response = await page.request.post(`${baseURL}/api/projects/${projectId}/milestones`, {
+    data: { status: "open", ...fields },
+  });
+  assert.equal(response.status(), 201, await response.text());
+  return (await response.json()).milestone.id as string;
 }
 
 describe("project lifecycle", () => {
@@ -490,5 +508,426 @@ describe("local AI", () => {
     await link.click();
     await page.waitForURL(`**/ai/chat?project=${id}`);
     assert.ok((await page.textContent("body"))?.includes("E2E AI Context Project"));
+  });
+});
+
+describe("bulk task editing UI flows", () => {
+  let projId: string;
+  let taskId1: string;
+  let taskId2: string;
+
+  before(async () => {
+    projId = await createProject({ name: "Bulk Task UI Project" });
+    taskId1 = await createTask(projId, { title: "Alpha Bulk Task", status: "todo", priority: "medium" });
+    taskId2 = await createTask(projId, { title: "Beta Bulk Task", status: "todo", priority: "high" });
+  });
+
+  afterEach(async () => {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
+  it("selects individual tasks, toggles selection, and displays BulkActionsBar with truthful count", async () => {
+    await page.goto(`/projects/${projId}/tasks`, { waitUntil: "domcontentloaded" });
+
+    // Initial state: BulkActionsBar should not be present
+    const bar = page.locator("text=tasks selected");
+    assert.equal(await bar.count(), 0);
+
+    // Select first task
+    const check1 = page.locator(`input[aria-label="Select task Alpha Bulk Task"]`);
+    await check1.click();
+    await page.waitForSelector("text=1 task selected");
+
+    // Select second task
+    const check2 = page.locator(`input[aria-label="Select task Beta Bulk Task"]`);
+    await check2.click();
+    await page.waitForSelector("text=2 tasks selected");
+
+    // Click Clear button
+    await page.click("button:has-text('Clear')");
+    await page.waitForSelector("text=tasks selected", { state: "detached" });
+  });
+
+  it("handles select-all-visible and indeterminate checkbox state", async () => {
+    await page.goto(`/projects/${projId}/tasks`, { waitUntil: "domcontentloaded" });
+
+    const selectAllCheck = page.locator(`input[aria-label="Select all visible tasks"]`);
+    await selectAllCheck.click();
+    await page.waitForSelector("text=2 tasks selected");
+
+    // Both tasks selected
+    const check1 = page.locator(`input[aria-label="Select task Alpha Bulk Task"]`);
+    const check2 = page.locator(`input[aria-label="Select task Beta Bulk Task"]`);
+    assert.equal(await check1.isChecked(), true);
+    assert.equal(await check2.isChecked(), true);
+
+    // Uncheck task 1 -> indeterminate
+    await check1.click();
+    await page.waitForSelector("text=1 task selected");
+
+    const isIndeterminate = await selectAllCheck.evaluate((el: HTMLInputElement) => el.indeterminate);
+    assert.equal(isIndeterminate, true);
+
+    // Click select all again -> selects all again
+    await selectAllCheck.click();
+    await page.waitForSelector("text=2 tasks selected");
+    const isIndeterminateAfter = await selectAllCheck.evaluate((el: HTMLInputElement) => el.indeterminate);
+    assert.equal(isIndeterminateAfter, false);
+    assert.equal(await selectAllCheck.isChecked(), true);
+  });
+
+  it("changes filter after selecting tasks and confirms hidden tasks are excluded from bulk submit", async () => {
+    const filterProj = await createProject({ name: "Filter Exclusion Project" });
+    const todoId = await createTask(filterProj, { title: "Todo Task Filter", status: "todo" });
+    const doneId = await createTask(filterProj, { title: "Done Task Filter", status: "done" });
+
+    await page.goto("/my-work", { waitUntil: "domcontentloaded" });
+
+    // Select both tasks
+    await page.click(`input[aria-label="Select task Todo Task Filter"]`);
+    await page.click(`input[aria-label="Select task Done Task Filter"]`);
+    await page.waitForSelector("text=2 tasks selected");
+
+    // Switch filter to todo only via client-side filter control
+    await page.selectOption(`select[aria-label="Filter by status"]`, "todo");
+    await page.waitForSelector("text=1 task selected");
+
+    // Configure priority update
+    await page.selectOption(`select[aria-label="Bulk update priority"]`, "urgent");
+
+    let submittedTaskIds: string[] = [];
+    await page.route("**/api/tasks/bulk", async (route) => {
+      const data = route.request().postDataJSON() as { taskIds: string[] };
+      submittedTaskIds = data.taskIds;
+      await route.continue();
+    });
+
+    await page.click("button:has-text('Apply changes')");
+    await page.waitForResponse((r) => r.url().includes("/api/tasks/bulk"));
+
+    // Crucial assertion: Hidden task (doneId) MUST NOT be submitted!
+    assert.deepEqual(submittedTaskIds, [todoId]);
+    assert.equal(submittedTaskIds.includes(doneId), false);
+  });
+
+  it("prompts for confirmation on disruptive status updates and respects cancel and confirm", async () => {
+    await page.goto(`/projects/${projId}/tasks`, { waitUntil: "domcontentloaded" });
+    await page.click(`input[aria-label="Select task Alpha Bulk Task"]`);
+    await page.waitForSelector("text=1 task selected");
+
+    // Choose disruptive status: "done"
+    await page.selectOption(`select[aria-label="Bulk update status"]`, "done");
+
+    // Click Apply changes
+    await page.click("button:has-text('Apply changes')");
+
+    // Disruptive confirmation prompt should be visible
+    await page.waitForSelector("text=Apply to 1 task?");
+    const confirmBtn = page.locator("button:has-text('Confirm')");
+    const cancelBtn = page.locator("button:has-text('Cancel')");
+    assert.equal(await confirmBtn.count(), 1);
+    assert.equal(await cancelBtn.count(), 1);
+
+    // Cancel disruptive action
+    await cancelBtn.click();
+    assert.equal(await page.locator("text=Apply to 1 task?").count(), 0);
+
+    // Re-apply and confirm
+    await page.click("button:has-text('Apply changes')");
+    await page.waitForSelector("text=Apply to 1 task?");
+    await confirmBtn.click();
+
+    // Succeeded message
+    await page.waitForSelector("text=Successfully updated 1 task.");
+  });
+
+  it("truthfully renders updated, unchanged, and failed outcome wording", async () => {
+    await page.goto(`/projects/${projId}/tasks`, { waitUntil: "domcontentloaded" });
+    await page.click(`input[aria-label="Select task Alpha Bulk Task"]`);
+    await page.selectOption(`select[aria-label="Bulk update priority"]`, "low");
+
+    // Case 1: single updated
+    await page.route("**/api/tasks/bulk", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          requested: 1,
+          succeeded: 1,
+          updated: 1,
+          unchanged: 0,
+          failed: 0,
+          results: [{ taskId: taskId1, status: "updated" }],
+        }),
+      });
+    });
+    await page.click("button:has-text('Apply changes')");
+    await page.waitForSelector("text=Successfully updated 1 task.");
+    await page.unroute("**/api/tasks/bulk");
+
+    // Case 2: single unchanged
+    await page.click(`input[aria-label="Select task Alpha Bulk Task"]`);
+    await page.selectOption(`select[aria-label="Bulk update priority"]`, "low");
+    await page.route("**/api/tasks/bulk", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          requested: 1,
+          succeeded: 1,
+          updated: 0,
+          unchanged: 1,
+          failed: 0,
+          results: [{ taskId: taskId1, status: "unchanged" }],
+        }),
+      });
+    });
+    await page.click("button:has-text('Apply changes')");
+    await page.waitForSelector("text=1 task already matched.");
+    await page.unroute("**/api/tasks/bulk");
+
+    // Case 3: mixed breakdown
+    await page.click(`input[aria-label="Select task Alpha Bulk Task"]`);
+    await page.click(`input[aria-label="Select task Beta Bulk Task"]`);
+    await page.selectOption(`select[aria-label="Bulk update priority"]`, "high");
+    await page.route("**/api/tasks/bulk", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          requested: 3,
+          succeeded: 2,
+          updated: 1,
+          unchanged: 1,
+          failed: 1,
+          results: [
+            { taskId: taskId1, status: "updated" },
+            { taskId: taskId2, status: "unchanged" },
+            { taskId: "fake_id", status: "failed", error: "Not found", retryable: false },
+          ],
+        }),
+      });
+    });
+    await page.click("button:has-text('Apply changes')");
+    await page.waitForSelector("text=1 updated, 1 already matched, 1 failed.");
+    await page.unroute("**/api/tasks/bulk");
+  });
+
+  it("retains failed tasks and handles mixed retryable and non-retryable failures during retry", async () => {
+    const mixedProj = await createProject({ name: "Retry Mixed Project" });
+    const tSuccess = await createTask(mixedProj, { title: "Success Item" });
+    const tRetryable = await createTask(mixedProj, { title: "Retryable Fail Item" });
+    const tPermanent = await createTask(mixedProj, { title: "Permanent Fail Item" });
+
+    await page.goto(`/projects/${mixedProj}/tasks`, { waitUntil: "domcontentloaded" });
+    await page.click(`input[aria-label="Select task Success Item"]`);
+    await page.click(`input[aria-label="Select task Retryable Fail Item"]`);
+    await page.click(`input[aria-label="Select task Permanent Fail Item"]`);
+    await page.waitForSelector("text=3 tasks selected");
+
+    await page.selectOption(`select[aria-label="Bulk update priority"]`, "urgent");
+
+    // Initial response: 1 success, 1 retryable fail, 1 non-retryable fail
+    await page.route("**/api/tasks/bulk", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          requested: 3,
+          succeeded: 1,
+          updated: 1,
+          unchanged: 0,
+          failed: 2,
+          results: [
+            { taskId: tSuccess, status: "updated" },
+            { taskId: tRetryable, status: "failed", error: "Network glitch", retryable: true },
+            { taskId: tPermanent, status: "failed", error: "Cyclic dependency", retryable: false },
+          ],
+        }),
+      });
+    });
+
+    await page.click("button:has-text('Apply changes')");
+    await page.waitForSelector("text=1 updated, 2 failed.");
+    await page.unroute("**/api/tasks/bulk");
+
+    // Succeeded item is unselected; failed items remain selected!
+    assert.equal(await page.locator(`input[aria-label="Select task Success Item"]`).isChecked(), false);
+    assert.equal(await page.locator(`input[aria-label="Select task Retryable Fail Item"]`).isChecked(), true);
+    assert.equal(await page.locator(`input[aria-label="Select task Permanent Fail Item"]`).isChecked(), true);
+
+    // "Failed tasks (retained in selection):" list is visible
+    await page.waitForSelector("text=Failed tasks (retained in selection):");
+    await page.waitForSelector("text=Network glitch");
+    await page.waitForSelector("text=Cyclic dependency");
+
+    // "Retry retryable failures" button is visible
+    const retryBtn = page.locator("button:has-text('Retry retryable failures')");
+    assert.equal(await retryBtn.count(), 1);
+
+    // Intercept retry: must ONLY send tRetryable!
+    let retriedTaskIds: string[] = [];
+    await page.route("**/api/tasks/bulk", async (route) => {
+      const data = route.request().postDataJSON() as { taskIds: string[] };
+      retriedTaskIds = data.taskIds;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          requested: 1,
+          succeeded: 1,
+          updated: 1,
+          unchanged: 0,
+          failed: 0,
+          results: [{ taskId: tRetryable, status: "updated" }],
+        }),
+      });
+    });
+
+    await retryBtn.click();
+    await page.waitForResponse((r) => r.url().includes("/api/tasks/bulk"));
+    await page.unroute("**/api/tasks/bulk");
+
+    // Crucial: Only retryable task was sent!
+    assert.deepEqual(retriedTaskIds, [tRetryable]);
+
+    // Outcome merged: 2 succeeded, 1 failed. Permanent failure remains visible and selected!
+    await page.waitForSelector("text=2 updated, 1 failed.");
+    assert.equal(await page.locator(`input[aria-label="Select task Permanent Fail Item"]`).isChecked(), true);
+    assert.equal(await page.locator(`input[aria-label="Select task Retryable Fail Item"]`).isChecked(), false);
+    assert.equal(await page.locator("button:has-text('Retry retryable failures')").count(), 0);
+  });
+
+  it("disables milestone updates when tasks across multiple projects are selected in My Work", async () => {
+    const pA = await createProject({ name: "Multi Milestone Proj A" });
+    const pB = await createProject({ name: "Multi Milestone Proj B" });
+    await createMilestone(pA, { title: "Milestone A Only" });
+    await createTask(pA, { title: "Task in Proj A" });
+    await createTask(pB, { title: "Task in Proj B" });
+
+    await page.goto("/my-work", { waitUntil: "domcontentloaded" });
+    await page.click(`input[aria-label="Select task Task in Proj A"]`);
+    await page.click(`input[aria-label="Select task Task in Proj B"]`);
+    await page.waitForSelector("text=2 tasks selected");
+
+    const milestoneSelect = page.locator(`select[aria-label="Bulk update milestone"]`);
+    assert.equal(await milestoneSelect.isDisabled(), true);
+    const text = await milestoneSelect.textContent();
+    assert.ok(text?.includes("(Multiple projects selected)"));
+  });
+
+  it("handles non-2xx and malformed milestone responses with visible failure state without crashing", async () => {
+    const errorProj = await createProject({ name: "Error Milestone Proj" });
+    await createTask(errorProj, { title: "Task Error Milestone" });
+
+    // 1. Non-2xx response (500)
+    await page.route(`**/api/projects/${errorProj}/milestones`, async (route) => {
+      await route.fulfill({ status: 500, contentType: "text/plain", body: "Internal Server Error" });
+    });
+
+    await page.goto("/my-work", { waitUntil: "domcontentloaded" });
+    await page.click(`input[aria-label="Select task Task Error Milestone"]`);
+    await page.waitForSelector("text=1 task selected");
+
+    const msSelect = page.locator(`select[aria-label="Bulk update milestone"]`);
+    await page.waitForSelector("span[role='status']:has-text('Failed to load milestones')");
+    assert.equal(await msSelect.isDisabled(), true);
+
+    await page.unroute(`**/api/projects/${errorProj}/milestones`);
+
+    // 2. Malformed JSON response
+    await page.route(`**/api/projects/${errorProj}/milestones`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "MALFORMED_JSON{{" });
+    });
+
+    // Uncheck and recheck
+    await page.click(`input[aria-label="Select task Task Error Milestone"]`);
+    await page.click(`input[aria-label="Select task Task Error Milestone"]`);
+    await page.waitForSelector("span[role='status']:has-text('Malformed milestone response')");
+    assert.equal(await msSelect.isDisabled(), true);
+
+    await page.unroute(`**/api/projects/${errorProj}/milestones`);
+  });
+
+  it("prevents stale milestone responses from overwriting a newer project's milestones", async () => {
+    const staleProjA = await createProject({ name: "Stale Proj A" });
+    const freshProjB = await createProject({ name: "Fresh Proj B" });
+    await createMilestone(freshProjB, { title: "B Real Milestone" });
+    await createTask(staleProjA, { title: "Stale Task A" });
+    await createTask(freshProjB, { title: "Fresh Task B" });
+
+    // Route Stale Proj A with a 400ms delay
+    await page.route(`**/api/projects/${staleProjA}/milestones`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ milestones: [{ id: "ms_stale", title: "Old Stale MS A" }] }),
+      });
+    });
+
+    await page.goto("/my-work", { waitUntil: "domcontentloaded" });
+
+    // Select Task A, then immediately uncheck Task A and select Task B
+    await page.click(`input[aria-label="Select task Stale Task A"]`);
+    await page.click(`input[aria-label="Select task Stale Task A"]`);
+    await page.click(`input[aria-label="Select task Fresh Task B"]`);
+
+    // Wait for Fresh Proj B milestones option to be attached in select
+    await page.waitForSelector(
+      "select[aria-label='Bulk update milestone'] option:has-text('B Real Milestone')",
+      { state: "attached" },
+    );
+
+    // Wait 500ms to ensure stale route resolves
+    await page.waitForTimeout(500);
+
+    // Verify Fresh Proj B's milestone is still shown, NOT Old Stale MS A!
+    const selectContent = await page.locator(`select[aria-label="Bulk update milestone"]`).textContent();
+    assert.ok(selectContent?.includes("B Real Milestone"));
+    assert.equal(selectContent?.includes("Old Stale MS A"), false);
+
+    await page.unroute(`**/api/projects/${staleProjA}/milestones`);
+  });
+
+  it("supports keyboard operation and accessible labels", async () => {
+    await page.goto(`/projects/${projId}/tasks`, { waitUntil: "domcontentloaded" });
+
+    // Verify accessible labels on all key controls
+    assert.ok((await page.locator(`input[aria-label="Select all visible tasks"]`).count()) > 0);
+    assert.ok((await page.locator(`input[aria-label="Select task Alpha Bulk Task"]`).count()) > 0);
+
+    // Focus select all visible checkbox and toggle with keyboard Space
+    const selectAllCheck = page.locator(`input[aria-label="Select all visible tasks"]`);
+    await selectAllCheck.focus();
+    await page.keyboard.press("Space");
+    await page.waitForSelector("text=tasks selected");
+
+    // Verify accessible labels on bulk bar controls
+    assert.ok((await page.locator(`select[aria-label="Bulk update status"]`).count()) > 0);
+    assert.ok((await page.locator(`select[aria-label="Bulk update priority"]`).count()) > 0);
+    assert.ok((await page.locator(`select[aria-label="Bulk update milestone"]`).count()) > 0);
+
+    // Clear selection
+    await page.click("button:has-text('Clear')");
+  });
+
+  it("renders clean responsive layout without horizontal overflow on narrow mobile viewports", async () => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto(`/projects/${projId}/tasks`, { waitUntil: "domcontentloaded" });
+
+    await page.click(`input[aria-label="Select task Alpha Bulk Task"]`);
+    await page.waitForSelector("text=1 task selected");
+
+    // Assert no horizontal scrollbar / overflow
+    const hasHorizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    assert.equal(
+      hasHorizontalOverflow,
+      false,
+      "BulkActionsBar must not cause horizontal page overflow on 375px viewport",
+    );
   });
 });

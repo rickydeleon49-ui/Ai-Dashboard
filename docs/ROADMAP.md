@@ -47,7 +47,7 @@ All roadmap work should follow these rules:
 - Per-project documents
 - Title, content, category, and pinned state
 - Create, read, update, and delete behavior
-- Search across title, content, and category
+- Search across title, content, category
 - Desktop and accounts-mode repository implementations
 
 #### Supporting release work
@@ -77,20 +77,37 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 - Safe workspace ownership and account deletion
 - Enforced CI checks
 
-An independent audit and the full verification matrix (typecheck, lint, unit, PostgreSQL, desktop-shell, end-to-end, build) passed before merge.
+#### Phase 2C Releases 2C.1–2C.4 (Merged to main)
 
-### In review — Release 2C.1: Workspace member directory
+- **Release 2C.1: Workspace member directory** (completed, merged to main)
+  - Paginated workspace-member endpoint with role display (owner, admin, member, viewer)
+  - Member status transitions (active, invited, suspended, removed)
+  - Member directory UI in Settings (accounts mode)
+  - Last-active-owner trigger protection under concurrent mutation
+- **Release 2C.2: Assignment experience** (completed, merged to main)
+  - Member-backed task assignee picker and server-side membership validation
+  - Assigned to me, Assigned by me, and Unassigned filters in Project and My Work views
+  - Immutable activity events for task assignments and unassignments
+- **Release 2C.3: Task checklists** (completed, merged to main)
+  - Ordered checklist items within tasks with dense position reordering
+  - Add, edit, toggle, and convert-to-task mutations
+  - Grouped checklist counts and progress badges on task cards
+- **Release 2C.4: Comments, mentions, and activity history** (completed, merged to main)
+  - Task comments with edit history and soft-deletion audit trail
+  - Active workspace member mentions (`@user`) with bounded workload limits
+  - Deleted-comment activity privacy hardening (fail-closed sanitization on task and project activity listings)
+  - PostgreSQL database-clock timestamp hardening (`date_trunc('milliseconds', statement_timestamp() AT TIME ZONE 'UTC')`)
 
-Implemented, in review on `phase2c/member-directory` (per §17 step 14). Delivered:
-- Server-enforced soft removal (`status = 'removed'`), preserving task history and member attribution.
-- Re-invitation and reactivation flow with composite row locks (`SELECT ... FOR UPDATE`), protecting original join dates.
-- Reinstatement invariants: suspended members cannot be re-invited or self-rejoin via invitation; only admins/owners can reinstate.
-- Database trigger protection preventing removal, demotion, or suspension of the last active owner across concurrent transactions.
-- Member Directory API: `GET /api/workspaces/:id/members`, `PATCH /api/workspaces/:id/members/:userId`, `DELETE /api/workspaces/:id/members/:userId`.
-- Full authorization matrix covering Owner, Admin, Member, Viewer, Suspended, Removed, Outsider, and Unauthenticated callers.
-- Scoped admin capabilities: admins cannot modify/remove owners or other admins and cannot grant elevated roles.
-- Member directory UI in Settings (accounts mode only) with debounced search, admin/owner status filters, role management, suspend/reinstate, and accessible removal confirmation dialog.
-- Desktop single-user SQLite mode left untouched.
+### Active Release — Release 2C.5: Bulk editing
+
+Active implementation on `phase2c/bulk-editing`. Delivering:
+- Multi-select tasks in Project task views and cross-project My Work view
+- Bulk status, priority, milestone, due date, and assignee changes with clear-value support
+- Bounded batch processing (up to 100 tasks per request) with per-task transactional isolation
+- Truthful partial-failure reporting with machine-readable error codes and retryable classification
+- Activity event suppression for no-op field updates
+- Preservation of all authorization, cross-workspace, milestone, dependency, and blocked-task invariants
+- Note: Task labels are deferred to a dedicated future release as no task-level label model exists in SQLite or PostgreSQL schemas.
 
 ## 4. Release sequence at a glance
 
@@ -98,7 +115,7 @@ Implemented, in review on `phase2c/member-directory` (per §17 step 14). Deliver
 |---:|---|---|---|
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
-| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Release 2C.3 implemented, in review on `phase2c/checklists` |
+| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.4 merged; **Release 2C.5 active** |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
@@ -146,7 +163,7 @@ Make the completed Phase 2 foundation safe under multi-user concurrency and safe
 
 A workspace becomes a place where multiple people can assign, discuss, review, and track work without relying on another chat application.
 
-### Release 2C.1 — Workspace member directory (implemented, in review on phase2c/member-directory)
+### Release 2C.1 — Workspace member directory (completed, merged to main)
 
 #### Features
 
@@ -165,7 +182,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Every member query is workspace-scoped at repository level.
 - Responses never expose authentication providers, password data, tokens, or unrelated workspace membership.
 
-### Release 2C.2 — Assignment experience (implemented, in review on phase2c/assignment)
+### Release 2C.2 — Assignment experience (completed, merged to main)
 
 #### Features
 
@@ -182,7 +199,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Removing a member does not corrupt task history.
 - Assignment changes generate activity events.
 
-### Release 2C.3 — Task checklists (implemented, in review on phase2c/checklists)
+### Release 2C.3 — Task checklists (completed, merged to main)
 
 #### Features
 
@@ -197,7 +214,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Checklist items do not have their own dependencies or assignees in this release.
 - Converting an item must use the normal task invariants.
 
-### Release 2C.4 — Comments, mentions, and activity history
+### Release 2C.4 — Comments, mentions, and activity history (completed, merged to main)
 
 #### Features
 
@@ -207,6 +224,8 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Immutable activity events for assignments, status, dependencies, dates, milestones, and comments
 - Per-task activity timeline
 - Project-level recent activity view
+- Deleted-comment activity privacy hardening (fail-closed sanitization for activity listings)
+- PostgreSQL database-clock timestamp hardening (`date_trunc('milliseconds', statement_timestamp() AT TIME ZONE 'UTC')`)
 
 #### Security requirements
 
@@ -215,20 +234,32 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Edited and deleted content follows the product's retention policy.
 - Activity records must not capture secrets, file contents, or authentication data.
 
-### Release 2C.5 — Bulk editing
+### Release 2C.5 — Bulk editing (active release on phase2c/bulk-editing)
 
 #### Features
 
 - Multi-select tasks in project and My Work views
-- Bulk status, priority, milestone, due date, label, and assignment changes
-- Confirmation for destructive bulk operations
-- Partial-failure reporting with retryable item details
+- Bulk status, priority, milestone, due date, and assignment changes
+- Clear-value actions for assignee, milestone, and due date
+- Accessible selection controls (checkboxes with accessible labels, select-all-visible, indeterminate state, selection count, clear selection)
+- Confirmation before destructive or potentially disruptive bulk operations (e.g. status changes or bulk unassignment)
+- Partial-failure reporting with machine-readable error codes and retryable item details
+- Preservation of all authorization, cross-workspace, milestone, dependency, and blocked-task invariants
+- Activity event suppression for no-op field updates
+
+#### Scope boundaries and task label deferral
+
+- **Task Labels**: Investigated before implementation. The repository currently possesses only project-scoped tags (`tags` and `project_tags`), without a task-level label model or table. Project tags are not reused, and an ad-hoc label model is not invented here. Task labels are explicitly deferred to a dedicated future release requiring:
+  - Database schema: `task_labels` (id, workspaceId, name, color, createdAt) and `task_label_assignments` (taskId, labelId) in both SQLite and PostgreSQL.
+  - Workspace scoping and uniqueness constraints per workspace.
+  - Label CRUD and management APIs (`/api/workspaces/:id/task-labels`).
+  - UI badge presentation, label filter, and assignment components.
 
 #### Acceptance criteria
 
 - Bulk operations reapply every single-task authorization and invariant.
 - A partial failure never reports the entire operation as successful.
-- Large selections use bounded batches and do not hold unbounded transactions.
+- Large selections use bounded batches (max 100 tasks) and do not hold unbounded transactions.
 
 ### Release 2C.6 — Collaboration notifications
 

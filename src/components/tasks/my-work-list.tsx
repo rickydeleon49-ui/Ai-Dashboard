@@ -1,18 +1,19 @@
 "use client";
 
 /** The task list on My Work — read-focused, with a quick status change; full editing lives on the project's own tasks page. */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/field";
 import { TASK_PRIORITY_META, TASK_STATUS_META } from "@/core/tasks/labels";
-import { TASK_STATUSES, type Task } from "@/core/tasks/types";
+import { TASK_STATUSES, type Milestone, type Task } from "@/core/tasks/types";
 import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
 import { cn, formatDate } from "@/lib/utils";
 import { AssigneeBadge } from "./assignee-picker";
 import { TaskChecklistBadge } from "./task-checklist";
+import { BulkActionsBar } from "./bulk-actions-bar";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
@@ -26,28 +27,222 @@ export function MyWorkList({
   accountsMode = false,
   callerRole = "viewer",
   members = [],
+  workspaceId,
 }: {
   tasks: Task[];
   projectNames: Map<string, string>;
   accountsMode?: boolean;
   callerRole?: WorkspaceRole;
   members?: WorkspaceMemberDisplaySummary[];
+  workspaceId?: string;
 }) {
+  const router = useRouter();
   const membersMap = new Map<string, WorkspaceMemberDisplaySummary>(members.map((m) => [m.id, m]));
   const isViewer = accountsMode && callerRole === "viewer";
 
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+
+  const visibleIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
+  const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds]);
+  const effectiveSelectedIds = useMemo(() => {
+    const next = new Set<string>();
+    for (const id of selectedTaskIds) {
+      if (visibleIdSet.has(id)) next.add(id);
+    }
+    return next;
+  }, [selectedTaskIds, visibleIdSet]);
+
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => effectiveSelectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => effectiveSelectedIds.has(id));
+
+  function toggleSelectTask(taskId: string) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    if (allVisibleSelected) {
+      setSelectedTaskIds((prev) => {
+        const next = new Set(prev);
+        for (const id of visibleIds) {
+          next.delete(id);
+        }
+        return next;
+      });
+    } else {
+      setSelectedTaskIds((prev) => {
+        const next = new Set(prev);
+        for (const id of visibleIds) {
+          next.add(id);
+        }
+        return next;
+      });
+    }
+  }
+
+  function clearSelection() {
+    setSelectedTaskIds(new Set());
+  }
+
+  // Determine if all selected tasks belong to a single project
+  const selectedTasks = useMemo(
+    () => tasks.filter((t) => effectiveSelectedIds.has(t.id)),
+    [tasks, effectiveSelectedIds],
+  );
+  const selectedProjectIds = useMemo(
+    () => new Set(selectedTasks.map((t) => t.projectId)),
+    [selectedTasks],
+  );
+  const singleProjectIdForSelection =
+    selectedProjectIds.size === 1 ? Array.from(selectedProjectIds)[0] : null;
+
+  const [milestoneState, setMilestoneState] = useState<{
+    projectId: string | null;
+    milestones: Milestone[];
+    loading: boolean;
+    error: string | null;
+  }>({ projectId: null, milestones: [], loading: false, error: null });
+
+  const isCurrentProject = milestoneState.projectId === singleProjectIdForSelection;
+  const activeMilestones =
+    singleProjectIdForSelection && isCurrentProject ? milestoneState.milestones : [];
+  const milestonesLoading = Boolean(
+    singleProjectIdForSelection && (!isCurrentProject || milestoneState.loading),
+  );
+  const milestoneError =
+    singleProjectIdForSelection && isCurrentProject ? milestoneState.error : null;
+
+  useEffect(() => {
+    if (!singleProjectIdForSelection) return;
+
+    const controller = new AbortController();
+    const requestedProjectId = singleProjectIdForSelection;
+
+    fetch(`/api/projects/${requestedProjectId}/milestones`, {
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (controller.signal.aborted) return;
+        if (!res.ok) {
+          setMilestoneState({
+            projectId: requestedProjectId,
+            milestones: [],
+            loading: false,
+            error: "Failed to load milestones",
+          });
+          return;
+        }
+
+        let data: { milestones?: Milestone[] };
+        try {
+          data = (await res.json()) as { milestones?: Milestone[] };
+        } catch {
+          if (!controller.signal.aborted) {
+            setMilestoneState({
+              projectId: requestedProjectId,
+              milestones: [],
+              loading: false,
+              error: "Malformed milestone response",
+            });
+          }
+          return;
+        }
+
+        if (!controller.signal.aborted) {
+          if (Array.isArray(data?.milestones)) {
+            setMilestoneState({
+              projectId: requestedProjectId,
+              milestones: data.milestones,
+              loading: false,
+              error: null,
+            });
+          } else {
+            setMilestoneState({
+              projectId: requestedProjectId,
+              milestones: [],
+              loading: false,
+              error: "Malformed milestone response",
+            });
+          }
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setMilestoneState({
+            projectId: requestedProjectId,
+            milestones: [],
+            loading: false,
+            error: "Failed to load milestones",
+          });
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [singleProjectIdForSelection]);
+
   return (
-    <div className="space-y-2">
-      {tasks.map((task) => (
-        <MyWorkRow
-          key={task.id}
-          task={task}
-          projectName={projectNames.get(task.projectId) ?? "Unknown project"}
+    <div className="space-y-3">
+      {!isViewer && tasks.length > 0 ? (
+        <div className="flex items-center justify-between gap-2 px-1">
+          <label className="flex cursor-pointer items-center gap-2 select-none text-[12.5px] text-faint hover:text-fg">
+            <input
+              type="checkbox"
+              aria-label="Select all visible tasks"
+              checked={allVisibleSelected}
+              ref={(el) => {
+                if (el) {
+                  el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                }
+              }}
+              onChange={toggleSelectAllVisible}
+              className="h-3.5 w-3.5 rounded border-line bg-surface text-accent focus:ring-accent"
+            />
+            <span>Select all visible ({tasks.length})</span>
+          </label>
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        {tasks.map((task) => (
+          <MyWorkRow
+            key={task.id}
+            task={task}
+            projectName={projectNames.get(task.projectId) ?? "Unknown project"}
+            accountsMode={accountsMode}
+            isViewer={isViewer}
+            selected={effectiveSelectedIds.has(task.id)}
+            onToggleSelect={() => toggleSelectTask(task.id)}
+            assigneeMember={task.assigneeId ? membersMap.get(task.assigneeId) : null}
+          />
+        ))}
+      </div>
+
+      {!isViewer ? (
+        <BulkActionsBar
+          selectedTaskIds={effectiveSelectedIds}
+          allVisibleTasks={tasks}
+          milestones={activeMilestones}
+          milestonesLoading={milestonesLoading}
+          milestoneError={milestoneError}
+          members={members}
           accountsMode={accountsMode}
           isViewer={isViewer}
-          assigneeMember={task.assigneeId ? membersMap.get(task.assigneeId) : null}
+          workspaceId={workspaceId}
+          onClearSelection={clearSelection}
+          onSelectionChange={setSelectedTaskIds}
+          onRefresh={() => router.refresh()}
+          singleProjectIdForSelection={singleProjectIdForSelection}
         />
-      ))}
+      ) : null}
     </div>
   );
 }
@@ -57,12 +252,16 @@ function MyWorkRow({
   projectName,
   accountsMode,
   isViewer,
+  selected,
+  onToggleSelect,
   assigneeMember,
 }: {
   task: Task;
   projectName: string;
   accountsMode: boolean;
   isViewer: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   assigneeMember?: WorkspaceMemberDisplaySummary | null;
 }) {
   const router = useRouter();
@@ -101,6 +300,16 @@ function MyWorkRow({
   return (
     <div className="rounded-lg border border-line bg-surface">
       <div className="flex items-center gap-2 px-2.5 py-2">
+        {!isViewer && onToggleSelect ? (
+          <input
+            type="checkbox"
+            aria-label={`Select task ${task.title}`}
+            checked={Boolean(selected)}
+            onChange={onToggleSelect}
+            className="h-3.5 w-3.5 shrink-0 rounded border-line bg-surface text-accent focus:ring-accent"
+          />
+        ) : null}
+
         <Select
           value={task.status}
           disabled={saving || isViewer}

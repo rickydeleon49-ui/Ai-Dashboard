@@ -102,6 +102,11 @@ export interface TaskMutationOptions {
   actorUserId?: string;
 }
 
+export interface TaskUpdateOutcome {
+  task: Task;
+  unchanged: boolean;
+}
+
 export interface TaskQuery {
   status?: TaskStatus | "all";
   priority?: TaskPriority | "all";
@@ -114,6 +119,48 @@ export interface TaskQuery {
   parentTaskId?: string | null;
   sort?: "dueDate" | "priority" | "created" | "updated";
   limit?: number;
+}
+
+export type BulkTaskErrorCode =
+  | "not_found"
+  | "forbidden"
+  | "invalid_assignee"
+  | "invalid_milestone"
+  | "blocked_task"
+  | "validation_failed"
+  | "conflict"
+  | "internal_error";
+
+export type BulkTaskResultStatus = "updated" | "unchanged" | "failed";
+
+export interface BulkTaskItemResult {
+  taskId: string;
+  status: BulkTaskResultStatus;
+  errorCode?: BulkTaskErrorCode;
+  error?: string;
+  retryable?: boolean;
+}
+
+export interface BulkTaskChanges {
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  milestoneId?: string | null;
+  assigneeId?: string | null;
+  dueDate?: string | null;
+}
+
+export interface BulkTaskUpdateRequest {
+  taskIds: string[];
+  changes: BulkTaskChanges;
+}
+
+export interface BulkTaskUpdateResponse {
+  requested: number;
+  succeeded: number;
+  updated: number;
+  unchanged: number;
+  failed: number;
+  results: BulkTaskItemResult[];
 }
 
 export * from "./checklist-types";

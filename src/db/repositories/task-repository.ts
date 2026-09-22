@@ -9,6 +9,7 @@ import type {
   TaskMutationOptions,
   TaskQuery,
   TaskUpdateInput,
+  TaskUpdateOutcome,
 } from "@/core/tasks/types";
 
 /**
@@ -42,6 +43,17 @@ export interface TaskRepository {
     input: TaskUpdateInput,
     options?: TaskMutationOptions,
   ): Promise<Task | null>;
+  /**
+   * Atomically applies changes under row lock/transaction, determining whether
+   * the requested fields actually changed compared to current state.
+   * Suppresses updatedAt bump and activity emission on no-op.
+   */
+  updateAuthoritative(
+    workspaceId: string,
+    id: string,
+    input: TaskUpdateInput,
+    options?: TaskMutationOptions,
+  ): Promise<TaskUpdateOutcome | null>;
   delete(workspaceId: string, id: string): Promise<boolean>;
 
   /** Tasks `taskId` depends on — must reach done/cancelled before it can. */

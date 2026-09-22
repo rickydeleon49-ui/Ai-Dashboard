@@ -195,3 +195,35 @@ export const commentPaginationQuerySchema = z.object({
       }
     }),
 });
+
+export const BULK_TASK_MAX_BATCH_SIZE = 100;
+
+export const bulkTaskChangesSchema = z
+  .object({
+    status: z.enum(TASK_STATUSES).optional(),
+    priority: z.enum(TASK_PRIORITIES).optional(),
+    milestoneId: optionalId,
+    assigneeId: optionalId,
+    dueDate: optionalIsoDate,
+  })
+  .strict()
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    "At least one change field must be provided",
+  );
+
+export const bulkTaskIdSchema = z
+  .string()
+  .min(1, "Task ID cannot be empty")
+  .max(200, "Task ID cannot exceed 200 characters")
+  .refine((v) => !/[\r\n\x00-\x1f\x7f]/.test(v), "Task ID cannot contain control or newline characters");
+
+export const bulkTaskUpdateSchema = z
+  .object({
+    taskIds: z
+      .array(bulkTaskIdSchema)
+      .min(1, "At least one task ID is required")
+      .max(BULK_TASK_MAX_BATCH_SIZE, `Maximum ${BULK_TASK_MAX_BATCH_SIZE} tasks per request`),
+    changes: bulkTaskChangesSchema,
+  })
+  .strict();

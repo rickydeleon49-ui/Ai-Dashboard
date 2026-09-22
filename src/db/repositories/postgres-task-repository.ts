@@ -27,6 +27,7 @@ import type {
   TaskQuery,
   TaskStatus,
   TaskUpdateInput,
+  TaskUpdateOutcome,
 } from "@/core/tasks/types";
 import {
   DependencyCycleError,
@@ -472,12 +473,12 @@ export class PostgresTaskRepository implements TaskRepository {
     return db.transaction(execute);
   }
 
-  async update(
+  async updateAuthoritative(
     workspaceId: string,
     id: string,
     input: TaskUpdateInput,
     options?: TaskMutationOptions,
-  ): Promise<Task | null> {
+  ): Promise<TaskUpdateOutcome | null> {
     const db = getPgDb();
     return db.transaction(async (tx) => {
       if (input.status !== undefined || input.parentTaskId !== undefined) {
@@ -488,8 +489,97 @@ export class PostgresTaskRepository implements TaskRepository {
         .select()
         .from(tasks)
         .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+        .for("update")
         .limit(1);
       if (!existing) return null;
+
+      let hasChanges = false;
+      if (input.title !== undefined && input.title !== existing.title) hasChanges = true;
+      if (
+        input.description !== undefined &&
+        (input.description ?? null) !== (existing.description ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (input.priority !== undefined && input.priority !== existing.priority) hasChanges = true;
+      if (
+        input.milestoneId !== undefined &&
+        (input.milestoneId ?? null) !== (existing.milestoneId ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (
+        input.parentTaskId !== undefined &&
+        (input.parentTaskId ?? null) !== (existing.parentTaskId ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (
+        input.assigneeId !== undefined &&
+        (input.assigneeId ?? null) !== (existing.assigneeId ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (
+        input.assignedBy !== undefined &&
+        (input.assignedBy ?? null) !== (existing.assignedBy ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (input.assignedAt !== undefined) {
+        const newAssignedAt = input.assignedAt ? new Date(input.assignedAt).toISOString() : null;
+        const oldAssignedAt = existing.assignedAt ? existing.assignedAt.toISOString() : null;
+        if (newAssignedAt !== oldAssignedAt) hasChanges = true;
+      }
+      if (input.dueDate !== undefined) {
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
+        const oldDue = existing.dueDate ? existing.dueDate.toISOString() : null;
+        if (newDue !== oldDue) hasChanges = true;
+      }
+      if (input.status !== undefined && input.status !== existing.status) hasChanges = true;
+      if (input.completedAt !== undefined) {
+        const newCompleted = input.completedAt ? new Date(input.completedAt).toISOString() : null;
+        const oldCompleted = existing.completedAt ? existing.completedAt.toISOString() : null;
+        if (newCompleted !== oldCompleted) hasChanges = true;
+      }
+
+      // Setting status to done on a blocked task is always rejected
+      if (input.status === "done") {
+        const blocked = await loadBlockedSet(workspaceId, [id], tx);
+        if (blocked.has(id)) {
+          throw new TaskBlockedError();
+        }
+      }
+
+      // Concurrency safe no-op determination under row lock
+      if (!hasChanges) {
+        const [current] = await tx
+          .select({
+            task: tasks,
+            checklistTotal: sql<number>`count(${taskChecklistItems.id})::int`.mapWith(Number),
+            checklistDone: sql<number>`count(case when ${taskChecklistItems.done} then 1 end)::int`.mapWith(Number),
+          })
+          .from(tasks)
+          .leftJoin(
+            taskChecklistItems,
+            and(
+              eq(taskChecklistItems.taskId, tasks.id),
+              eq(taskChecklistItems.workspaceId, workspaceId),
+            ),
+          )
+          .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+          .groupBy(tasks.id)
+          .limit(1);
+        if (!current) return null;
+        const blocked = await loadBlockedSet(workspaceId, [id], tx);
+        return {
+          task: toDomain(current.task, blocked.has(id), {
+            total: current.checklistTotal ?? 0,
+            done: current.checklistDone ?? 0,
+          }),
+          unchanged: true,
+        };
+      }
 
       if (input.parentTaskId !== undefined && input.parentTaskId !== existing.parentTaskId) {
         await assertValidParentTask(tx, workspaceId, id, input.parentTaskId, existing.projectId);
@@ -499,14 +589,14 @@ export class PostgresTaskRepository implements TaskRepository {
         updatedAt: new Date(),
       };
 
-      if (input.assigneeId !== undefined) {
+      if (input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId) {
         if (input.assigneeId === null) {
           if (existing.assigneeId !== null) {
             patch.assigneeId = null;
             patch.assignedBy = null;
             patch.assignedAt = null;
           }
-        } else if (input.assigneeId !== existing.assigneeId) {
+        } else {
           await assertValidAssignee(tx, workspaceId, input.assigneeId);
           if (!options?.actorUserId) {
             throw new Error("actorUserId is required when changing a task assignee");
@@ -515,19 +605,42 @@ export class PostgresTaskRepository implements TaskRepository {
           patch.assignedBy = options.actorUserId;
           patch.assignedAt = new Date();
         }
-        // If input.assigneeId === existing.assigneeId: no validation, and no change to assignee_id, assigned_by, or assigned_at
+      } else if (input.assignedBy !== undefined || input.assignedAt !== undefined) {
+        if (input.assignedBy !== undefined) patch.assignedBy = input.assignedBy;
+        if (input.assignedAt !== undefined) {
+          patch.assignedAt = input.assignedAt ? new Date(input.assignedAt) : null;
+        }
       }
 
-      if (input.title !== undefined) patch.title = input.title;
-      if (input.description !== undefined) patch.description = input.description;
-      if (input.priority !== undefined) patch.priority = input.priority;
-      if (input.milestoneId !== undefined) patch.milestoneId = input.milestoneId;
-      if (input.parentTaskId !== undefined) patch.parentTaskId = input.parentTaskId;
+      if (input.title !== undefined && input.title !== existing.title) patch.title = input.title;
+      if (
+        input.description !== undefined &&
+        (input.description ?? null) !== (existing.description ?? null)
+      ) {
+        patch.description = input.description;
+      }
+      if (input.priority !== undefined && input.priority !== existing.priority) patch.priority = input.priority;
+      if (
+        input.milestoneId !== undefined &&
+        (input.milestoneId ?? null) !== (existing.milestoneId ?? null)
+      ) {
+        patch.milestoneId = input.milestoneId;
+      }
+      if (
+        input.parentTaskId !== undefined &&
+        (input.parentTaskId ?? null) !== (existing.parentTaskId ?? null)
+      ) {
+        patch.parentTaskId = input.parentTaskId;
+      }
       if (input.dueDate !== undefined) {
-        patch.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
+        const oldDue = existing.dueDate ? existing.dueDate.toISOString() : null;
+        if (newDue !== oldDue) {
+          patch.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+        }
       }
 
-      if (input.status !== undefined) {
+      if (input.status !== undefined && input.status !== existing.status) {
         const movingToDone = input.status === "done";
         if (movingToDone) {
           const blocked = await loadBlockedSet(workspaceId, [id], tx);
@@ -589,8 +702,8 @@ export class PostgresTaskRepository implements TaskRepository {
         });
       }
       if (input.dueDate !== undefined) {
-        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
-        const oldDue = existing.dueDate ? existing.dueDate.toISOString() : null;
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString().slice(0, 10) : null;
+        const oldDue = existing.dueDate ? existing.dueDate.toISOString().slice(0, 10) : null;
         if (newDue !== oldDue) {
           await tx.insert(taskActivityEvents).values({
             id: crypto.randomUUID(),
@@ -603,7 +716,10 @@ export class PostgresTaskRepository implements TaskRepository {
           });
         }
       }
-      if (input.milestoneId !== undefined && input.milestoneId !== existing.milestoneId) {
+      if (
+        input.milestoneId !== undefined &&
+        (input.milestoneId ?? null) !== (existing.milestoneId ?? null)
+      ) {
         await tx.insert(taskActivityEvents).values({
           id: crypto.randomUUID(),
           workspaceId,
@@ -637,11 +753,24 @@ export class PostgresTaskRepository implements TaskRepository {
         .limit(1);
       if (!updated) return null;
       const blocked = await loadBlockedSet(workspaceId, [id], tx);
-      return toDomain(updated.task, blocked.has(id), {
-        total: updated.checklistTotal ?? 0,
-        done: updated.checklistDone ?? 0,
-      });
+      return {
+        task: toDomain(updated.task, blocked.has(id), {
+          total: updated.checklistTotal ?? 0,
+          done: updated.checklistDone ?? 0,
+        }),
+        unchanged: false,
+      };
     });
+  }
+
+  async update(
+    workspaceId: string,
+    id: string,
+    input: TaskUpdateInput,
+    options?: TaskMutationOptions,
+  ): Promise<Task | null> {
+    const outcome = await this.updateAuthoritative(workspaceId, id, input, options);
+    return outcome ? outcome.task : null;
   }
 
   async delete(workspaceId: string, id: string): Promise<boolean> {

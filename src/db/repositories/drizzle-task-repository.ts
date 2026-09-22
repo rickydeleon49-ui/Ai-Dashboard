@@ -12,6 +12,7 @@ import type {
   TaskQuery,
   TaskStatus,
   TaskUpdateInput,
+  TaskUpdateOutcome,
 } from "@/core/tasks/types";
 import {
   DependencyCycleError,
@@ -301,42 +302,105 @@ export class DrizzleTaskRepository implements TaskRepository {
     return created;
   }
 
-  async update(
+  async updateAuthoritative(
     workspaceId: string,
     id: string,
     input: TaskUpdateInput,
     _options?: TaskMutationOptions,
-  ): Promise<Task | null> {
+  ): Promise<TaskUpdateOutcome | null> {
     assertLocalWorkspace(workspaceId);
 
-    const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
-    if (!existing) return null;
+    const txResult = db.transaction(() => {
+      const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
+      if (!existing) return null;
 
-    if (input.parentTaskId !== undefined) {
-      assertValidParentTask(id, input.parentTaskId, existing.projectId);
-    }
+      let hasChanges = false;
+      if (input.title !== undefined && input.title !== existing.title) hasChanges = true;
+      if (
+        input.description !== undefined &&
+        (input.description ?? null) !== (existing.description ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (input.priority !== undefined && input.priority !== existing.priority) hasChanges = true;
+      if (
+        input.milestoneId !== undefined &&
+        (input.milestoneId ?? null) !== (existing.milestoneId ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (
+        input.parentTaskId !== undefined &&
+        (input.parentTaskId ?? null) !== (existing.parentTaskId ?? null)
+      ) {
+        hasChanges = true;
+      }
+      if (input.dueDate !== undefined) {
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
+        const oldDue = existing.dueDate ? new Date(existing.dueDate).toISOString() : null;
+        if (newDue !== oldDue) hasChanges = true;
+      }
+      if (input.status !== undefined && input.status !== existing.status) hasChanges = true;
+      if (input.completedAt !== undefined) {
+        const newCompleted = input.completedAt ? new Date(input.completedAt).toISOString() : null;
+        const oldCompleted = existing.completedAt ? new Date(existing.completedAt).toISOString() : null;
+        if (newCompleted !== oldCompleted) hasChanges = true;
+      }
 
-    const patch: Partial<TaskRow> = { updatedAt: nowIso() };
-    if (input.title !== undefined) patch.title = input.title;
-    if (input.description !== undefined) patch.description = input.description;
-    if (input.milestoneId !== undefined) patch.milestoneId = input.milestoneId;
-    if (input.parentTaskId !== undefined) patch.parentTaskId = input.parentTaskId;
-    if (input.priority !== undefined) patch.priority = input.priority;
-    if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
+      // Setting status to done on a blocked task is always rejected
+      if (input.status === "done") {
+        if (loadBlockedSet([id]).has(id)) {
+          throw new TaskBlockedError();
+        }
+      }
 
-    if (input.status !== undefined) {
-      const movingToDone = input.status === "done";
-      if (movingToDone && loadBlockedSet([id]).has(id)) throw new TaskBlockedError();
+      if (!hasChanges) {
+        return { unchanged: true as const };
+      }
 
-      patch.status = input.status;
-      const nowDone = input.status === "done" || input.status === "cancelled";
-      const wasDone = existing.status === "done" || existing.status === "cancelled";
-      if (nowDone && !wasDone) patch.completedAt = input.completedAt ?? nowIso();
-      else if (!nowDone && wasDone) patch.completedAt = null;
-    }
-    if (input.completedAt !== undefined) patch.completedAt = input.completedAt;
+      if (input.parentTaskId !== undefined && input.parentTaskId !== existing.parentTaskId) {
+        assertValidParentTask(id, input.parentTaskId, existing.projectId);
+      }
 
-    db.transaction(() => {
+      const patch: Partial<TaskRow> = { updatedAt: nowIso() };
+      if (input.title !== undefined && input.title !== existing.title) patch.title = input.title;
+      if (
+        input.description !== undefined &&
+        (input.description ?? null) !== (existing.description ?? null)
+      ) {
+        patch.description = input.description;
+      }
+      if (input.priority !== undefined && input.priority !== existing.priority) patch.priority = input.priority;
+      if (
+        input.milestoneId !== undefined &&
+        (input.milestoneId ?? null) !== (existing.milestoneId ?? null)
+      ) {
+        patch.milestoneId = input.milestoneId;
+      }
+      if (
+        input.parentTaskId !== undefined &&
+        (input.parentTaskId ?? null) !== (existing.parentTaskId ?? null)
+      ) {
+        patch.parentTaskId = input.parentTaskId;
+      }
+      if (input.dueDate !== undefined) {
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
+        const oldDue = existing.dueDate ? new Date(existing.dueDate).toISOString() : null;
+        if (newDue !== oldDue) patch.dueDate = input.dueDate;
+      }
+
+      if (input.status !== undefined && input.status !== existing.status) {
+        const movingToDone = input.status === "done";
+        if (movingToDone && loadBlockedSet([id]).has(id)) throw new TaskBlockedError();
+
+        patch.status = input.status;
+        const nowDone = input.status === "done" || input.status === "cancelled";
+        const wasDone = existing.status === "done" || existing.status === "cancelled";
+        if (nowDone && !wasDone) patch.completedAt = input.completedAt ?? nowIso();
+        else if (!nowDone && wasDone) patch.completedAt = null;
+      }
+      if (input.completedAt !== undefined) patch.completedAt = input.completedAt;
+
       db.update(tasks).set(patch).where(eq(tasks.id, id)).run();
 
       if (input.status !== undefined && input.status !== existing.status) {
@@ -367,21 +431,28 @@ export class DrizzleTaskRepository implements TaskRepository {
           })
           .run();
       }
-      if (input.dueDate !== undefined && input.dueDate !== existing.dueDate) {
-        db.insert(taskActivityEvents)
-          .values({
-            id: crypto.randomUUID(),
-            workspaceId: LOCAL_WORKSPACE_ID,
-            projectId: existing.projectId,
-            taskId: id,
-            actorId: null,
-            type: "task.dates_changed",
-            details: JSON.stringify({ dueDate: input.dueDate }),
-            createdAt: nowIso(),
-          })
-          .run();
+      if (input.dueDate !== undefined) {
+        const newDue = input.dueDate ? new Date(input.dueDate).toISOString() : null;
+        const oldDue = existing.dueDate ? new Date(existing.dueDate).toISOString() : null;
+        if (newDue !== oldDue) {
+          db.insert(taskActivityEvents)
+            .values({
+              id: crypto.randomUUID(),
+              workspaceId: LOCAL_WORKSPACE_ID,
+              projectId: existing.projectId,
+              taskId: id,
+              actorId: null,
+              type: "task.dates_changed",
+              details: JSON.stringify({ dueDate: input.dueDate }),
+              createdAt: nowIso(),
+            })
+            .run();
+        }
       }
-      if (input.milestoneId !== undefined && input.milestoneId !== existing.milestoneId) {
+      if (
+        input.milestoneId !== undefined &&
+        (input.milestoneId ?? null) !== (existing.milestoneId ?? null)
+      ) {
         db.insert(taskActivityEvents)
           .values({
             id: crypto.randomUUID(),
@@ -398,8 +469,24 @@ export class DrizzleTaskRepository implements TaskRepository {
           })
           .run();
       }
+
+      return { unchanged: false as const };
     });
-    return this.findById(workspaceId, id);
+
+    if (!txResult) return null;
+    const task = await this.findById(workspaceId, id);
+    if (!task) return null;
+    return { task, unchanged: txResult.unchanged };
+  }
+
+  async update(
+    workspaceId: string,
+    id: string,
+    input: TaskUpdateInput,
+    _options?: TaskMutationOptions,
+  ): Promise<Task | null> {
+    const res = await this.updateAuthoritative(workspaceId, id, input, _options);
+    return res ? res.task : null;
   }
 
   async delete(workspaceId: string, id: string): Promise<boolean> {

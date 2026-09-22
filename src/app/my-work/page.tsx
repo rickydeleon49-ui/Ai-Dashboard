@@ -85,9 +85,21 @@ export default async function MyWorkPage({
           .filter((id): id is string => Boolean(id)),
       ),
     );
-    if (referencedUserIds.length > 0) {
-      const { getMemberDisplaySummaries } = await import("@/core/workspaces/service");
-      membersList = await getMemberDisplaySummaries(workspaceId, referencedUserIds, callerRole);
+    const { getMemberDisplaySummaries } = await import("@/core/workspaces/service");
+    const referencedSummaries =
+      referencedUserIds.length > 0
+        ? await getMemberDisplaySummaries(workspaceId, referencedUserIds, callerRole)
+        : [];
+
+    if (callerRole !== "viewer") {
+      const { listMembersPaginated } = await import("@/core/workspaces/service");
+      const activeList = await listMembersPaginated(workspaceId, { status: "active", limit: 100 });
+      const map = new Map<string, WorkspaceMemberDisplaySummary>();
+      for (const m of activeList.members) map.set(m.id, m);
+      for (const m of referencedSummaries) map.set(m.id, m);
+      membersList = Array.from(map.values());
+    } else {
+      membersList = referencedSummaries;
     }
   }
 
@@ -116,6 +128,7 @@ export default async function MyWorkPage({
           accountsMode={accountsMode}
           callerRole={callerRole}
           members={membersList}
+          workspaceId={workspaceId}
         />
       )}
     </div>

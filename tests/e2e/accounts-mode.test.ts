@@ -487,6 +487,17 @@ describe("Accounts Mode E2E Workflows (HTTP + Real Next.js + PostgreSQL)", () =>
       });
       assert.equal(editRes.status, 403);
     });
+
+    it("viewer read-only behavior: task selection checkboxes and bulk actions bar are not rendered", async () => {
+      const pageRes = await fetch(`${baseURL}/projects/${PROJ_ID}/tasks`, {
+        headers: { cookie: viewerJar.header() },
+      });
+      assert.equal(pageRes.status, 200);
+      const html = await pageRes.text();
+      assert.equal(html.includes("Select all visible"), false);
+      assert.equal(html.includes("Select task"), false);
+      assert.equal(html.includes("BulkActionsBar"), false);
+    });
   });
 
   describe("Member Flow", () => {
@@ -591,6 +602,73 @@ describe("Accounts Mode E2E Workflows (HTTP + Real Next.js + PostgreSQL)", () =>
       assert.equal(after.rows[0]?.title, "Safely Updated Title on Suspended Assignee Task");
       assert.equal(after.rows[0]?.assignee_id, "usr_suspended");
       assert.equal(after.rows[0]?.assigned_by, "usr_owner");
+    });
+
+    it("bulk assignee search supports workspaces with > 100 members and finds member beyond page 1", async () => {
+      // Seed 105 active members into workspace
+      for (let i = 1; i <= 104; i++) {
+        const uId = `usr_e2e_scale_${i}`;
+        await dbClient.query(
+          `INSERT INTO "user" ("id", "name", "email", "emailVerified")
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [uId, `Scale Member ${i}`, `e2e_member_${i}@test.local`],
+        );
+        await dbClient.query(
+          `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+           VALUES ($1, $2, 'member', 'active', NOW())
+           ON CONFLICT DO NOTHING`,
+          [WS_ID, uId],
+        );
+      }
+
+      const targetId = "usr_e2e_zulu_105";
+      await dbClient.query(
+        `INSERT INTO "user" ("id", "name", "email", "emailVerified")
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (id) DO NOTHING`,
+        [targetId, "Zulu Member 105", "zulu_member_105@test.local"],
+      );
+      await dbClient.query(
+        `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+         VALUES ($1, $2, 'member', 'active', NOW())
+         ON CONFLICT DO NOTHING`,
+        [WS_ID, targetId],
+      );
+
+      // Search members via API
+      const searchRes = await fetch(
+        `${baseURL}/api/workspaces/${WS_ID}/members?status=active&search=Zulu%20Member%20105`,
+        {
+          headers: { cookie: memberJar.header() },
+        },
+      );
+      assert.equal(searchRes.status, 200);
+      const searchData = (await searchRes.json()) as { members: Array<{ id: string; name: string }> };
+      assert.ok(searchData.members.some((m) => m.id === targetId));
+
+      // Perform bulk update assigning to this member
+      const bulkRes = await fetch(`${baseURL}/api/tasks/bulk`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: memberJar.header(),
+        },
+        body: JSON.stringify({
+          taskIds: ["task_unassigned"],
+          changes: { assigneeId: targetId },
+        }),
+      });
+      assert.equal(bulkRes.status, 200);
+      const bulkData = (await bulkRes.json()) as { updated: number; failed: number };
+      assert.equal(bulkData.updated, 1);
+      assert.equal(bulkData.failed, 0);
+
+      // Verify in DB
+      const check = await dbClient.query(
+        `SELECT assignee_id FROM "task" WHERE id = 'task_unassigned'`,
+      );
+      assert.equal(check.rows[0]?.assignee_id, targetId);
     });
   });
 });

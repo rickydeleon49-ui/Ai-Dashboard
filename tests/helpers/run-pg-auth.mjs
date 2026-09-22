@@ -10,10 +10,7 @@ const nodeOptions = process.env.NODE_OPTIONS
   : `--require "${stubPath}"`;
 
 const isWindows = process.platform === "win32";
-const args = [
-  "tsx",
-  "--test",
-  "--test-concurrency=1",
+const defaultFiles = [
   "tests/unit-pg-auth/auth.test.ts",
   "tests/unit-pg-auth/ownership-claim-api.test.ts",
   "tests/unit-pg-auth/proxy-accounts-mode.test.ts",
@@ -23,6 +20,15 @@ const args = [
   "tests/unit-pg-auth/task-checklists-api.test.ts",
   "tests/unit-pg-auth/task-comments-api.test.ts",
   "tests/unit-pg-auth/activity-redaction-api.test.ts",
+  "tests/unit-pg-auth/bulk-tasks-api.test.ts",
+];
+
+const targetFiles = process.argv.slice(2);
+const args = [
+  "tsx",
+  "--test",
+  "--test-concurrency=1",
+  ...(targetFiles.length > 0 ? targetFiles : defaultFiles),
 ];
 
 const result = spawnSync(isWindows ? "npx.cmd" : "npx", args, {
