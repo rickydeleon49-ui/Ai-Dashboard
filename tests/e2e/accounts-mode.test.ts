@@ -23,6 +23,11 @@
  * 4. Historical attribution preservation:
  *    - Updating only the title of a task with a suspended assignee succeeds (200)
  *    - Preserves assignee_id and assigned_by intact in PostgreSQL
+ * 5. Release 2C.6 collaboration notifications, driven in a real Chromium browser:
+ *    - workspace-specific unread count on the header bell, panel open/close by keyboard
+ *    - mark read, mark all read, archive and restore; unread styling is not colour-only
+ *    - switching workspaces through the Settings UI never shows the other workspace's notifications
+ *    - empty and error states (with retry)
  */
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -30,6 +35,7 @@ import crypto from "node:crypto";
 import { createServer as createNetServer } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { Client } from "pg";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 const adminUrl =
   process.env.TEST_DATABASE_ADMIN_URL?.trim() ||
@@ -670,5 +676,189 @@ describe("Accounts Mode E2E Workflows (HTTP + Real Next.js + PostgreSQL)", () =>
       );
       assert.equal(check.rows[0]?.assignee_id, targetId);
     });
+  });
+});
+
+describe("Release 2C.6 collaboration notifications (real browser)", () => {
+  const WS2_ID = "ws_e2e_second";
+  const PROJ2_ID = "proj_e2e_second";
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+
+  async function createAssignedTask(jar: ReturnType<typeof createCookieJar>, projectId: string, title: string) {
+    const res = await fetch(`${baseURL}/api/projects/${projectId}/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: jar.header() },
+      body: JSON.stringify({ title, assigneeId: "usr_member" }),
+    });
+    assert.equal(res.status, 201, `create ${title}: ${res.status}`);
+  }
+
+  async function pageFor(jar: ReturnType<typeof createCookieJar>): Promise<Page> {
+    const context = await browser.newContext();
+    contexts.push(context);
+    const cookies = jar
+      .header()
+      .split("; ")
+      .filter(Boolean)
+      .map((pair) => {
+        const eq = pair.indexOf("=");
+        return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+      });
+    await context.addCookies(cookies);
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    return page;
+  }
+
+  const bell = (page: Page) => page.getByRole("button", { name: /^Notifications/ });
+  const panel = (page: Page) => page.getByRole("dialog", { name: "Notifications" });
+
+  before(async () => {
+    browser = await chromium.launch();
+
+    // A second workspace the member also belongs to.
+    await dbClient.query(
+      `INSERT INTO "workspace" ("id", "name", "slug", "kind", "created_by", "created_at", "updated_at")
+       VALUES ($1, 'Beta Workspace', 'beta-workspace', 'team', 'usr_owner', NOW(), NOW())`,
+      [WS2_ID],
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+       VALUES ($1, 'usr_owner', 'owner', 'active', NOW()), ($1, 'usr_member', 'member', 'active', NOW())`,
+      [WS2_ID],
+    );
+    await dbClient.query(
+      `INSERT INTO "project" ("id", "workspace_id", "name", "status", "created_at", "updated_at")
+       VALUES ($1, $2, 'Beta Project', 'active', NOW(), NOW())`,
+      [PROJ2_ID, WS2_ID],
+    );
+
+    // Start from a clean inbox for the member, then have the owner assign work.
+    await dbClient.query(`DELETE FROM "notification" WHERE "recipient_id" = 'usr_member'`);
+    await createAssignedTask(ownerJar, PROJ_ID, "Alpha notice one");
+    await createAssignedTask(ownerJar, PROJ_ID, "Alpha notice two");
+    await createAssignedTask(ownerJar, PROJ_ID, "Alpha notice three");
+
+    const ownerInWs2 = createCookieJar();
+    for (const pair of ownerJar.header().split("; ").filter(Boolean)) {
+      const eq = pair.indexOf("=");
+      ownerInWs2.set(pair.slice(0, eq), pair.slice(eq + 1));
+    }
+    ownerInWs2.set("cc-current-workspace", WS2_ID);
+    await createAssignedTask(ownerInWs2, PROJ2_ID, "Beta only notice");
+  });
+
+  after(async () => {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser?.close();
+  });
+
+  it("shows the unread count, opens and closes the panel by keyboard, and marks read", async () => {
+    const page = await pageFor(memberJar);
+    await page.goto(`${baseURL}/my-work`);
+    await page.getByRole("button", { name: "Notifications, 3 unread" }).waitFor();
+    assert.equal(await page.getByTestId("inbox-unread-badge").textContent(), "3");
+
+    await bell(page).focus();
+    await page.keyboard.press("Enter");
+    await panel(page).waitFor();
+    assert.equal(await bell(page).getAttribute("aria-expanded"), "true");
+    const items = panel(page).getByRole("listitem");
+    await items.first().waitFor();
+    assert.equal(await items.count(), 3);
+    assert.equal(await panel(page).getByText("Unread", { exact: true }).count(), 3, "text label, not colour only");
+    assert.ok(!(await panel(page).textContent())?.includes("Beta only notice"), "no other-workspace rows");
+
+    await page.keyboard.press("Escape");
+    await panel(page).waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-haspopup")), "dialog");
+
+    // Keyboard-operate "Mark as read" on the newest notification.
+    await page.keyboard.press("Enter");
+    await panel(page).waitFor();
+    const markRead = panel(page).getByRole("button", { name: /^Mark as read: .*Alpha notice three/ });
+    await markRead.focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Notifications, 2 unread" }).waitFor();
+    await panel(page).getByRole("button", { name: /^Mark as unread: .*Alpha notice three/ }).waitFor();
+    assert.equal(await panel(page).getByText("Unread", { exact: true }).count(), 2);
+
+    await panel(page).getByRole("button", { name: "Mark all read" }).click();
+    await page.getByRole("button", { name: "Notifications, no unread" }).waitFor();
+    assert.equal(await panel(page).getByText("Unread", { exact: true }).count(), 0);
+  });
+
+  it("archives from the panel and restores from the inbox page", async () => {
+    const page = await pageFor(memberJar);
+    await page.goto(`${baseURL}/my-work`);
+    await page.getByRole("button", { name: "Notifications, no unread" }).waitFor();
+    await bell(page).click();
+    await panel(page).getByRole("button", { name: /^Archive: .*Alpha notice two/ }).click();
+    await panel(page).getByText("Alpha notice two").waitFor({ state: "detached" });
+
+    await panel(page).getByRole("link", { name: "Open inbox" }).click();
+    await page.waitForURL(/\/inbox$/);
+    await page.getByRole("heading", { name: "Inbox", level: 1 }).waitFor();
+    await page.getByRole("button", { name: "Archived", pressed: false }).click();
+    const archivedList = page.getByRole("list", { name: "Archived notifications" });
+    await archivedList.getByText("Alpha notice two").waitFor();
+    await archivedList.getByRole("button", { name: /^Restore: .*Alpha notice two/ }).click();
+    await page.getByText("No archived notifications").waitFor();
+
+    await page.getByRole("button", { name: "Inbox", pressed: false }).click();
+    await page.getByRole("list", { name: "Notifications" }).getByText("Alpha notice two").waitFor();
+
+    // The task link goes to the task on its project board.
+    const link = page.getByRole("link", { name: "Alpha notice two" });
+    assert.match((await link.getAttribute("href")) ?? "", /^\/projects\/proj_e2e_main\/tasks#task-/);
+  });
+
+  it("switching workspaces in Settings swaps the inbox without leaking the other workspace", async () => {
+    const page = await pageFor(memberJar);
+    await page.goto(`${baseURL}/settings`);
+    await page.getByRole("button", { name: "Notifications, no unread" }).waitFor();
+
+    const betaRow = page.getByRole("listitem").filter({ hasText: "Beta Workspace" });
+    await betaRow.getByRole("button", { name: "Switch" }).click();
+    await page.getByRole("button", { name: "Notifications, 1 unread" }).waitFor();
+
+    await bell(page).click();
+    await panel(page).getByText("Beta only notice").waitFor();
+    const text = (await panel(page).textContent()) ?? "";
+    assert.ok(!text.includes("Alpha notice"), "workspace A notifications never appear in workspace B");
+    await page.keyboard.press("Escape");
+
+    // And back again.
+    const acmeRow = page.getByRole("listitem").filter({ hasText: "Acme Corporation" });
+    await acmeRow.getByRole("button", { name: "Switch" }).click();
+    await page.getByRole("button", { name: "Notifications, no unread" }).waitFor();
+    await bell(page).click();
+    await panel(page).getByText("Alpha notice one").waitFor();
+    assert.ok(!((await panel(page).textContent()) ?? "").includes("Beta only notice"));
+  });
+
+  it("shows an empty state for a member with no notifications", async () => {
+    const page = await pageFor(viewerJar);
+    await page.goto(`${baseURL}/inbox`);
+    await page.getByText("You're all caught up").waitFor();
+    await page.getByRole("button", { name: "Notifications, no unread" }).waitFor();
+    await page.getByRole("button", { name: "Archived" }).click();
+    await page.getByText("No archived notifications").waitFor();
+  });
+
+  it("shows an error state with a working retry", async () => {
+    const page = await pageFor(memberJar);
+    let fail = true;
+    await page.route(/\/api\/inbox\?/, async (route) => {
+      if (fail) await route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' });
+      else await route.continue();
+    });
+    await page.goto(`${baseURL}/inbox`);
+    const alert = page.getByRole("alert").filter({ hasText: "Couldn't load notifications." });
+    await alert.waitFor();
+    fail = false;
+    await alert.getByRole("button", { name: "Retry" }).click();
+    await page.getByRole("list", { name: "Notifications" }).getByText("Alpha notice one").waitFor();
   });
 });

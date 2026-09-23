@@ -37,7 +37,10 @@ import {
   TaskLockTimeoutError,
 } from "@/core/tasks/errors";
 import { createId } from "@/lib/ids";
+import type { NotificationDraft } from "@/core/notifications/types";
+import { toDateOnly } from "@/core/notifications/details";
 import type { TaskRepository } from "./task-repository";
+import { insertNotificationDrafts } from "./postgres-notification-repository";
 
 type TaskRow = typeof tasks.$inferSelect;
 
@@ -446,8 +449,9 @@ export class PostgresTaskRepository implements TaskRepository {
         completedAt: input.completedAt ? new Date(input.completedAt) : null,
       });
 
+      const createdEventId = crypto.randomUUID();
       await tx.insert(taskActivityEvents).values({
-        id: crypto.randomUUID(),
+        id: createdEventId,
         workspaceId,
         projectId: input.projectId,
         taskId: id,
@@ -455,6 +459,22 @@ export class PostgresTaskRepository implements TaskRepository {
         type: "task.created",
         details: { title: input.title },
       });
+
+      // Release 2C.6: tell the assignee, in the same transaction as the task itself.
+      if (hasAssignee && input.assigneeId) {
+        await insertNotificationDrafts(tx, [
+          {
+            workspaceId,
+            category: "assignment",
+            sourceEventId: createdEventId,
+            actorId: options?.actorUserId ?? null,
+            recipientIds: [input.assigneeId],
+            taskId: id,
+            projectId: input.projectId,
+            details: { change: "assigned" },
+          },
+        ]);
+      }
 
       const [created] = await tx
         .select()
@@ -687,9 +707,13 @@ export class PostgresTaskRepository implements TaskRepository {
           details: { from: existing.priority, to: input.priority },
         });
       }
-      if (input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId) {
+      const notificationDrafts: NotificationDraft[] = [];
+      const actorId = options?.actorUserId ?? null;
+      const assigneeChanged = input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId;
+      if (assigneeChanged) {
+        const assignmentEventId = crypto.randomUUID();
         await tx.insert(taskActivityEvents).values({
-          id: crypto.randomUUID(),
+          id: assignmentEventId,
           workspaceId,
           projectId: existing.projectId,
           taskId: id,
@@ -700,13 +724,40 @@ export class PostgresTaskRepository implements TaskRepository {
             previousAssigneeId: existing.assigneeId,
           },
         });
+        // Release 2C.6: the new assignee learns they were assigned; the
+        // previous one learns the task was taken off them.
+        if (input.assigneeId) {
+          notificationDrafts.push({
+            workspaceId,
+            category: "assignment",
+            sourceEventId: assignmentEventId,
+            actorId,
+            recipientIds: [input.assigneeId],
+            taskId: id,
+            projectId: existing.projectId,
+            details: { change: "assigned" },
+          });
+        }
+        if (existing.assigneeId) {
+          notificationDrafts.push({
+            workspaceId,
+            category: "assignment",
+            sourceEventId: assignmentEventId,
+            actorId,
+            recipientIds: [existing.assigneeId],
+            taskId: id,
+            projectId: existing.projectId,
+            details: { change: "unassigned" },
+          });
+        }
       }
       if (input.dueDate !== undefined) {
         const newDue = input.dueDate ? new Date(input.dueDate).toISOString().slice(0, 10) : null;
         const oldDue = existing.dueDate ? existing.dueDate.toISOString().slice(0, 10) : null;
         if (newDue !== oldDue) {
+          const datesEventId = crypto.randomUUID();
           await tx.insert(taskActivityEvents).values({
-            id: crypto.randomUUID(),
+            id: datesEventId,
             workspaceId,
             projectId: existing.projectId,
             taskId: id,
@@ -714,6 +765,23 @@ export class PostgresTaskRepository implements TaskRepository {
             type: "task.dates_changed",
             details: { dueDate: input.dueDate ?? null },
           });
+          // Release 2C.6: the calendar date changed, so the assignee is told —
+          // unless this same update just assigned them the task, whose
+          // assignment notification already covers it (design note §6.2).
+          const resultingAssignee = assigneeChanged ? (input.assigneeId ?? null) : existing.assigneeId;
+          const justAssigned = assigneeChanged && Boolean(input.assigneeId);
+          if (resultingAssignee && !justAssigned) {
+            notificationDrafts.push({
+              workspaceId,
+              category: "due_date",
+              sourceEventId: datesEventId,
+              actorId,
+              recipientIds: [resultingAssignee],
+              taskId: id,
+              projectId: existing.projectId,
+              details: { dueDate: toDateOnly(input.dueDate ?? null), previousDueDate: toDateOnly(existing.dueDate) },
+            });
+          }
         }
       }
       if (
@@ -733,6 +801,8 @@ export class PostgresTaskRepository implements TaskRepository {
           },
         });
       }
+
+      await insertNotificationDrafts(tx, notificationDrafts);
 
       const [updated] = await tx
         .select({

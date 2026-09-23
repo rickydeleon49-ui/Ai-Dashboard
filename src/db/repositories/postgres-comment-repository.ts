@@ -30,6 +30,7 @@ import {
   tasks,
   workspaceMembers,
 } from "../schema.pg";
+import { insertNotificationDrafts } from "./postgres-notification-repository";
 import {
   type CommentRepository,
   DEFAULT_COMMENT_PAGE_SIZE,
@@ -193,8 +194,9 @@ export class PostgresCommentRepository implements CommentRepository {
         .returning();
 
       // Log immutable activity event in same transaction
+      const createdEventId = crypto.randomUUID();
       await tx.insert(taskActivityEvents).values({
-        id: crypto.randomUUID(),
+        id: createdEventId,
         workspaceId,
         projectId: task.projectId,
         taskId,
@@ -204,6 +206,41 @@ export class PostgresCommentRepository implements CommentRepository {
       });
 
       if (!row) throw new Error("Failed to create comment");
+
+      // Release 2C.6: mentioned members get a mention; the task's assignee gets
+      // a comment notification. Recipients are the server-validated mentions and
+      // the assignee read inside this transaction — never client-supplied ids
+      // (design note §4.2).
+      //
+      // A mentioned assignee stays in BOTH drafts on purpose. Precedence is
+      // resolved by the database, not here: the mention draft is inserted
+      // first, so when mentions are enabled the comment draft loses the
+      // (recipient_id, source_event_id) unique constraint and inserts nothing.
+      // When mentions are disabled, the mention draft's preference filter
+      // removes them and the comment draft delivers instead. Dropping them from
+      // the comment draft here — before preferences are evaluated — would have
+      // silently delivered nothing to an assignee who had only mentions off
+      // (design note §6.2).
+      const [current] = await tx
+        .select({ assigneeId: tasks.assigneeId })
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
+        .limit(1);
+      const assigneeId = current?.assigneeId ?? null;
+      const shared = {
+        workspaceId,
+        sourceEventId: createdEventId,
+        actorId: authorId,
+        taskId,
+        projectId: task.projectId,
+        commentId: id,
+        details: {},
+      } as const;
+      await insertNotificationDrafts(tx, [
+        { ...shared, category: "mention", recipientIds: mentions },
+        { ...shared, category: "comment", recipientIds: assigneeId ? [assigneeId] : [] },
+      ]);
+
       return this.mapRow(row, 0);
     });
   }

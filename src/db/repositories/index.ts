@@ -13,6 +13,8 @@ import { PostgresCommentRepository } from "./postgres-comment-repository";
 import type { CommentRepository } from "./comment-repository";
 import { PostgresActivityRepository } from "./postgres-activity-repository";
 import type { ActivityRepository } from "./activity-repository";
+import { PostgresNotificationRepository } from "./postgres-notification-repository";
+import type { NotificationRepository } from "./notification-repository";
 
 const require = createRequire(import.meta.url);
 
@@ -57,6 +59,14 @@ export const activityRepository: ActivityRepository = process.env.DATABASE_URL
   ? new PostgresActivityRepository()
   : new (require("./drizzle-activity-repository").DrizzleActivityRepository)();
 
+/**
+ * Collaboration notifications (Release 2C.6) exist only in PostgreSQL /
+ * accounts mode — desktop deliberately has none, so there is no SQLite
+ * implementation to choose. Constructing this touches no database; every
+ * /api/inbox route refuses to run outside accounts mode before using it.
+ */
+export const notificationRepository: NotificationRepository = new PostgresNotificationRepository();
+
 export type { ProjectRepository } from "./project-repository";
 export type { MilestoneRepository } from "./milestone-repository";
 export type { TaskRepository } from "./task-repository";
@@ -64,4 +74,5 @@ export type { KnowledgeDocumentRepository } from "./knowledge-document-repositor
 export type { ChecklistRepository } from "./checklist-repository";
 export type { CommentRepository } from "./comment-repository";
 export type { ActivityRepository } from "./activity-repository";
+export type { NotificationRepository } from "./notification-repository";
 export { LOCAL_WORKSPACE_ID } from "./project-repository";

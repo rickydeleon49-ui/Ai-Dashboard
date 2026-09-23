@@ -180,6 +180,11 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
  * regardless of which workspace they're in. Hidden rather than exposed
  * half-scoped, per the plan's own framing; each gets genuinely ported in
  * a later phase.
+ *
+ * `/inbox` and `/api/inbox` are the Release 2C.6 collaboration inbox —
+ * PostgreSQL-backed and scoped to (workspace, recipient) — and deliberately a
+ * different namespace from the SQLite automation `/notifications` above,
+ * which stays blocked here.
  */
 const ACCOUNTS_MODE_ALLOWED_PAGES = [
   "/",
@@ -188,6 +193,7 @@ const ACCOUNTS_MODE_ALLOWED_PAGES = [
   "/settings",
   "/invite",
   "/my-work",
+  "/inbox",
 ];
 
 /** The API routes those pages need. Same reasoning as the page list above. */
@@ -198,6 +204,7 @@ const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
   "/api/ownership-claim",
   "/api/tasks",
   "/api/my-work",
+  "/api/inbox",
 ];
 
 /** True for an exact match or anything nested under it (e.g. `/projects/new`). */

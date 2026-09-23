@@ -21,6 +21,7 @@ const defaultFiles = [
   "tests/unit-pg-auth/task-comments-api.test.ts",
   "tests/unit-pg-auth/activity-redaction-api.test.ts",
   "tests/unit-pg-auth/bulk-tasks-api.test.ts",
+  "tests/unit-pg-auth/collaboration-notifications-api.test.ts",
 ];
 
 const targetFiles = process.argv.slice(2);
