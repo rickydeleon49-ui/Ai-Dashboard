@@ -77,7 +77,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 - Safe workspace ownership and account deletion
 - Enforced CI checks
 
-#### Phase 2C Releases 2C.1–2C.4 (Merged to main)
+#### Phase 2C Releases 2C.1–2C.5 (Merged to main)
 
 - **Release 2C.1: Workspace member directory** (completed, merged to main)
   - Paginated workspace-member endpoint with role display (owner, admin, member, viewer)
@@ -97,17 +97,14 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
   - Active workspace member mentions (`@user`) with bounded workload limits
   - Deleted-comment activity privacy hardening (fail-closed sanitization on task and project activity listings)
   - PostgreSQL database-clock timestamp hardening (`date_trunc('milliseconds', statement_timestamp() AT TIME ZONE 'UTC')`)
-
-### Active Release — Release 2C.5: Bulk editing
-
-Active implementation on `phase2c/bulk-editing`. Delivering:
-- Multi-select tasks in Project task views and cross-project My Work view
-- Bulk status, priority, milestone, due date, and assignee changes with clear-value support
-- Bounded batch processing (up to 100 tasks per request) with per-task transactional isolation
-- Truthful partial-failure reporting with machine-readable error codes and retryable classification
-- Activity event suppression for no-op field updates
-- Preservation of all authorization, cross-workspace, milestone, dependency, and blocked-task invariants
-- Note: Task labels are deferred to a dedicated future release as no task-level label model exists in SQLite or PostgreSQL schemas.
+- **Release 2C.5: Bulk editing** (completed, merged to main)
+  - Multi-select tasks in Project task views and cross-project My Work view
+  - Bulk status, priority, milestone, due date, and assignee changes with clear-value support
+  - Bounded batch processing (up to 100 tasks per request) with per-task transactional isolation
+  - Truthful partial-failure reporting with machine-readable error codes and retryable classification
+  - Activity event suppression for no-op field updates
+  - Preservation of all authorization, cross-workspace, milestone, dependency, and blocked-task invariants
+  - Note: Task labels are deferred to a dedicated future release as no task-level label model exists in SQLite or PostgreSQL schemas.
 
 ## 4. Release sequence at a glance
 
@@ -115,7 +112,7 @@ Active implementation on `phase2c/bulk-editing`. Delivering:
 |---:|---|---|---|
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
-| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.4 merged; **Release 2C.5 active** |
+| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.5 merged |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
@@ -234,7 +231,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - Edited and deleted content follows the product's retention policy.
 - Activity records must not capture secrets, file contents, or authentication data.
 
-### Release 2C.5 — Bulk editing (active release on phase2c/bulk-editing)
+### Release 2C.5 — Bulk editing (completed, merged to main)
 
 #### Features
 

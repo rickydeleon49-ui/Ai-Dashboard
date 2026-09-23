@@ -151,6 +151,29 @@ async function run() {
   );
   assert.equal(ownershipClaimRes.status, 401);
 
+  // Release 2C.6 collaboration inbox: PostgreSQL-only, never the SQLite automation inbox.
+  const inboxRoute = await import("@/app/api/inbox/route");
+  assert.equal((await inboxRoute.GET(new NextRequest("http://localhost/api/inbox"))).status, 401);
+  const inboxCountRoute = await import("@/app/api/inbox/unread-count/route");
+  assert.equal((await inboxCountRoute.GET(new NextRequest("http://localhost/api/inbox/unread-count"))).status, 401);
+  const inboxItemRoute = await import("@/app/api/inbox/[id]/route");
+  assert.equal(
+    (
+      await inboxItemRoute.PATCH(
+        new NextRequest("http://localhost/api/inbox/n1", { method: "PATCH", body: JSON.stringify({ read: true }) }),
+        { params: Promise.resolve({ id: "n1" }) }
+      )
+    ).status,
+    401,
+  );
+  const inboxMarkAllRoute = await import("@/app/api/inbox/mark-all-read/route");
+  assert.equal(
+    (await inboxMarkAllRoute.POST(new NextRequest("http://localhost/api/inbox/mark-all-read", { method: "POST" }))).status,
+    401,
+  );
+  const inboxPrefsRoute = await import("@/app/api/inbox/preferences/route");
+  assert.equal((await inboxPrefsRoute.GET(new NextRequest("http://localhost/api/inbox/preferences"))).status, 401);
+
   const authRoute = await import("@/app/api/auth/[...nextauth]/route");
   assert.ok(authRoute.GET);
   assert.ok(authRoute.POST);
@@ -180,6 +203,7 @@ async function run() {
     { name: "settings", importFn: () => import("@/app/settings/page") },
     { name: "invite", importFn: () => import("@/app/invite/page") },
     { name: "myWork", importFn: () => import("@/app/my-work/page") },
+    { name: "inbox", importFn: () => import("@/app/inbox/page") },
     { name: "rootLayout", importFn: () => import("@/app/layout") },
   ];
 

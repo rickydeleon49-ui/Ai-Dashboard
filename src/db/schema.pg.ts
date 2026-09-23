@@ -598,3 +598,85 @@ export const taskActivityEvents = pgTable(
 export type TaskCommentRow = typeof taskComments.$inferSelect;
 export type TaskCommentEditRow = typeof taskCommentEdits.$inferSelect;
 export type TaskActivityEventRow = typeof taskActivityEvents.$inferSelect;
+
+/**
+ * Collaboration notifications (Phase 2C, release C.6) — hosted accounts mode
+ * only; desktop deliberately has none (docs/design/2C.6-collaboration-notifications.md §9).
+ *
+ * Every row belongs to exactly one (workspace, recipient) pair, and every
+ * repository query filters on both. Targets (task, project, comment) are SET
+ * NULL on delete so history survives as "no longer available"; the workspace
+ * and recipient cascade. `source_event_id` is the task_activity_event that
+ * produced the row — deliberately not a foreign key, so the row outlives the
+ * event — and (recipient_id, source_event_id) is the idempotency constraint.
+ * `details` holds only allowlisted, non-content fields (design note §5).
+ */
+export const notifications = pgTable(
+  "notification",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    category: text("category").notNull(),
+    sourceEventId: text("source_event_id").notNull(),
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    commentId: text("comment_id").references(() => taskComments.id, { onDelete: "set null" }),
+    details: jsonb("details").notNull().default({}),
+    readAt: timestamp("read_at", { mode: "date" }),
+    archivedAt: timestamp("archived_at", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("notification_recipient_source_uq").on(t.recipientId, t.sourceEventId),
+    index("notification_inbox_idx").on(t.recipientId, t.workspaceId, t.createdAt.desc(), t.id.desc()),
+    index("notification_unread_idx")
+      .on(t.recipientId, t.workspaceId)
+      .where(sql`${t.readAt} is null and ${t.archivedAt} is null`),
+    index("notification_workspace_idx").on(t.workspaceId),
+    index("notification_task_idx").on(t.taskId).where(sql`${t.taskId} is not null`),
+    index("notification_project_idx").on(t.projectId).where(sql`${t.projectId} is not null`),
+    index("notification_comment_idx").on(t.commentId).where(sql`${t.commentId} is not null`),
+    index("notification_actor_idx").on(t.actorId).where(sql`${t.actorId} is not null`),
+    check(
+      "notification_category_check",
+      sql`${t.category} in ('assignment', 'mention', 'comment', 'due_date')`,
+    ),
+  ],
+);
+
+/**
+ * Per-recipient, per-workspace, per-category opt-outs. One row per category —
+ * never a JSON blob — so a partial update writes only the categories it names
+ * and concurrent updates to different categories cannot overwrite each other.
+ * A missing row means the category's documented default (enabled).
+ */
+export const notificationPreferences = pgTable(
+  "notification_preference",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    enabled: boolean("enabled").notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId, t.category] }),
+    check(
+      "notification_preference_category_check",
+      sql`${t.category} in ('assignment', 'mention', 'comment', 'due_date')`,
+    ),
+  ],
+);
+
+export type NotificationRow = typeof notifications.$inferSelect;
+export type NotificationPreferenceRow = typeof notificationPreferences.$inferSelect;

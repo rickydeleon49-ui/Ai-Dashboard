@@ -289,6 +289,30 @@ describe("AUTH_MODE=accounts: route restriction (SaaS Phase 1, step 10)", () => 
     }
   });
 
+  it("allows the Release 2C.6 collaboration inbox but keeps the SQLite automation notifications blocked", async () => {
+    const cookie = await signIn("proxy-accounts-inbox@example.com");
+    env.AUTH_MODE = "accounts";
+    try {
+      for (const path of [
+        "/inbox",
+        "/api/inbox",
+        "/api/inbox/unread-count",
+        "/api/inbox/preferences",
+        "/api/inbox/mark-all-read",
+        "/api/inbox/00000000-0000-4000-8000-000000000000",
+      ]) {
+        const response = await call(requestFor(path, cookie));
+        assert.notEqual(response.status, 404, `${path} should be reachable`);
+      }
+      for (const path of ["/notifications", "/api/notifications"]) {
+        const response = await call(requestFor(path, cookie));
+        assert.equal(response.status, 404, `${path} (shared SQLite inbox) must stay blocked`);
+      }
+    } finally {
+      restoreEnv();
+    }
+  });
+
   it("404s every page outside Dashboard/Projects/Settings/Invite, even signed in", async () => {
     const cookie = await signIn("proxy-accounts-blocked-pages@example.com");
     env.AUTH_MODE = "accounts";

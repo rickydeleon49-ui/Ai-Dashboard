@@ -6,6 +6,7 @@ import { Bell, Menu, Plus, X } from "lucide-react";
 import { SidebarBrand, SidebarNav } from "./sidebar";
 import { ThemeToggle } from "./theme-toggle";
 import { CommandPalette, type PaletteProject } from "./command-palette";
+import { InboxButton } from "@/components/notifications/inbox-button";
 import { buttonClasses } from "@/components/ui/button";
 import type { ProjectStats } from "@/core/projects/types";
 
@@ -18,12 +19,15 @@ export function AppShell({
   paletteProjects,
   unreadNotifications,
   accountsMode = false,
+  inboxWorkspaceId = null,
   children,
 }: {
   stats: ProjectStats;
   paletteProjects: PaletteProject[];
   unreadNotifications: number;
   accountsMode?: boolean;
+  /** Accounts mode: the active workspace whose collaboration inbox the header shows. */
+  inboxWorkspaceId?: string | null;
   children: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -89,7 +93,11 @@ export function AppShell({
             <CommandPalette projects={paletteProjects} />
           </div>
 
-          {accountsMode ? null : (
+          {accountsMode ? (
+            inboxWorkspaceId ? (
+              <InboxButton key={inboxWorkspaceId} workspaceId={inboxWorkspaceId} />
+            ) : null
+          ) : (
             <Link
               href="/notifications"
               aria-label={

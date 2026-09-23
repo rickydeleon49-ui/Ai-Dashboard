@@ -124,6 +124,19 @@ describe("routes", () => {
     assert.equal(response?.status(), 404);
   });
 
+  it("desktop has no collaboration inbox (Release 2C.6): /inbox and /api/inbox are 404, the automation bell remains", async () => {
+    const pageResponse = await page.goto("/inbox", { waitUntil: "domcontentloaded" });
+    assert.equal(pageResponse?.status(), 404);
+    for (const path of ["/api/inbox", "/api/inbox/unread-count", "/api/inbox/preferences"]) {
+      const api = await page.request.get(`${baseURL}${path}`);
+      assert.equal(api.status(), 404, `${path} must not exist on desktop`);
+    }
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const bell = page.locator('header a[href="/notifications"]');
+    assert.equal(await bell.count(), 1, "desktop header keeps its SQLite automation inbox link");
+    assert.equal(await page.locator('header button[aria-haspopup="dialog"][title="Notifications"]').count(), 0);
+  });
+
   it("every sidebar link points at a route that renders", async () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const hrefs = await page.$$eval("nav a[href^='/']", (links) =>

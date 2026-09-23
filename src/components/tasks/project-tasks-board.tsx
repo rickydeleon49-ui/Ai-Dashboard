@@ -718,7 +718,7 @@ function TaskRow({
   const assignerMember = task.assignedBy && membersMap ? membersMap.get(task.assignedBy) : null;
 
   return (
-    <div className="rounded-lg border border-line bg-[var(--bg-subtle)]/40">
+    <div id={`task-${task.id}`} className="scroll-mt-20 rounded-lg border border-line bg-[var(--bg-subtle)]/40">
       <div className="flex items-center gap-2 px-2.5 py-2">
         {!isViewer && onToggleSelect ? (
           <input

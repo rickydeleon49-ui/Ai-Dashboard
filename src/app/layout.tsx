@@ -56,12 +56,16 @@ export default async function RootLayout({
   let stats: ProjectStats = EMPTY_STATS;
   let paletteProjects: PaletteProject[] = [];
   let unreadNotifications = 0;
+  let inboxWorkspaceId: string | null = null;
 
   if (accountsMode) {
     // In accounts mode: resolve the signed-in user's active workspace before
     // displaying project statistics or palette data; do not query PostgreSQL using
     // the fixed local workspace ID; do not read shared SQLite notifications.
     const workspaceId = await resolveWorkspaceIdForPage();
+    // The collaboration inbox button is keyed by this id, so switching
+    // workspaces remounts it with no cached notifications (Release 2C.6).
+    inboxWorkspaceId = workspaceId;
     if (workspaceId) {
       const [s, p] = await Promise.all([
         projectRepository.stats(workspaceId),
@@ -99,6 +103,7 @@ export default async function RootLayout({
           paletteProjects={paletteProjects}
           unreadNotifications={unreadNotifications}
           accountsMode={accountsMode}
+          inboxWorkspaceId={inboxWorkspaceId}
         >
           {children}
         </AppShell>
