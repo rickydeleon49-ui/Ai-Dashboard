@@ -174,6 +174,22 @@ async function run() {
   const inboxPrefsRoute = await import("@/app/api/inbox/preferences/route");
   assert.equal((await inboxPrefsRoute.GET(new NextRequest("http://localhost/api/inbox/preferences"))).status, 401);
 
+  // Release 2D.1 calendar: PostgreSQL-only in accounts mode.
+  const calendarRoute = await import("@/app/api/calendar/route");
+  assert.equal(
+    (await calendarRoute.GET(new NextRequest("http://localhost/api/calendar?from=2026-10-01&to=2026-10-31"))).status,
+    401,
+  );
+  const calendarUnscheduledRoute = await import("@/app/api/calendar/unscheduled/route");
+  assert.equal((await calendarUnscheduledRoute.GET(new NextRequest("http://localhost/api/calendar/unscheduled"))).status, 401);
+  const calendarFiltersRoute = await import("@/app/api/calendar/filters/route");
+  assert.equal((await calendarFiltersRoute.GET(new NextRequest("http://localhost/api/calendar/filters"))).status, 401);
+  const calendarSearchRoute = await import("@/app/api/calendar/filters/search/route");
+  assert.equal(
+    (await calendarSearchRoute.GET(new NextRequest("http://localhost/api/calendar/filters/search?type=projects&q=a"))).status,
+    401,
+  );
+
   const authRoute = await import("@/app/api/auth/[...nextauth]/route");
   assert.ok(authRoute.GET);
   assert.ok(authRoute.POST);
@@ -204,6 +220,7 @@ async function run() {
     { name: "invite", importFn: () => import("@/app/invite/page") },
     { name: "myWork", importFn: () => import("@/app/my-work/page") },
     { name: "inbox", importFn: () => import("@/app/inbox/page") },
+    { name: "calendar", importFn: () => import("@/app/calendar/page") },
     { name: "rootLayout", importFn: () => import("@/app/layout") },
   ];
 

@@ -28,6 +28,14 @@
  *    - mark read, mark all read, archive and restore; unread styling is not colour-only
  *    - switching workspaces through the Settings UI never shows the other workspace's notifications
  *    - empty and error states (with retry)
+ * 6. Release 2D.1 calendar in a real browser against PostgreSQL:
+ *    - member drag → pending → Save persists UTC midnight of the chosen day
+ *    - viewer sees no drag or reschedule controls
+ *    - switching workspace from the calendar never shows the other workspace's items
+ *    - a Pacific/Auckland browser shows date-only values on the same day
+ *    - project and assignee filter lists beyond their limits show visible notices, and
+ *      search reaches, selects and filters by values sorted after the first 500
+ *    - rapid searches and workspace switches never apply stale results
  */
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -860,5 +868,421 @@ describe("Release 2C.6 collaboration notifications (real browser)", () => {
     fail = false;
     await alert.getByRole("button", { name: "Retry" }).click();
     await page.getByRole("list", { name: "Notifications" }).getByText("Alpha notice one").waitFor();
+  });
+});
+
+describe("Release 2D.1 calendar (accounts mode, real browser)", () => {
+  const CAL_WS = "ws_e2e_calendar";
+  const CAL_PROJ = "proj_e2e_calendar";
+  const NOW = new Date("2026-10-14T12:00:00.000Z");
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+
+  /**
+   * `pausedTimers` installs Playwright's fake clock and pauses it once the page
+   * has loaded, so the test decides exactly when a debounce timer fires.
+   */
+  async function calendarPage(
+    jar: ReturnType<typeof createCookieJar>,
+    timezoneId?: string,
+    { pausedTimers = false }: { pausedTimers?: boolean } = {},
+  ): Promise<Page> {
+    const context = await browser.newContext(timezoneId ? { timezoneId } : {});
+    contexts.push(context);
+    await context.addCookies(
+      jar
+        .header()
+        .split("; ")
+        .filter(Boolean)
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+        }),
+    );
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    if (pausedTimers) await page.clock.install({ time: NOW });
+    else await page.clock.setFixedTime(NOW);
+    await page.goto(`${baseURL}/calendar`);
+    await page.getByRole("heading", { name: "October 2026", level: 2 }).waitFor();
+    if (pausedTimers) await page.clock.pauseAt(new Date(NOW.getTime() + 60_000));
+    return page;
+  }
+
+  const cell = (page: Page, day: string) => page.locator(`li[data-day="${day}"]`);
+
+  /**
+   * The large "Filter Limits Workspace": 501 projects and 501 active members (one
+   * past each filter cap), a suspended member who must never be offered, the
+   * viewer (who may search but not reschedule), and one task for each value
+   * sorted after the first 500. Seeded once from this suite's `before` hook and
+   * idempotent, so every test that uses it can run alone or in any order. The
+   * rows live in this file's throwaway database, which the top-level `after`
+   * drops even when a test fails.
+   */
+  const FILTER_LIMITS_WS = "ws_e2e_filter_limits";
+  async function seedFilterLimitsWorkspace(): Promise<void> {
+    await dbClient.query(
+      `INSERT INTO "workspace" ("id", "name", "slug", "kind", "created_by", "created_at", "updated_at")
+       VALUES ($1, 'Filter Limits Workspace', 'filter-limits-workspace', 'team', 'usr_owner', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [FILTER_LIMITS_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+       VALUES ($1, 'usr_owner', 'owner', 'active', NOW())
+       ON CONFLICT DO NOTHING`,
+      [FILTER_LIMITS_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "project" ("id", "workspace_id", "name", "status", "created_at", "updated_at")
+       SELECT 'proj_limit_' || g, $1, 'Limit project ' || lpad(g::text, 4, '0'), 'active', NOW(), NOW()
+       FROM generate_series(1, 501) g
+       ON CONFLICT DO NOTHING`,
+      [FILTER_LIMITS_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified")
+       SELECT 'usr_limit_' || g, 'Limit member ' || lpad(g::text, 4, '0'), 'limit_' || g || '@example.com', NOW()
+       FROM generate_series(1, 501) g
+       ON CONFLICT DO NOTHING`,
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+       SELECT $1, 'usr_limit_' || g, 'member', 'active', NOW() FROM generate_series(1, 501) g
+       ON CONFLICT DO NOTHING`,
+      [FILTER_LIMITS_WS],
+    );
+    // Targets sorted after the first 500, a suspended member who must never be
+    // offered, and the viewer (who may search but not reschedule).
+    await dbClient.query(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified")
+       VALUES ('usr_limit_suspended', 'Suspended limit person', 'suspended_limit@example.com', NOW())
+       ON CONFLICT DO NOTHING`,
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+       VALUES ($1, 'usr_limit_suspended', 'member', 'suspended', NOW()), ($1, 'usr_viewer', 'viewer', 'active', NOW())
+       ON CONFLICT DO NOTHING`,
+      [FILTER_LIMITS_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "task" ("id", "workspace_id", "project_id", "title", "status", "priority", "assignee_id", "assigned_by", "assigned_at", "due_date", "created_at", "updated_at")
+       VALUES
+         ('task_beyond_project', $1, 'proj_limit_501', 'Beyond-cap project task', 'todo', 'medium', NULL, NULL, NULL, '2026-10-09 00:00:00', NOW(), NOW()),
+         ('task_beyond_member', $1, 'proj_limit_1', 'Beyond-cap member task', 'todo', 'medium', 'usr_limit_501', 'usr_owner', NOW(), '2026-10-10 00:00:00', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [FILTER_LIMITS_WS],
+    );
+  }
+
+  /** A copy of `jar` whose current-workspace cookie points at `workspaceId`. */
+  function jarInWorkspace(jar: ReturnType<typeof createCookieJar>, workspaceId: string) {
+    const copy = createCookieJar();
+    for (const pair of jar.header().split("; ").filter(Boolean)) {
+      const eq = pair.indexOf("=");
+      copy.set(pair.slice(0, eq), pair.slice(eq + 1));
+    }
+    copy.set("cc-current-workspace", workspaceId);
+    return copy;
+  }
+
+  before(async () => {
+    browser = await chromium.launch();
+    await dbClient.query(
+      `INSERT INTO "workspace" ("id", "name", "slug", "kind", "created_by", "created_at", "updated_at")
+       VALUES ($1, 'Calendar Workspace', 'calendar-workspace', 'team', 'usr_owner', NOW(), NOW())`,
+      [CAL_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+       VALUES ($1, 'usr_owner', 'owner', 'active', NOW()), ($1, 'usr_member', 'member', 'active', NOW())`,
+      [CAL_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "project" ("id", "workspace_id", "name", "status", "created_at", "updated_at")
+       VALUES ($1, $2, 'Calendar WS Project', 'active', NOW(), NOW())`,
+      [CAL_PROJ, CAL_WS],
+    );
+    // PostgreSQL stores date-only due dates as UTC midnight, exactly as the app writes them.
+    await dbClient.query(
+      `INSERT INTO "task" ("id", "workspace_id", "project_id", "title", "status", "priority", "assignee_id", "assigned_by", "assigned_at", "due_date", "created_at", "updated_at")
+       VALUES
+         ('task_cal_acme', $1, $2, 'Acme calendar item', 'todo', 'medium', 'usr_member', 'usr_owner', NOW(), '2026-10-09 00:00:00', NOW(), NOW()),
+         ('task_cal_private', $3, $4, 'Cal-WS private item', 'todo', 'medium', NULL, NULL, NULL, '2026-10-09 00:00:00', NOW(), NOW())`,
+      [WS_ID, PROJ_ID, CAL_WS, CAL_PROJ],
+    );
+    await seedFilterLimitsWorkspace();
+  });
+
+  after(async () => {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser?.close();
+  });
+
+  it("member drags an item, sees it pending, saves, and it persists in PostgreSQL", async () => {
+    const page = await calendarPage(memberJar);
+    await cell(page, "2026-10-09").getByText("Acme calendar item").waitFor();
+    assert.equal(await cell(page, "2026-10-09").getByText("Cal-WS private item").count(), 0);
+    await page.locator('li[data-item="task:task_cal_acme"]').dragTo(cell(page, "2026-10-10"));
+    await page.getByRole("status").filter({ hasText: "Pending: move “Acme calendar item”" }).waitFor();
+    const before = await dbClient.query(`SELECT due_date FROM "task" WHERE id = 'task_cal_acme'`);
+    assert.equal((before.rows[0].due_date as Date).toISOString().slice(0, 10), "2026-10-09", "not saved yet");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    // The pending overlay already shows the 10th, so wait for the confirmed save.
+    await page.getByText("Saved: “Acme calendar item” is now due Oct 10, 2026.").waitFor();
+    await cell(page, "2026-10-10").locator('li[data-item="task:task_cal_acme"]:not([data-pending])').waitFor();
+    const after = await dbClient.query(`SELECT to_char(due_date, 'YYYY-MM-DD HH24:MI:SS') AS d FROM "task" WHERE id = 'task_cal_acme'`);
+    assert.equal(after.rows[0].d, "2026-10-10 00:00:00", "stored as UTC midnight of the chosen day");
+  });
+
+  it("viewer sees the calendar but no drag or reschedule controls", async () => {
+    const page = await calendarPage(viewerJar);
+    const item = page.locator('li[data-item="task:task_cal_acme"]');
+    await item.waitFor();
+    assert.equal(await item.getAttribute("draggable"), "false");
+    assert.equal(await page.getByRole("button", { name: /^Reschedule / }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: /^Schedule / }).count(), 0);
+    await page.getByText("Tasks in this workspace without a due date.").waitFor();
+  });
+
+  it("switching workspace from the calendar swaps items without leaking the other workspace", async () => {
+    const page = await calendarPage(memberJar);
+    await page.getByText("Acme calendar item").waitFor();
+    await page.getByLabel("Workspace", { exact: true }).selectOption({ label: "Calendar Workspace" });
+    await cell(page, "2026-10-09").getByText("Cal-WS private item").waitFor();
+    assert.equal(await page.getByText("Acme calendar item").count(), 0);
+    assert.equal(await page.getByRole("list", { name: "Unscheduled tasks" }).getByText("Unassigned Task").count(), 0);
+    await page.getByLabel("Workspace", { exact: true }).selectOption({ label: "Acme Corporation" });
+    await page.getByText("Acme calendar item").waitFor();
+    assert.equal(await page.getByText("Cal-WS private item").count(), 0);
+  });
+
+  it("truncated filter lists show a notice and a search that reaches values beyond the first 500", async () => {
+    const ownerInBig = jarInWorkspace(ownerJar, FILTER_LIMITS_WS);
+    const page = await calendarPage(ownerInBig);
+
+    const notice = page.getByTestId("calendar-filter-truncated");
+    await notice.getByText("The project list shows the first 500 projects (A–Z).", { exact: false }).waitFor();
+    await notice.getByText("The assignee list shows the first 500 active members (A–Z).", { exact: false }).waitFor();
+    assert.equal(await notice.getByText(/every project/).count(), 0, "no absolute claim about the capped calendar");
+    assert.equal(await page.getByLabel("Project", { exact: true }).locator("option").count(), 501, "All projects + the first 500");
+    assert.equal(await page.getByLabel("Assignee", { exact: true }).locator("option").count(), 503, "Anyone, me, Unassigned + the first 500");
+    assert.equal(await page.getByLabel("Project", { exact: true }).locator("option", { hasText: "Limit project 0501" }).count(), 0);
+
+    // Search reaches the project sorted after the first 500; selecting it filters the calendar.
+    const projectSearch = page.getByTestId("filter-search-projects");
+    await projectSearch.getByLabel("Search projects").fill("Limit project 0501");
+    await projectSearch.getByRole("status").filter({ hasText: "1 match." }).waitFor();
+    await projectSearch.getByRole("button", { name: "Limit project 0501" }).click();
+    assert.equal(await page.getByLabel("Project", { exact: true }).locator("option:checked").textContent(), "Limit project 0501", "the pick stays visible");
+    await page.locator('li[data-day="2026-10-09"]').getByText("Beyond-cap project task").waitFor();
+    assert.equal(await page.getByText("Beyond-cap member task").count(), 0);
+
+    // Same for an active member sorted after the first 500.
+    await page.getByLabel("Project", { exact: true }).selectOption({ label: "All projects" });
+    const memberSearch = page.getByTestId("filter-search-members");
+    await memberSearch.getByLabel("Search members").fill("Limit member 0501");
+    await memberSearch.getByRole("button", { name: "Limit member 0501" }).click();
+    assert.equal(await page.getByLabel("Assignee", { exact: true }).locator("option:checked").textContent(), "Limit member 0501");
+    await page.locator('li[data-day="2026-10-10"]').getByText("Beyond-cap member task").waitFor();
+    assert.equal(await page.getByText("Beyond-cap project task").count(), 0);
+
+    // No-results state, suspended members excluded, and no email anywhere in the UI.
+    await memberSearch.getByLabel("Search members").fill("Suspended limit person");
+    await memberSearch.getByText("No members match “Suspended limit person”.").waitFor();
+    assert.ok(!(await page.content()).includes("@example.com"), "no member emails on the page");
+
+    // Rapid searches: a slow response for an earlier query is never applied over a newer one.
+    let releaseSlow: () => void = () => {};
+    const slow = new Promise<void>((r) => (releaseSlow = r));
+    await page.route(/\/api\/calendar\/filters\/search\?/, async (route) => {
+      if (new URL(route.request().url()).searchParams.get("q") === "Limit project 0007") await slow;
+      await route.continue().catch(() => {}); // the aborted request may already be gone
+    });
+    const box = projectSearch.getByLabel("Search projects");
+    await box.fill("Limit project 0007");
+    await box.press("Enter");
+    await box.fill("Limit project 0500");
+    await box.press("Enter");
+    await projectSearch.getByRole("button", { name: "Limit project 0500" }).waitFor();
+    releaseSlow();
+    await page.waitForTimeout(500);
+    assert.equal(await projectSearch.getByRole("button", { name: "Limit project 0007" }).count(), 0, "stale results never applied");
+    await projectSearch.getByRole("button", { name: "Limit project 0500" }).waitFor();
+
+    // A viewer can use the search selectors but still cannot reschedule.
+    const viewerInBig = jarInWorkspace(viewerJar, FILTER_LIMITS_WS);
+    const viewerPage = await calendarPage(viewerInBig);
+    const viewerSearch = viewerPage.getByTestId("filter-search-projects");
+    await viewerSearch.getByLabel("Search projects").fill("Limit project 0501");
+    await viewerSearch.getByRole("button", { name: "Limit project 0501" }).click();
+    await viewerPage.locator('li[data-day="2026-10-09"]').getByText("Beyond-cap project task").waitFor();
+    assert.equal(await viewerPage.getByRole("button", { name: /^Reschedule / }).count(), 0);
+
+    // A small workspace keeps plain selects: no notice, no search box.
+    const small = await calendarPage(memberJar);
+    await small.getByLabel("Project", { exact: true }).locator("option", { hasText: "Acme Main Project" }).waitFor({ state: "attached" });
+    assert.equal(await small.getByTestId("calendar-filter-truncated").count(), 0);
+    assert.equal(await small.getByTestId("filter-search-projects").count(), 0);
+    assert.equal(await small.getByTestId("filter-search-members").count(), 0);
+  });
+
+  it("switching workspace while a search is in flight never applies the old workspace's results", async () => {
+    const ownerInBig = jarInWorkspace(ownerJar, FILTER_LIMITS_WS);
+    const page = await calendarPage(ownerInBig);
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let heldRequests = 0;
+    await page.route(/\/api\/calendar\/filters\/search\?/, async (route) => {
+      heldRequests += 1;
+      await held;
+      await route.continue().catch(() => {});
+    });
+    const box = page.getByTestId("filter-search-projects").getByLabel("Search projects");
+    await box.fill("Limit project 0501");
+    await box.press("Enter");
+    await page.getByTestId("filter-search-projects").getByText("Searching projects…").waitFor();
+    assert.equal(heldRequests, 1);
+
+    await page.getByLabel("Workspace", { exact: true }).selectOption({ label: "Acme Corporation" });
+    await page.getByLabel("Project", { exact: true }).locator("option", { hasText: "Acme Main Project" }).waitFor({ state: "attached" });
+    release();
+    await page.waitForTimeout(750);
+    assert.equal(await page.getByText("Limit project 0501").count(), 0, "no stale result from the previous workspace");
+    assert.equal(await page.getByTestId("filter-search-projects").count(), 0);
+
+    // Switching back offers the search again (no later test relies on this).
+    await page.getByLabel("Workspace", { exact: true }).selectOption({ label: "Filter Limits Workspace" });
+    await page.getByTestId("filter-search-projects").waitFor();
+  });
+
+  it("ordinary debounced typing never shows or appends results for text the box no longer contains", async () => {
+    const ownerInBig = jarInWorkspace(ownerJar, FILTER_LIMITS_WS);
+    // Timers are paused, so a debounce fires only on clock.runFor; each search
+    // request is held until the test releases it.
+    const page = await calendarPage(ownerInBig, undefined, { pausedTimers: true });
+    const requests: string[] = [];
+    const gates = new Map<string, Promise<void>>();
+    const release = new Map<string, () => void>();
+    const settled = new Map<string, Promise<void>>();
+    const hold = (key: string) => gates.set(key, new Promise<void>((resolve) => release.set(key, resolve)));
+    await page.route(/\/api\/calendar\/filters\/search\?/, async (route) => {
+      const url = new URL(route.request().url());
+      const key = `${url.searchParams.get("q")}${url.searchParams.has("cursor") ? " +more" : ""}`;
+      requests.push(key);
+      let done: () => void = () => {};
+      settled.set(key, new Promise<void>((resolve) => (done = resolve)));
+      try {
+        await gates.get(key);
+        const response = await route.fetch();
+        await route.fulfill({ response });
+      } catch {
+        // The page aborted this request; there is nothing left to deliver.
+      } finally {
+        done();
+      }
+    });
+    const arrived = async (key: string) => {
+      for (let i = 0; i < 600 && !settled.has(key); i++) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(settled.has(key), `request for ${key} was sent`);
+    };
+    // Delivers a held (by now stale) response and gives it time to render, if it were going to.
+    const releaseAndSettle = async (key: string) => {
+      release.get(key)!();
+      await settled.get(key);
+      await new Promise((r) => setTimeout(r, 400));
+    };
+
+    const search = page.getByTestId("filter-search-projects");
+    const box = search.getByLabel("Search projects");
+    const status = search.getByRole("status");
+    const results = search.getByRole("list", { name: "Matching projects" }).getByRole("button");
+    const more = search.getByRole("button", { name: /^(More matches|Loading…)$/ });
+
+    // 1. Query A is held in flight.
+    const A = "Limit project 0007";
+    const B = "Limit project 0500";
+    hold(A);
+    hold(B);
+    await box.fill(A);
+    await page.clock.runFor(300);
+    await arrived(A);
+    await status.filter({ hasText: "Searching projects…" }).waitFor();
+
+    // 2–3. The box changes to B by ordinary typing (no Enter); A resolves inside B's debounce window.
+    await box.fill(B);
+    assert.deepEqual(requests, [A], "B's debounce has not fired: the clock is paused");
+    await releaseAndSettle(A);
+
+    // 4. A's results were never displayed or selectable while the box holds B.
+    assert.equal(await box.inputValue(), B);
+    assert.deepEqual(requests, [A], "still inside B's debounce window");
+    assert.equal(await search.getByRole("button", { name: A }).count(), 0, "A's result is not offered for B");
+    assert.equal(await results.count(), 0);
+    await status.filter({ hasText: "Searching projects…" }).waitFor();
+
+    // 5. B runs after the debounce, once, and only B's results appear.
+    await page.clock.runFor(300);
+    await arrived(B);
+    assert.deepEqual(requests, [A, B]);
+    release.get(B)!();
+    await status.filter({ hasText: "1 match." }).waitFor();
+    assert.deepEqual(await results.allTextContents(), [B]);
+    await box.press("Enter");
+    await page.clock.runFor(300);
+    assert.deepEqual(requests, [A, B], "Enter on the query already shown sends no duplicate request");
+
+    // 6–7. A held "More matches" (X) can neither append after the text changes
+    // nor end the loading state of a newer "More matches" (Y).
+    const C = "Limit project";
+    const D = "Limit project 0";
+    const X = `${C} +more`;
+    const Y = `${D} +more`;
+    hold(X);
+    hold(Y);
+    await box.fill(C);
+    await page.clock.runFor(300);
+    await status.filter({ hasText: "25 matches shown; more below." }).waitFor();
+    await more.click();
+    await arrived(X);
+    assert.equal(await more.textContent(), "Loading…");
+
+    await box.fill(D);
+    assert.equal(await results.count(), 0, "C's results are dropped as soon as the text changes");
+    await page.clock.runFor(300);
+    await status.filter({ hasText: "25 matches shown; more below." }).waitFor();
+    await more.click();
+    await arrived(Y);
+    assert.equal(await more.textContent(), "Loading…");
+    assert.ok(await more.isDisabled());
+
+    await releaseAndSettle(X);
+    assert.equal(await results.count(), 25, "the stale page was not appended");
+    assert.equal(await more.textContent(), "Loading…", "the stale request did not end Y's loading state");
+    assert.ok(await more.isDisabled());
+    await status.filter({ hasText: "25 matches shown; more below." }).waitFor();
+
+    release.get(Y)!();
+    await status.filter({ hasText: "50 matches shown; more below." }).waitFor();
+    assert.equal(await more.textContent(), "More matches");
+    const names = await results.allTextContents();
+    assert.equal(new Set(names).size, 50, "no duplicates");
+    assert.ok(names.every((n) => n.startsWith(D)));
+    assert.deepEqual(requests, [A, B, C, X, D, Y], "no duplicate requests");
+
+    // Clearing the box returns to the idle hint and sends nothing.
+    await box.fill("");
+    await page.clock.runFor(300);
+    await status.filter({ hasText: "Type part of a name to find projects not listed above." }).waitFor();
+    assert.equal(await results.count(), 0);
+    assert.equal(requests.length, 6);
+  });
+
+  it("a browser in Pacific/Auckland shows PostgreSQL date-only values on the same day", async () => {
+    const page = await calendarPage(ownerJar, "Pacific/Auckland");
+    await cell(page, "2026-10-10").getByText("Acme calendar item").waitFor();
+    assert.match((await page.getByTestId("calendar-time-zone").textContent()) ?? "", /Pacific\/Auckland/);
+    assert.match((await cell(page, "2026-10-15").getAttribute("aria-label")) ?? "", /today/);
   });
 });
