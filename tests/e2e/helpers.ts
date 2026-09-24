@@ -132,11 +132,12 @@ export async function stop(): Promise<void> {
   }
 }
 
-export async function newPage(): Promise<Page> {
+export async function newPage(options: { timezoneId?: string } = {}): Promise<Page> {
   if (!browser) throw new Error("start() must run first");
   const context = await browser.newContext({
     baseURL,
     viewport: { width: 1280, height: 900 },
+    ...(options.timezoneId ? { timezoneId: options.timezoneId } : {}),
     extraHTTPHeaders: {
       "x-dashboard-desktop-secret": e2eSecret,
     },

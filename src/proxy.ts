@@ -185,6 +185,10 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
  * PostgreSQL-backed and scoped to (workspace, recipient) — and deliberately a
  * different namespace from the SQLite automation `/notifications` above,
  * which stays blocked here.
+ *
+ * `/calendar` and `/api/calendar` (Release 2D.1) read only tasks and
+ * milestones, which are workspace-scoped in PostgreSQL like the rest of the
+ * Projects domain.
  */
 const ACCOUNTS_MODE_ALLOWED_PAGES = [
   "/",
@@ -194,6 +198,7 @@ const ACCOUNTS_MODE_ALLOWED_PAGES = [
   "/invite",
   "/my-work",
   "/inbox",
+  "/calendar",
 ];
 
 /** The API routes those pages need. Same reasoning as the page list above. */
@@ -205,6 +210,7 @@ const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
   "/api/tasks",
   "/api/my-work",
   "/api/inbox",
+  "/api/calendar",
 ];
 
 /** True for an exact match or anything nested under it (e.g. `/projects/new`). */

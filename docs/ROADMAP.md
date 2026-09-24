@@ -77,7 +77,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 - Safe workspace ownership and account deletion
 - Enforced CI checks
 
-#### Phase 2C Releases 2C.1–2C.5 (Merged to main)
+#### Phase 2C Releases 2C.1–2C.6 (Merged to main)
 
 - **Release 2C.1: Workspace member directory** (completed, merged to main)
   - Paginated workspace-member endpoint with role display (owner, admin, member, viewer)
@@ -105,6 +105,11 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
   - Activity event suppression for no-op field updates
   - Preservation of all authorization, cross-workspace, milestone, dependency, and blocked-task invariants
   - Note: Task labels are deferred to a dedicated future release as no task-level label model exists in SQLite or PostgreSQL schemas.
+- **Release 2C.6: Collaboration notifications** (completed, merged to main as PR #34 at `a053fe0`)
+  - In-app notifications for assignment, mention, comment, and synchronous due-date changes (accounts mode; desktop deliberately omitted)
+  - Per-category, per-workspace preferences enforced at creation, with mention-over-comment precedence and fallback
+  - Read, unread, archive, restore, and mark-all-read; workspace-specific unread counts; strict cursor pagination
+  - Idempotent generation via a `(recipient_id, source_event_id)` unique constraint, inside the triggering transaction
 
 ## 4. Release sequence at a glance
 
@@ -112,7 +117,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 |---:|---|---|---|
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
-| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.5 merged |
+| 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.6 merged — **completed** |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
@@ -258,7 +263,7 @@ A workspace becomes a place where multiple people can assign, discuss, review, a
 - A partial failure never reports the entire operation as successful.
 - Large selections use bounded batches (max 100 tasks) and do not hold unbounded transactions.
 
-### Release 2C.6 — Collaboration notifications
+### Release 2C.6 — Collaboration notifications (completed, merged to main as PR #34)
 
 #### Features
 
