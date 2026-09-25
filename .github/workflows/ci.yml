@@ -128,6 +128,23 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+      # A schema change without its migration and snapshot makes the next
+      # `db:generate` write a new migration (or re-create tables that already
+      # exist, when snapshots are missing). Run it on this disposable checkout
+      # and fail if it wrote anything. `generate` never opens the database;
+      # DATABASE_PATH points at the runner's temp dir regardless.
+      - name: SQLite migrations are up to date with the schema
+        env:
+          DATABASE_PATH: ${{ runner.temp }}/drizzle-generate-check.db
+        run: |
+          npm run db:generate
+          changes="$(git status --porcelain --untracked-files=all -- drizzle)"
+          if [ -n "$changes" ]; then
+            echo "::error title=Migration drift::src/db/schema.ts differs from drizzle/ (migrations + meta snapshots). Run 'npm run db:generate' locally and commit the result."
+            echo "$changes"
+            exit 1
+          fi
+
       # Only Chromium: the suite drives one browser, and installing the other
       # two would triple the download for no extra coverage. Cached by
       # Playwright version (via the lockfile hash) so a re-run with an
@@ -202,6 +219,18 @@ jobs:
 
       - name: Migrate the Postgres schema
         run: npm run db:migrate:pg
+
+      # Same drift check as the SQLite one in `check`. drizzle.config.pg.ts
+      # needs DATABASE_URL (the job env above); `generate` does not connect.
+      - name: Postgres migrations are up to date with the schema
+        run: |
+          npm run db:generate:pg
+          changes="$(git status --porcelain --untracked-files=all -- drizzle-pg)"
+          if [ -n "$changes" ]; then
+            echo "::error title=Migration drift::src/db/schema.pg.ts differs from drizzle-pg/ (migrations + meta snapshots). Run 'npm run db:generate:pg' locally and commit the result."
+            echo "$changes"
+            exit 1
+          fi
 
       - name: Postgres-backed tests
         run: npm run test:unit:pg

@@ -354,6 +354,19 @@ tables mirroring the SQLite ones above but with a `workspace_id` column.
 Desktop and single-password hosted mode never connect to Postgres at all.
 Full reasoning in ARCHITECTURE.md's `src/db/` section.
 
+**Every migration needs its `meta/NNNN_snapshot.json`, in both folders.**
+drizzle-kit plans the next migration by diffing the schema file against the
+*last* snapshot; a migration committed without one (hand-written SQL
+included) makes the next `db:generate` re-create what it already added. For a
+hand-written migration, run `npx drizzle-kit generate --custom` (add
+`--config drizzle.config.pg.ts` for Postgres) and put the SQL in the file it
+creates, so the snapshot and journal entry come with it. CI runs both
+`db:generate` commands and fails if either writes anything, and
+`tests/unit/migration-metadata.test.ts` / `tests/unit-pg/migration-metadata.test.ts`
+check the snapshot chain, the schema files and a freshly migrated database.
+Triggers and functions (Postgres 0002, 0010, 0011) are not in snapshots; their
+migration tests cover them.
+
 ---
 
 ## 7. Security model
