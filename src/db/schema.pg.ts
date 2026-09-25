@@ -109,9 +109,15 @@ export const workspaces = pgTable(
     // create-personal-workspace self-heal (see core/workspaces/service.ts)
     // safe under a race: a second concurrent attempt just hits this and
     // fails, rather than creating a duplicate.
+    //
+    // The predicate is exactly what migration 0001 created; no migration has
+    // changed it. Rows whose creator was deleted (created_by set to NULL by
+    // 0008) never conflict, because a unique index treats NULLs as distinct,
+    // so no `created_by is not null` term is needed. Changing this predicate
+    // requires a migration: the snapshot chain in drizzle-pg/meta records it.
     uniqueIndex("workspace_personal_owner_idx")
       .on(t.createdBy)
-      .where(sql`${t.kind} = 'personal' and ${t.createdBy} is not null`),
+      .where(sql`${t.kind} = 'personal'`),
   ],
 );
 
