@@ -118,6 +118,22 @@ describe("routes", () => {
     assert.ok(heading && heading.length > 0, "/projects/:id/knowledge rendered no heading");
   });
 
+  it("/projects/:id/timeline renders (Phase 2D, Release 2D.2)", async () => {
+    const created = await page.request.post(`${baseURL}/api/projects`, {
+      data: { name: "Route Smoke Project Timeline", source: "manual", type: "software", status: "active" },
+    });
+    assert.equal(created.status(), 201, await created.text());
+    const { project } = (await created.json()) as { project: { id: string } };
+
+    const response = await page.goto(`/projects/${project.id}/timeline`, { waitUntil: "domcontentloaded" });
+    assert.ok(response, "no response for /projects/:id/timeline");
+    assert.equal(response.status(), 200);
+
+    await page.waitForSelector("h1", { timeout: 15_000 });
+    assert.match((await page.textContent("h1")) ?? "", /Timeline/);
+    await page.getByTestId("timeline-undated").waitFor({ timeout: 15_000 });
+  });
+
   it("returns 404 for a route that does not exist", async () => {
     const response = await page.goto("/definitely-not-a-route", {
       waitUntil: "domcontentloaded",

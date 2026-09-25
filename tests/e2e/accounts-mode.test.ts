@@ -1286,3 +1286,150 @@ describe("Release 2D.1 calendar (accounts mode, real browser)", () => {
     assert.match((await cell(page, "2026-10-15").getAttribute("aria-label")) ?? "", /today/);
   });
 });
+
+describe("Release 2D.2 timeline (accounts mode, real browser)", () => {
+  const OTHER_WS = "ws_e2e_timeline_other";
+  const OTHER_PROJ = "proj_e2e_timeline_other";
+  const NOW = new Date("2026-10-14T12:00:00.000Z");
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+
+  async function timelinePage(
+    jar: ReturnType<typeof createCookieJar>,
+    projectId = PROJ_ID,
+  ): Promise<{ page: Page; context: BrowserContext; response: Awaited<ReturnType<Page["goto"]>> }> {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    contexts.push(context);
+    await context.addCookies(
+      jar
+        .header()
+        .split("; ")
+        .filter(Boolean)
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+        }),
+    );
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    await page.clock.setFixedTime(NOW);
+    const response = await page.goto(`${baseURL}/projects/${projectId}/timeline`);
+    return { page, context, response };
+  }
+
+  // Seeded here so this suite never depends on another test body running first.
+  before(async () => {
+    browser = await chromium.launch();
+    await dbClient.query(
+      `INSERT INTO "task" ("id", "workspace_id", "project_id", "title", "status", "priority", "assignee_id", "assigned_by", "assigned_at", "due_date", "created_at", "updated_at")
+       VALUES
+         ('task_tl_blocker', $1, $2, 'Timeline blocker', 'todo', 'medium', NULL, NULL, NULL, '2026-10-20 00:00:00', NOW(), NOW()),
+         ('task_tl_blocked', $1, $2, 'Timeline blocked task', 'todo', 'medium', 'usr_member', 'usr_owner', NOW(), '2026-10-08 00:00:00', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [WS_ID, PROJ_ID],
+    );
+    await dbClient.query(
+      `INSERT INTO "task_dependency" ("task_id", "depends_on_task_id", "workspace_id", "created_at")
+       VALUES ('task_tl_blocked', 'task_tl_blocker', $1, NOW()) ON CONFLICT DO NOTHING`,
+      [WS_ID],
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace" ("id", "name", "slug", "kind", "created_by", "created_at", "updated_at")
+       VALUES ($1, 'Timeline Other Workspace', 'timeline-other-workspace', 'team', 'usr_owner', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "workspace_member" ("workspace_id", "user_id", "role", "status", "created_at")
+       VALUES ($1, 'usr_owner', 'owner', 'active', NOW()) ON CONFLICT DO NOTHING`,
+      [OTHER_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "project" ("id", "workspace_id", "name", "status", "created_at", "updated_at")
+       VALUES ($1, $2, 'Timeline other project', 'active', NOW(), NOW()) ON CONFLICT DO NOTHING`,
+      [OTHER_PROJ, OTHER_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "task" ("id", "workspace_id", "project_id", "title", "status", "priority", "due_date", "created_at", "updated_at")
+       VALUES ('task_tl_other_secret', $1, $2, 'Other workspace secret', 'todo', 'medium', '2026-10-10 00:00:00', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_WS, OTHER_PROJ],
+    );
+  });
+
+  after(async () => {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser?.close();
+  });
+
+  it("a viewer reads the timeline — blocked state, conflict and assignee name — with no editing controls", async () => {
+    const { page } = await timelinePage(viewerJar);
+    const table = page.getByTestId("timeline-table");
+    const blockedRow = table.locator('tr[data-row="task_tl_blocked"]');
+    await blockedRow.waitFor();
+    const text = ((await blockedRow.textContent()) ?? "").replace(/\s+/g, " ");
+    assert.match(text, /Blocked/);
+    assert.match(text, /Due before its blocker/);
+    assert.match(text, /Bob Member/, "assignee shown by name");
+    assert.match(text, /Timeline blocker \(due Oct 20, 2026\)/);
+    const html = await page.content();
+    assert.ok(!html.includes("@example.com"), "no member email on the page");
+    assert.equal(await page.getByRole("button", { name: /Reschedule|Save|Edit|Delete/ }).count(), 0);
+    assert.equal(await page.locator("input:not([type=checkbox]), select, textarea, [draggable=true]").count(), 0);
+    assert.match((await page.textContent("body")) ?? "", /Read-only/);
+  });
+
+  it("a project from another workspace is not found, and its work never appears", async () => {
+    const { page, response } = await timelinePage(ownerJar, OTHER_PROJ);
+    assert.equal(response?.status(), 404);
+    assert.ok(!((await page.content()) ?? "").includes("Other workspace secret"));
+  });
+
+  it("a response computed for another workspace is never applied, and a switch re-resolves the project", async () => {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    contexts.push(context);
+    await context.addCookies(
+      ownerJar
+        .header()
+        .split("; ")
+        .filter(Boolean)
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+        }),
+    );
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    await page.clock.setFixedTime(NOW);
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let settled: Promise<void> = Promise.resolve();
+    await page.route(/\/api\/projects\/[^/]+\/timeline\?/, (route) => {
+      settled = (async () => {
+        await held;
+        const response = await route.fetch();
+        const json = await response.json();
+        json.workspaceId = OTHER_WS; // as if computed after a switch
+        await route.fulfill({ response, json }).catch(() => {});
+      })();
+      return settled;
+    });
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/timeline`);
+    await page.getByText("Loading timeline…").waitFor();
+    release();
+    await settled;
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.equal(await page.getByTestId("timeline-table").count(), 0, "the other workspace's answer was dropped");
+    assert.equal(await page.getByText("Timeline blocked task").count(), 0);
+    await page.unroute(/\/api\/projects\/[^/]+\/timeline\?/);
+
+    // Switching the active workspace re-resolves the page: this project is not in it.
+    await context.addCookies([{ name: "cc-current-workspace", value: OTHER_WS, url: baseURL }]);
+    const switched = await page.goto(`${baseURL}/projects/${PROJ_ID}/timeline`);
+    assert.equal(switched?.status(), 404);
+    await context.addCookies([{ name: "cc-current-workspace", value: WS_ID, url: baseURL }]);
+    const back = await page.goto(`${baseURL}/projects/${PROJ_ID}/timeline`);
+    assert.equal(back?.status(), 200);
+    await page.getByTestId("timeline-table").locator('tr[data-row="task_tl_blocked"]').waitFor();
+  });
+});

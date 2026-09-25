@@ -25,9 +25,10 @@ export class CalendarQueryError extends Error {
   }
 }
 
-const ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+export const ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 
-function toObject(params: URLSearchParams, allowed: readonly string[]): Record<string, string> {
+/** One value per allowed key; unknown or repeated parameters are rejected. */
+export function toObject(params: URLSearchParams, allowed: readonly string[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of params) {
     if (!allowed.includes(key)) throw new CalendarQueryError(`Unknown query parameter '${key}'.`);

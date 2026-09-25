@@ -79,7 +79,15 @@ export default async function ProjectTasksPage({ params }: { params: Promise<{ i
           <span>/</span>
           <span className="text-muted">Tasks</span>
         </nav>
-        <h1 className="text-xl font-semibold tracking-tight text-fg">{project.name}</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-fg">{project.name}</h1>
+          <Link
+            href={`/projects/${project.id}/timeline`}
+            className="text-[12px] text-muted transition-colors hover:text-fg"
+          >
+            Timeline
+          </Link>
+        </div>
       </div>
 
       <ProjectTasksBoard

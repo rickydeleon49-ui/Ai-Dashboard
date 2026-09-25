@@ -39,7 +39,7 @@ import type { CalendarRepository } from "./calendar-repository";
  * string cannot express but PostgreSQL's date type can. Cross-type
  * timestamp/date comparison stays index-usable.
  */
-function inDayRange(column: typeof tasks.dueDate | typeof milestones.dueDate, from: DateOnly, to: DateOnly): SQL[] {
+export function inDayRange(column: typeof tasks.dueDate | typeof milestones.dueDate, from: DateOnly, to: DateOnly): SQL[] {
   return [sql`${column} >= ${from}::date`, sql`${column} < (${to}::date + 1)`];
 }
 
