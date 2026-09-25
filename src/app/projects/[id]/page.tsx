@@ -453,12 +453,20 @@ function MilestonesTasksCard({
     <Card>
       <CardHeader>
         <CardTitle>Milestones &amp; tasks</CardTitle>
-        <Link
-          href={`/projects/${projectId}/tasks`}
-          className="text-[12px] text-muted transition-colors hover:text-fg"
-        >
-          Open
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/projects/${projectId}/timeline`}
+            className="text-[12px] text-muted transition-colors hover:text-fg"
+          >
+            Timeline
+          </Link>
+          <Link
+            href={`/projects/${projectId}/tasks`}
+            className="text-[12px] text-muted transition-colors hover:text-fg"
+          >
+            Open
+          </Link>
+        </div>
       </CardHeader>
       <CardBody className="space-y-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -189,6 +189,16 @@ async function run() {
     (await calendarSearchRoute.GET(new NextRequest("http://localhost/api/calendar/filters/search?type=projects&q=a"))).status,
     401,
   );
+  // Release 2D.2 timeline: PostgreSQL-only in accounts mode.
+  const timelineRoute = await import("@/app/api/projects/[id]/timeline/route");
+  assert.equal(
+    (
+      await timelineRoute.GET(new NextRequest("http://localhost/api/projects/p1/timeline?zoom=month&anchor=2026-10-01"), {
+        params: Promise.resolve({ id: "p1" }),
+      })
+    ).status,
+    401,
+  );
 
   const authRoute = await import("@/app/api/auth/[...nextauth]/route");
   assert.ok(authRoute.GET);
@@ -221,6 +231,7 @@ async function run() {
     { name: "myWork", importFn: () => import("@/app/my-work/page") },
     { name: "inbox", importFn: () => import("@/app/inbox/page") },
     { name: "calendar", importFn: () => import("@/app/calendar/page") },
+    { name: "projectTimeline", importFn: () => import("@/app/projects/[id]/timeline/page") },
     { name: "rootLayout", importFn: () => import("@/app/layout") },
   ];
 

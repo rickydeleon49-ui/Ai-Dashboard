@@ -68,7 +68,7 @@ function lexicalUpperBound(to: DateOnly): string {
   return isDateOnly(bound) ? bound : "9999-99";
 }
 
-function dayRange(column: typeof tasks.dueDate | typeof milestones.dueDate, from: DateOnly, to: DateOnly): SQL[] {
+export function dayRange(column: typeof tasks.dueDate | typeof milestones.dueDate, from: DateOnly, to: DateOnly): SQL[] {
   return [
     // "1899-12-31" is a safe lexical lower bound too; it just isn't a supported day.
     gte(column, addDays(from, -1)),

@@ -110,6 +110,10 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
   - Per-category, per-workspace preferences enforced at creation, with mention-over-comment precedence and fallback
   - Read, unread, archive, restore, and mark-all-read; workspace-specific unread counts; strict cursor pagination
   - Idempotent generation via a `(recipient_id, source_event_id)` unique constraint, inside the triggering transaction
+- **Release 2D.1: Calendar** (completed, merged to main as PR #35 at `85f692b`)
+  - Month and week views of task and milestone due dates, with project, assignee, status and kind filters
+  - Drag-to-reschedule and a keyboard date editor with explicit Save / Cancel and error recovery
+  - Unscheduled-work panel; bounded, searchable filter options for large workspaces
 
 ## 4. Release sequence at a glance
 
@@ -118,7 +122,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
 | 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.6 merged — **completed** |
-| 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model |
+| 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model — Release 2D.1 **merged (PR #35)** |
 | 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
 | 6 | Phase 2G — Integrations, Monitoring, and Reviewed AI | External data and AI become operational tools | Durable jobs and secret isolation |
@@ -291,7 +295,7 @@ Email and scheduled notification delivery should wait for the durable job system
 
 Users can understand when work is happening, see scheduling conflicts, and create repeatable project structures.
 
-### Release 2D.1 — Calendar
+### Release 2D.1 — Calendar (completed, merged to main as PR #35)
 
 #### Features
 
