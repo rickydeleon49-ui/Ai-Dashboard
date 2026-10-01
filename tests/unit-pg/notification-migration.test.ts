@@ -75,8 +75,9 @@ describe("PostgreSQL migration 0015: collaboration notifications", () => {
     const e15 = journal.entries.find((e) => e.idx === 15);
     assert.equal(e14?.tag, "0014_comments_and_activity");
     assert.equal(e15?.tag, "0015_collaboration_notifications");
-    assert.equal(journal.entries.length, 16);
-    assert.equal(journal.entries.at(-1)?.tag, "0015_collaboration_notifications");
+    // Later releases may only append migrations after 0015 (e.g. 0016_reusable_templates).
+    assert.ok(journal.entries.length >= 16);
+    assert.deepEqual(journal.entries.slice(0, 16).map((e) => e.idx), Array.from({ length: 16 }, (_, i) => i));
     const sql = fs.readFileSync(path.join(realDir, "0015_collaboration_notifications.sql"), "utf8");
     assert.doesNotMatch(sql, /\b(DROP|TRUNCATE|DELETE\s+FROM|ALTER\s+TABLE\s+"(?!notification)[a-z_]+"\s+(DROP|ALTER))/i);
   });

@@ -71,6 +71,13 @@
       "when": 1789800000000,
       "tag": "0009_comments_and_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790483478979,
+      "tag": "0010_reusable_templates",
+      "breakpoints": true
     }
   ]
 }

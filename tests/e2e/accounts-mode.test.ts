@@ -1433,3 +1433,126 @@ describe("Release 2D.2 timeline (accounts mode, real browser)", () => {
     await page.getByTestId("timeline-table").locator('tr[data-row="task_tl_blocked"]').waitFor();
   });
 });
+
+describe("Release 2D.3 templates (accounts mode, real browser)", () => {
+  const OTHER_WS = "ws_e2e_templates_other";
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+  let templateId = "";
+  let foreignTemplateId = "";
+
+  async function pageFor(jar: ReturnType<typeof createCookieJar>, workspaceId = WS_ID): Promise<Page> {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    contexts.push(context);
+    await context.addCookies([
+      ...jar
+        .header()
+        .split("; ")
+        .filter(Boolean)
+        .filter((pair) => !pair.startsWith("cc-current-workspace="))
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+        }),
+      { name: "cc-current-workspace", value: workspaceId, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    return page;
+  }
+
+  // Seeded here so this suite never depends on another test body running first.
+  before(async () => {
+    browser = await chromium.launch();
+    const owner = await pageFor(ownerJar);
+    const created = await owner.request.post(`${baseURL}/api/templates`, {
+      data: {
+        name: "Accounts launch template",
+        project: { name: "Accounts launch" },
+        milestones: [{ key: "m1", title: "Kickoff", targetOffset: 3 }],
+        tasks: [
+          { key: "t1", title: "Plan", dueOffset: 2, milestoneKey: "m1" },
+          { key: "t2", title: "Ship", dueOffset: 9 },
+        ],
+        dependencies: [{ taskKey: "t2", dependsOnKey: "t1" }],
+        checklist: [{ taskKey: "t1", text: "Agree scope" }],
+      },
+    });
+    assert.equal(created.status(), 201, await created.text());
+    templateId = ((await created.json()) as { template: { id: string } }).template.id;
+
+    await dbClient.query(
+      `INSERT INTO "workspace" ("id", "name", "slug", "kind", "created_by", "created_at", "updated_at")
+       VALUES ($1, 'Templates Other Workspace', 'templates-other-workspace', 'team', 'usr_owner', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "project_template" ("id", "workspace_id", "name", "project_name", "created_at", "updated_at")
+       VALUES ('tpl_e2e_other_secret', $1, 'Other workspace secret template', 'Secret', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_WS],
+    );
+    foreignTemplateId = "tpl_e2e_other_secret";
+  });
+
+  after(async () => {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser?.close();
+  });
+
+  it("an owner previews and creates a project in the current workspace", async () => {
+    const page = await pageFor(ownerJar);
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(`${baseURL}/templates/${templateId}`);
+    await page.getByTestId("template-editor").waitFor();
+    await page.getByLabel("Project start date").fill("2028-02-27");
+    await page.getByRole("button", { name: "Preview project" }).click();
+    const preview = page.getByTestId("template-preview");
+    await preview.waitFor();
+    assert.match((await preview.textContent()) ?? "", /Plan — due 2028-02-29/);
+    assert.ok(!((await page.content()) ?? "").includes("@example.com"), "no member email on the page");
+    await page.getByRole("button", { name: "Create project “Accounts launch”" }).click();
+    await page.waitForURL(/\/projects\/[^/]+$/);
+    const projectId = new URL(page.url()).pathname.split("/").pop()!;
+    const row = await dbClient.query(`SELECT workspace_id FROM "project" WHERE id = $1`, [projectId]);
+    assert.equal(row.rows[0].workspace_id, WS_ID);
+    const tasks = await dbClient.query(`SELECT count(*)::int AS n FROM "task" WHERE project_id = $1 AND assignee_id IS NULL`, [projectId]);
+    assert.equal(tasks.rows[0].n, 2, "tasks created, unassigned");
+    assert.deepEqual(errors, []);
+  });
+
+  it("a viewer sees a read-only template and preview, with no editing or apply controls, and the API refuses", async () => {
+    const page = await pageFor(viewerJar);
+    await page.goto(`${baseURL}/templates/${templateId}`);
+    await page.getByTestId("template-editor").waitFor();
+    assert.match((await page.getByTestId("template-mode").textContent()) ?? "", /read-only/);
+    for (const name of ["Save template", "Delete template", "Add task", "Add milestone"]) {
+      const button = page.getByRole("button", { name });
+      assert.ok((await button.count()) === 0 || (await button.isDisabled()), `${name} is not available`);
+    }
+    assert.ok(await page.getByLabel("Task 1 title").isDisabled());
+    await page.getByLabel("Project start date").fill("2028-02-27");
+    await page.getByRole("button", { name: "Preview project" }).click();
+    await page.getByTestId("template-preview").waitFor();
+    assert.equal(await page.getByRole("button", { name: /Create project/ }).count(), 0);
+    const denied = await page.request.post(`${baseURL}/api/templates/${templateId}/apply`, {
+      data: { idempotencyKey: "viewer-attempt-0000001", startDate: "2028-02-27" },
+    });
+    assert.equal(denied.status(), 403);
+    const listPage = await pageFor(viewerJar);
+    await listPage.goto(`${baseURL}/templates`);
+    await listPage.getByTestId("template-list").waitFor();
+    assert.equal(await listPage.getByRole("button", { name: "Create template" }).count(), 0);
+  });
+
+  it("a template from another workspace is unavailable, and its name never appears", async () => {
+    const page = await pageFor(ownerJar);
+    await page.goto(`${baseURL}/templates/${foreignTemplateId}`);
+    await page.getByRole("alert").filter({ hasText: "isn’t available in your current workspace" }).waitFor();
+    await page.goto(`${baseURL}/templates`);
+    await page.getByTestId("template-list").waitFor();
+    assert.ok(!((await page.content()) ?? "").includes("Other workspace secret template"));
+  });
+});

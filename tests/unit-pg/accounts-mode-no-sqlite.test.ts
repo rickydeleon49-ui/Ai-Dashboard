@@ -189,6 +189,33 @@ async function run() {
     (await calendarSearchRoute.GET(new NextRequest("http://localhost/api/calendar/filters/search?type=projects&q=a"))).status,
     401,
   );
+  // Release 2D.3 templates: PostgreSQL-only in accounts mode.
+  const templatesRoute = await import("@/app/api/templates/route");
+  assert.equal((await templatesRoute.GET(new NextRequest("http://localhost/api/templates"))).status, 401);
+  const templateRoute = await import("@/app/api/templates/[id]/route");
+  assert.equal(
+    (await templateRoute.GET(new NextRequest("http://localhost/api/templates/t1"), { params: Promise.resolve({ id: "t1" }) })).status,
+    401,
+  );
+  const templatePreviewRoute = await import("@/app/api/templates/[id]/preview/route");
+  assert.equal(
+    (
+      await templatePreviewRoute.GET(new NextRequest("http://localhost/api/templates/t1/preview?startDate=2026-10-01"), {
+        params: Promise.resolve({ id: "t1" }),
+      })
+    ).status,
+    401,
+  );
+  const templateApplyRoute = await import("@/app/api/templates/[id]/apply/route");
+  assert.equal(
+    (
+      await templateApplyRoute.POST(new NextRequest("http://localhost/api/templates/t1/apply", { method: "POST", body: "{}" }), {
+        params: Promise.resolve({ id: "t1" }),
+      })
+    ).status,
+    401,
+  );
+
   // Release 2D.2 timeline: PostgreSQL-only in accounts mode.
   const timelineRoute = await import("@/app/api/projects/[id]/timeline/route");
   assert.equal(
@@ -232,6 +259,8 @@ async function run() {
     { name: "inbox", importFn: () => import("@/app/inbox/page") },
     { name: "calendar", importFn: () => import("@/app/calendar/page") },
     { name: "projectTimeline", importFn: () => import("@/app/projects/[id]/timeline/page") },
+    { name: "templates", importFn: () => import("@/app/templates/page") },
+    { name: "template", importFn: () => import("@/app/templates/[id]/page") },
     { name: "rootLayout", importFn: () => import("@/app/layout") },
   ];
 

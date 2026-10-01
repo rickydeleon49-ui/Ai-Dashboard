@@ -6,7 +6,7 @@ import { APP_ICON, APP_NAME, NAVIGATION } from "@/config/navigation";
 import type { ProjectStats } from "@/core/projects/types";
 import { cn } from "@/lib/utils";
 
-const ACCOUNTS_ALLOWED_PREFIXES = ["/", "/projects", "/my-work", "/calendar", "/favorites", "/settings"];
+const ACCOUNTS_ALLOWED_PREFIXES = ["/", "/projects", "/my-work", "/calendar", "/templates", "/favorites", "/settings"];
 
 function isItemAllowedInAccounts(href: string): boolean {
   return ACCOUNTS_ALLOWED_PREFIXES.some(
