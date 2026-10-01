@@ -19,6 +19,8 @@ import { PostgresCalendarRepository } from "./postgres-calendar-repository";
 import type { CalendarRepository } from "./calendar-repository";
 import { PostgresTimelineRepository } from "./postgres-timeline-repository";
 import type { TimelineRepository } from "./timeline-repository";
+import { PostgresTemplateRepository } from "./postgres-template-repository";
+import type { TemplateRepository } from "./template-repository";
 
 const require = createRequire(import.meta.url);
 
@@ -71,6 +73,10 @@ export const timelineRepository: TimelineRepository = process.env.DATABASE_URL
   ? new PostgresTimelineRepository()
   : new (require("./drizzle-timeline-repository").DrizzleTimelineRepository)();
 
+export const templateRepository: TemplateRepository = process.env.DATABASE_URL
+  ? new PostgresTemplateRepository()
+  : new (require("./drizzle-template-repository").DrizzleTemplateRepository)();
+
 /**
  * Collaboration notifications (Release 2C.6) exist only in PostgreSQL /
  * accounts mode — desktop deliberately has none, so there is no SQLite
@@ -89,4 +95,5 @@ export type { ActivityRepository } from "./activity-repository";
 export type { NotificationRepository } from "./notification-repository";
 export type { CalendarRepository } from "./calendar-repository";
 export type { TimelineRepository } from "./timeline-repository";
+export type { TemplateRepository } from "./template-repository";
 export { LOCAL_WORKSPACE_ID } from "./project-repository";

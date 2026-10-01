@@ -39,6 +39,7 @@ const ROUTES = [
   ["/settings", "Settings"],
   ["/my-work", "My Work"],
   ["/calendar", "Calendar"],
+  ["/templates", "Templates"],
 ] as const;
 
 describe("routes", () => {

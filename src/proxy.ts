@@ -189,6 +189,9 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
  * `/calendar` and `/api/calendar` (Release 2D.1) read only tasks and
  * milestones, which are workspace-scoped in PostgreSQL like the rest of the
  * Projects domain.
+ *
+ * `/templates` and `/api/templates` (Release 2D.3) use PostgreSQL template
+ * tables scoped by workspace_id, and create projects only in that workspace.
  */
 const ACCOUNTS_MODE_ALLOWED_PAGES = [
   "/",
@@ -199,6 +202,7 @@ const ACCOUNTS_MODE_ALLOWED_PAGES = [
   "/my-work",
   "/inbox",
   "/calendar",
+  "/templates",
 ];
 
 /** The API routes those pages need. Same reasoning as the page list above. */
@@ -211,6 +215,7 @@ const ACCOUNTS_MODE_ALLOWED_API_PATHS = [
   "/api/my-work",
   "/api/inbox",
   "/api/calendar",
+  "/api/templates",
 ];
 
 /** True for an exact match or anything nested under it (e.g. `/projects/new`). */

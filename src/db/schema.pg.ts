@@ -12,6 +12,7 @@ import {
   type AnyPgColumn,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -19,6 +20,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -237,6 +239,8 @@ export const projects = pgTable(
   },
   (t) => [
     index("project_workspace_idx").on(t.workspaceId),
+    // Lets rows in other tables (template applications) reference a project together with its workspace.
+    unique("project_id_workspace_uq").on(t.id, t.workspaceId),
     // Used by findByExternalId, scoped the same way every other lookup is.
     index("project_workspace_external_idx").on(t.workspaceId, t.source, t.externalId),
   ],
@@ -686,3 +690,248 @@ export const notificationPreferences = pgTable(
 
 export type NotificationRow = typeof notifications.$inferSelect;
 export type NotificationPreferenceRow = typeof notificationPreferences.$inferSelect;
+
+/**
+ * Release 2D.3 reusable templates (docs/design/2D.3-reusable-templates.md §2).
+ * Every table is workspace-scoped and template-owned (CASCADE). Items refer to
+ * each other by template-local `key`s through composite foreign keys, so a key
+ * can only ever name an item of the same template — never a live record.
+ *
+ * Workspace consistency is enforced by the database too: every child row
+ * references its template through (template_id, workspace_id), and every
+ * nested reference (task to milestone, task to parent, dependency and
+ * checklist to task) carries both columns, so no row can claim a workspace
+ * other than its template's.
+ */
+export const projectTemplates = pgTable(
+  "project_template",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    projectName: text("project_name").notNull(),
+    projectDescription: text("project_description"),
+    projectType: text("project_type").notNull().default("software"),
+    projectStatus: text("project_status").notNull().default("idea"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The target of every child's (template_id, workspace_id) foreign key.
+    unique("project_template_id_workspace_uq").on(t.id, t.workspaceId),
+    index("project_template_workspace_name_idx").on(t.workspaceId, t.name),
+    check("project_template_status_check", sql`${t.projectStatus} in ('idea', 'planning', 'active')`),
+  ],
+);
+
+export const projectTemplateMilestones = pgTable(
+  "project_template_milestone",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    targetOffset: integer("target_offset"),
+  },
+  (t) => [
+    foreignKey({
+      name: "project_template_milestone_template_fk",
+      columns: [t.templateId, t.workspaceId],
+      foreignColumns: [projectTemplates.id, projectTemplates.workspaceId],
+    }).onDelete("cascade"),
+    // A table constraint (not an index) so it exists before the composite foreign keys that reference it.
+    // workspace_id follows from template_id, so this is still one key per template.
+    unique("project_template_milestone_key_uq").on(t.templateId, t.workspaceId, t.key),
+    index("project_template_milestone_workspace_idx").on(t.workspaceId, t.templateId),
+    check(
+      "project_template_milestone_offset_check",
+      sql`${t.targetOffset} is null or (${t.targetOffset} >= 0 and ${t.targetOffset} <= 3650)`,
+    ),
+  ],
+);
+
+export const projectTemplateTasks = pgTable(
+  "project_template_task",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    priority: text("priority").notNull().default("medium"),
+    dueOffset: integer("due_offset"),
+    milestoneKey: text("milestone_key"),
+    parentKey: text("parent_key"),
+  },
+  (t) => [
+    foreignKey({
+      name: "project_template_task_template_fk",
+      columns: [t.templateId, t.workspaceId],
+      foreignColumns: [projectTemplates.id, projectTemplates.workspaceId],
+    }).onDelete("cascade"),
+    unique("project_template_task_key_uq").on(t.templateId, t.workspaceId, t.key),
+    index("project_template_task_workspace_idx").on(t.workspaceId, t.templateId),
+    foreignKey({
+      name: "project_template_task_milestone_fk",
+      columns: [t.templateId, t.workspaceId, t.milestoneKey],
+      foreignColumns: [projectTemplateMilestones.templateId, projectTemplateMilestones.workspaceId, projectTemplateMilestones.key],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "project_template_task_parent_fk",
+      columns: [t.templateId, t.workspaceId, t.parentKey],
+      foreignColumns: [t.templateId, t.workspaceId, t.key],
+    }).onDelete("cascade"),
+    check("project_template_task_priority_check", sql`${t.priority} in ('low', 'medium', 'high', 'urgent')`),
+    check("project_template_task_offset_check", sql`${t.dueOffset} is null or (${t.dueOffset} >= 0 and ${t.dueOffset} <= 3650)`),
+    check("project_template_task_not_own_parent_check", sql`${t.parentKey} is null or ${t.parentKey} <> ${t.key}`),
+  ],
+);
+
+export const projectTemplateDependencies = pgTable(
+  "project_template_dependency",
+  {
+    templateId: text("template_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    dependsOnKey: text("depends_on_key").notNull(),
+  },
+  (t) => [
+    // Explicit short names: generated ones exceed PostgreSQL's 63-character limit.
+    primaryKey({ name: "project_template_dependency_pk", columns: [t.templateId, t.taskKey, t.dependsOnKey] }),
+    foreignKey({
+      name: "project_template_dependency_template_fk",
+      columns: [t.templateId, t.workspaceId],
+      foreignColumns: [projectTemplates.id, projectTemplates.workspaceId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "project_template_dependency_task_fk",
+      columns: [t.templateId, t.workspaceId, t.taskKey],
+      foreignColumns: [projectTemplateTasks.templateId, projectTemplateTasks.workspaceId, projectTemplateTasks.key],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "project_template_dependency_depends_on_fk",
+      columns: [t.templateId, t.workspaceId, t.dependsOnKey],
+      foreignColumns: [projectTemplateTasks.templateId, projectTemplateTasks.workspaceId, projectTemplateTasks.key],
+    }).onDelete("cascade"),
+    check("project_template_dependency_no_self_check", sql`${t.taskKey} <> ${t.dependsOnKey}`),
+  ],
+);
+
+export const projectTemplateChecklistItems = pgTable(
+  "project_template_checklist_item",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+  },
+  (t) => [
+    uniqueIndex("project_template_checklist_item_pos_uq").on(t.templateId, t.taskKey, t.position),
+    // Explicit short name: the generated one exceeds PostgreSQL's 63-character limit.
+    foreignKey({
+      name: "project_template_checklist_item_template_fk",
+      columns: [t.templateId, t.workspaceId],
+      foreignColumns: [projectTemplates.id, projectTemplates.workspaceId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "project_template_checklist_item_task_fk",
+      columns: [t.templateId, t.workspaceId, t.taskKey],
+      foreignColumns: [projectTemplateTasks.templateId, projectTemplateTasks.workspaceId, projectTemplateTasks.key],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const projectTemplateDocuments = pgTable(
+  "project_template_document",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+    category: text("category"),
+    pinned: boolean("pinned").notNull().default(false),
+  },
+  (t) => [
+    foreignKey({
+      name: "project_template_document_template_fk",
+      columns: [t.templateId, t.workspaceId],
+      foreignColumns: [projectTemplates.id, projectTemplates.workspaceId],
+    }).onDelete("cascade"),
+    uniqueIndex("project_template_document_pos_uq").on(t.templateId, t.position),
+  ],
+);
+
+/**
+ * One row per template application — the idempotency claim. Inserted first
+ * inside the application transaction; unique per (workspace, actor, key).
+ *
+ * The template and project links outlive their targets (ON DELETE SET NULL),
+ * and a composite SET NULL clears every referencing column — which cannot
+ * include the NOT NULL `workspace_id`. Each link therefore carries its own
+ * nullable workspace column, cleared together with the id and required by a
+ * check to equal `workspace_id` whenever the link is set. The check spells out
+ * `is not null`: a comparison with NULL is unknown, which a CHECK accepts.
+ */
+export const projectTemplateApplications = pgTable(
+  "project_template_application",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    actorKey: text("actor_key").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    templateId: text("template_id"),
+    templateWorkspaceId: text("template_workspace_id"),
+    projectId: text("project_id"),
+    projectWorkspaceId: text("project_workspace_id"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_template_application_key_uq").on(t.workspaceId, t.actorKey, t.idempotencyKey),
+    foreignKey({
+      name: "project_template_application_template_fk",
+      columns: [t.templateId, t.templateWorkspaceId],
+      foreignColumns: [projectTemplates.id, projectTemplates.workspaceId],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "project_template_application_project_fk",
+      columns: [t.projectId, t.projectWorkspaceId],
+      foreignColumns: [projects.id, projects.workspaceId],
+    }).onDelete("set null"),
+    check(
+      "project_template_application_template_ws_check",
+      sql`(${t.templateId} is null and ${t.templateWorkspaceId} is null) or (${t.templateId} is not null and ${t.templateWorkspaceId} is not null and ${t.templateWorkspaceId} = ${t.workspaceId})`,
+    ),
+    check(
+      "project_template_application_project_ws_check",
+      sql`(${t.projectId} is null and ${t.projectWorkspaceId} is null) or (${t.projectId} is not null and ${t.projectWorkspaceId} is not null and ${t.projectWorkspaceId} = ${t.workspaceId})`,
+    ),
+  ],
+);
+
+export type ProjectTemplateRow = typeof projectTemplates.$inferSelect;

@@ -16,6 +16,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -548,3 +549,145 @@ export type AiMessageRow = typeof aiMessages.$inferSelect;
 export type TaskCommentRow = typeof taskComments.$inferSelect;
 export type TaskCommentEditRow = typeof taskCommentEdits.$inferSelect;
 export type TaskActivityEventRow = typeof taskActivityEvents.$inferSelect;
+
+/**
+ * Release 2D.3 reusable templates (docs/design/2D.3-reusable-templates.md §2).
+ * Desktop templates are personal to the installation: no workspace or user
+ * columns. Template-owned (CASCADE); items refer to each other by
+ * template-local `key`s through composite foreign keys.
+ */
+export const projectTemplates = sqliteTable(
+  "project_templates",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    projectName: text("project_name").notNull(),
+    projectDescription: text("project_description"),
+    projectType: text("project_type").notNull().default("software"),
+    projectStatus: text("project_status").notNull().default("idea"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+  (t) => [index("project_templates_name_idx").on(t.name)],
+);
+
+export const projectTemplateMilestones = sqliteTable(
+  "project_template_milestones",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    targetOffset: integer("target_offset"),
+  },
+  (t) => [uniqueIndex("project_template_milestones_key_uq").on(t.templateId, t.key)],
+);
+
+export const projectTemplateTasks = sqliteTable(
+  "project_template_tasks",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    priority: text("priority").notNull().default("medium"),
+    dueOffset: integer("due_offset"),
+    milestoneKey: text("milestone_key"),
+    parentKey: text("parent_key"),
+  },
+  (t) => [
+    uniqueIndex("project_template_tasks_key_uq").on(t.templateId, t.key),
+    foreignKey({
+      columns: [t.templateId, t.milestoneKey],
+      foreignColumns: [projectTemplateMilestones.templateId, projectTemplateMilestones.key],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.templateId, t.parentKey],
+      foreignColumns: [t.templateId, t.key],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const projectTemplateDependencies = sqliteTable(
+  "project_template_dependencies",
+  {
+    templateId: text("template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    dependsOnKey: text("depends_on_key").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.templateId, t.taskKey, t.dependsOnKey] }),
+    foreignKey({
+      columns: [t.templateId, t.taskKey],
+      foreignColumns: [projectTemplateTasks.templateId, projectTemplateTasks.key],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.templateId, t.dependsOnKey],
+      foreignColumns: [projectTemplateTasks.templateId, projectTemplateTasks.key],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const projectTemplateChecklistItems = sqliteTable(
+  "project_template_checklist_items",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    taskKey: text("task_key").notNull(),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+  },
+  (t) => [
+    uniqueIndex("project_template_checklist_items_pos_uq").on(t.templateId, t.taskKey, t.position),
+    foreignKey({
+      columns: [t.templateId, t.taskKey],
+      foreignColumns: [projectTemplateTasks.templateId, projectTemplateTasks.key],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const projectTemplateDocuments = sqliteTable(
+  "project_template_documents",
+  {
+    id: text("id").primaryKey(),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull().default(""),
+    category: text("category"),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+  },
+  (t) => [uniqueIndex("project_template_documents_pos_uq").on(t.templateId, t.position)],
+);
+
+/** One row per template application — the idempotency claim (actor "local"). */
+export const projectTemplateApplications = sqliteTable(
+  "project_template_applications",
+  {
+    id: text("id").primaryKey(),
+    actorKey: text("actor_key").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    templateId: text("template_id").references(() => projectTemplates.id, { onDelete: "set null" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [uniqueIndex("project_template_applications_key_uq").on(t.actorKey, t.idempotencyKey)],
+);
+
+export type ProjectTemplateRow = typeof projectTemplates.$inferSelect;
