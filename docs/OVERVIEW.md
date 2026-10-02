@@ -84,13 +84,22 @@ ten runtime dependencies.
 
 ### Knowledge base (`/projects/:id/knowledge`)
 
-- A flat, per-project list of plain-text documents — title, content, an
+- A flat, per-project list of documents — title, Markdown content, an
   optional free-text category, and a **pinned** flag that keeps a document
-  at the top of the list. No folders/hierarchy, no markdown rendering, no
-  version history in this first slice.
-- **Search** across title, content and category — the content is the point
-  of a document, so it's covered too, not just the title (same reasoning
-  as the prompt library's own search).
+  at the top of the list. No folders/hierarchy and no version history yet.
+- **Safe Markdown (Release 2E.1).** Write/Preview editing, a read-only
+  document page (`/projects/:id/knowledge/:docId`) and expandable list
+  cards all use one renderer: headings, lists, tables, links, fenced code
+  and task lists. Raw HTML is shown as text, images never load (alt text
+  instead), and links are limited to http(s), in-app paths and anchors.
+  The source is stored exactly as written. See
+  `docs/design/2E.1-safe-markdown.md`.
+- **Search** across title, category and the document's visible text (not
+  Markdown syntax, link destinations or raw HTML), through a derived
+  `search_text` column that SQLite and PostgreSQL search identically.
+  Documents written before this release are indexed one bounded batch per
+  search; until that finishes, a search says it is incomplete and offers
+  **Continue indexing**.
 - The project detail page's **Knowledge base** card shows the document
   count plus pinned/recently-updated titles, linking into the full list —
   same shape as the Milestones & tasks card above.
@@ -224,13 +233,13 @@ src/
     layout/           AppShell, Sidebar, CommandPalette, ThemeToggle, DesktopBridge
     projects/         Card, filters, forms, actions, files, local actions
     tasks/            project tasks board, My Work filters/list
-    knowledge/        document card, filters, form
+    knowledge/        document card, filters, form, Markdown editor + renderer
     dashboard/        StatTiles, QuickActions, ActivityFeed, ProjectRowList
     prompts/ github/ automation/ settings/
   core/
     projects/         types · schema (Zod) · labels · query
     tasks/            milestone/task types · schema (Zod) · labels · errors
-    knowledge/        knowledge document types · schema (Zod)
+    knowledge/        document types · schema (Zod) · Markdown parsing, extraction, link policy
     github/           provider interface · REST · demo · device flow · service
     automation/       tasks · scheduler · service · notifications
     files/ storage/   upload service + StorageDriver (local-disk implementation)
@@ -306,7 +315,7 @@ projects ──┬── project_tags ── tags
            ├── activity_events          the feed — append-only history
            ├── notes
            ├── github_repositories.linked_project_id
-           ├── knowledge_documents      flat, plain text, pinned flag
+           ├── knowledge_documents      flat, Markdown source, pinned flag, derived search_text
            └── milestones ── tasks ── task_dependencies (task_id, depends_on_task_id)
                               └── tasks (parent_task_id — one level of subtasking)
 
@@ -539,10 +548,10 @@ Honest inventory of what is not finished:
   notifications, tools and integrations are desktop/single-password-only for
   now — genuinely unreachable in accounts mode (§2b, §7) rather than
   half-scoped, until each gets ported for real in a later phase.
-- **Knowledge base documents are flat, plain text, with no version
-  history.** No folders/hierarchy, no markdown rendering, no revisions —
-  a deliberate first-slice scope cut (ARCHITECTURE.md §9), not an
-  oversight.
+- **Knowledge base documents are flat, with no version history.** No
+  folders/hierarchy and no revisions — a deliberate scope cut
+  (ARCHITECTURE.md §9), not an oversight. Markdown is rendered safely since
+  Release 2E.1; images, embeds and syntax highlighting are not supported.
 - **No assignee picker or display.** A task's `assigneeId` is a real column
   and the API accepts it, but there's no UI for it — resolving a workspace
   member's id to a name needs a members-list endpoint that returns more than

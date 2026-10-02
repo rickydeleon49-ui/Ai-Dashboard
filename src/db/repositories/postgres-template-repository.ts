@@ -26,6 +26,7 @@ import {
   workspaceMembers,
   workspaces,
 } from "../schema.pg";
+import { buildKnowledgeSearchText } from "@/core/knowledge/markdown";
 import { createId } from "@/lib/ids";
 import { MAX_TEMPLATES_PER_WORKSPACE } from "@/core/templates/limits";
 import { previewTemplate } from "@/core/templates/validate";
@@ -466,6 +467,10 @@ export class PostgresTemplateRepository implements TemplateRepository {
               content: d.content,
               category: d.category,
               pinned: d.pinned,
+              // now() is the transaction's start time — exactly what the
+              // updated_at default receives — so the row is born fresh.
+              searchText: buildKnowledgeSearchText(d),
+              searchIndexedAt: sql`now()`,
             })),
           );
         }

@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { LogIn } from "lucide-react";
+import { Eye, LogIn } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KnowledgeDocumentForm } from "@/components/knowledge/knowledge-document-form";
 import { knowledgeDocumentRepository, projectRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
+import { resolveKnowledgePageAccess } from "@/core/knowledge/page-access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,11 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id, docId } = await params;
   const workspaceId = await resolveWorkspaceIdForPage();
   const document = workspaceId ? await knowledgeDocumentRepository.findById(workspaceId, docId) : null;
-  const project = workspaceId ? await projectRepository.findById(workspaceId, id) : null;
-  return { title: document ? `Edit ${document.title} — ${project?.name ?? ""}` : "Edit document" };
+  // The same scoping as the page body: a document reached through another
+  // project's URL is absent, so its title must not appear in <title> either.
+  if (!document || document.projectId !== id) return { title: "Edit document" };
+  const project = await projectRepository.findById(workspaceId!, id);
+  return { title: `Edit ${document.title} — ${project?.name ?? ""}` };
 }
 
 export default async function EditKnowledgeDocumentPage({
@@ -22,8 +26,8 @@ export default async function EditKnowledgeDocumentPage({
   params: Promise<{ id: string; docId: string }>;
 }) {
   const { id, docId } = await params;
-  const workspaceId = await resolveWorkspaceIdForPage();
-  if (!workspaceId) {
+  const access = await resolveKnowledgePageAccess();
+  if (!access) {
     return (
       <EmptyState
         icon={LogIn}
@@ -32,6 +36,7 @@ export default async function EditKnowledgeDocumentPage({
       />
     );
   }
+  const { workspaceId, canEdit } = access;
 
   const project = await projectRepository.findById(workspaceId, id);
   if (!project) notFound();
@@ -40,6 +45,21 @@ export default async function EditKnowledgeDocumentPage({
   // absent — same reasoning as the API route's own `findScoped`.
   const document = await knowledgeDocumentRepository.findById(workspaceId, docId);
   if (!document || document.projectId !== project.id) notFound();
+
+  if (!canEdit) {
+    return (
+      <EmptyState
+        icon={Eye}
+        title="Read-only access"
+        description="Viewers can read this document but cannot change it."
+        action={
+          <Link href={`/projects/${project.id}/knowledge/${document.id}`} className="text-[13px] text-[var(--accent-text)] hover:underline">
+            Read the document
+          </Link>
+        }
+      />
+    );
+  }
 
   return (
     <div className="space-y-5">

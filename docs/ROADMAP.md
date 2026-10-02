@@ -2,8 +2,8 @@
 
 **Repository:** `rickydeleon49-ui/Ai-Dashboard`  
 **Roadmap version:** 1.1  
-**Updated:** September 18, 2026  
-**Status:** Planning document; Phase 2 hardening is completed and merged. A fresh-start readiness correction is in independent review as the final prerequisite before Phase 2C.
+**Updated:** September 30, 2026\
+**Status:** Planning document. Phase 2 hardening, Phase 2C (2C.1–2C.6) and Phase 2D (2D.1–2D.3) are merged to `main`. Release 2E.1 (Safe Markdown) is implemented on `phase2e/safe-markdown` and awaiting independent review; it is not merged.
 
 ## 1. Product vision
 
@@ -114,6 +114,16 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
   - Month and week views of task and milestone due dates, with project, assignee, status and kind filters
   - Drag-to-reschedule and a keyboard date editor with explicit Save / Cancel and error recovery
   - Unscheduled-work panel; bounded, searchable filter options for large workspaces
+- **Release 2D.2: Timeline** (completed, merged to main as PR #37 at `73b9a4c`)
+- **Release 2D.3: Reusable templates** (completed, merged to main as PR #38 at `64481dd`, together with desktop test isolation)
+
+#### Phase 2E — in progress
+
+- **Release 2E.1: Safe Markdown** (implemented on `phase2e/safe-markdown` from `64481dd`; uncommitted, pending independent review — **not merged**). Design and evidence: `docs/design/2E.1-safe-markdown.md`.
+  - Write/Preview editing, a read-only document page and expanded list cards share one AST-based renderer (react-markdown + remark-gfm); raw HTML is shown as text, images never load, links pass an http(s)/in-app/anchor allowlist
+  - Plain-text extraction from the same parser feeds a derived, normalized `search_text` column on both databases, populated by every writer (including template application); older documents are re-indexed one bounded batch per search, and searches report themselves as incomplete until that finishes
+  - Desktop external links continue through the existing Electron `setWindowOpenHandler` boundary; no new shell or IPC capability
+  - Review corrections: the complexity guard also budgets closing brackets, setext underlines and list markers, summaries parse a bounded prefix (M1); legacy search indexing is bounded and resumable with an honest pending state (M2)
 
 ## 4. Release sequence at a glance
 
@@ -122,8 +132,8 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 | 1 | Phase 2 Hardening | Safe foundation for tasks, accounts, files, and deployment | Current `main` — **completed, PR #30** |
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
 | 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.6 merged — **completed** |
-| 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model — Release 2D.1 **merged (PR #35)** |
-| 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history |
+| 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model — Releases 2D.1–2D.3 **merged (PRs #35, #37, #38)** |
+| 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history — Release 2E.1 **implemented, in review** |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
 | 6 | Phase 2G — Integrations, Monitoring, and Reviewed AI | External data and AI become operational tools | Durable jobs and secret isolation |
 | 7 | Phase 3 — Hosted SaaS Parity | Every supported domain is genuinely tenant-safe | Phase 2 platform foundations |
@@ -348,6 +358,8 @@ Users can understand when work is happening, see scheduling conflicts, and creat
 Project knowledge becomes a structured workspace reference system rather than a flat collection of notes.
 
 ### Release 2E.1 — Safe Markdown
+
+**Status:** implemented on `phase2e/safe-markdown`, pending independent review; not merged. See `docs/design/2E.1-safe-markdown.md` for the rendering and URL policy, the search strategy, limits, compatibility and rollback.
 
 #### Features
 

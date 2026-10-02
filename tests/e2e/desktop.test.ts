@@ -17,6 +17,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import Database from "better-sqlite3";
 import { _electron, type ElectronApplication, type Page } from "playwright";
+import { assertInertDom, inspectRendered, watch } from "./markdown-dom";
 
 const standaloneServer = path.resolve(".next/standalone/server.js");
 const hasStandalone = existsSync(standaloneServer);
@@ -334,6 +335,90 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
       assert.deepEqual(external, [], "templates never reach the network");
     } finally {
       window.off("request", onRequest);
+    }
+  });
+
+  it("renders Release 2E.1 Markdown offline and hands external links to the controlled boundary only", async () => {
+    const origin = new URL(window.url()).origin;
+    const watched = watch(window, origin);
+    // Record what reaches shell.openExternal instead of opening a real browser.
+    await app!.evaluate(({ shell }) => {
+      const g = globalThis as unknown as { __opened: string[]; __originalOpenExternal: unknown };
+      g.__opened = [];
+      g.__originalOpenExternal = shell.openExternal;
+      shell.openExternal = (url: string) => {
+        g.__opened.push(url);
+        return Promise.resolve();
+      };
+    });
+    const windowsBefore = app!.windows().length;
+    try {
+      const NL = String.fromCharCode(10);
+      const source = [
+        "# Offline runbook",
+        "",
+        "- [x] Works without a network",
+        "",
+        "| A | B |",
+        "|---|---|",
+        "| 1 | 2 |",
+        "",
+        "[External docs](https://external.example/docs) [Refused](javascript:window.__xss=1) [Proto](//evil.example)",
+        "",
+        "![Tracking pixel](https://tracker.example/p.png)",
+        "",
+        "<img src=x onerror=window.__xss=1><script>window.__xss=1</script>",
+      ].join(NL);
+      // No named inner functions: the test transform would wrap them in a helper the renderer lacks.
+      const ids = await window.evaluate(async (content) => {
+        const json = { "content-type": "application/json" };
+        const project = await fetch("/api/projects", { method: "POST", headers: json, body: JSON.stringify({ name: "Desktop Markdown" }) });
+        const projectId = ((await project.json()) as { project: { id: string } }).project.id;
+        const doc = await fetch(`/api/projects/${projectId}/knowledge`, {
+          method: "POST",
+          headers: json,
+          body: JSON.stringify({ title: "Offline doc", content }),
+        });
+        return { projectId, docId: ((await doc.json()) as { document: { id: string } }).document.id };
+      }, source);
+
+      await window.goto(new URL(`/projects/${ids.projectId}/knowledge/${ids.docId}`, origin).href, { waitUntil: "load" });
+      await window.waitForSelector("[data-markdown-view] h2", { timeout: 30_000 });
+      assert.equal((await window.textContent("[data-markdown-view] h2"))?.trim(), "Offline runbook");
+      assertInertDom(await inspectRendered(window), "desktop document");
+      assert.equal(await window.locator('[data-markdown-image="blocked"]').textContent(), "[Image: Tracking pixel]");
+
+      const before = window.url();
+      await window.getByRole("link", { name: "External docs" }).click();
+      const opened = await app!.evaluate(async () => {
+        const g = globalThis as unknown as { __opened: string[] };
+        for (let i = 0; i < 50 && g.__opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 20));
+        return g.__opened.slice();
+      });
+      assert.deepEqual(opened, ["https://external.example/docs"], "the external link went to the system browser boundary");
+      assert.equal(window.url(), before, "the app window did not navigate away");
+      assert.equal(app!.windows().length, windowsBefore, "no Electron window was opened for it");
+
+      for (const name of ["Refused", "Proto"]) await window.locator('[data-markdown-link="refused"]', { hasText: name }).click();
+      const after = await app!.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened.slice());
+      assert.deepEqual(after, ["https://external.example/docs"], "refused links never reach openExternal");
+      assert.equal(window.url(), before);
+
+      assert.deepEqual(watched.dialogs, []);
+      assert.deepEqual(
+        watched.foreignRequests.filter((url) => !url.startsWith("devtools:")),
+        [],
+        "rendering never reaches the network",
+      );
+
+      await window.evaluate(async (projectId) => {
+        await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+      }, ids.projectId);
+    } finally {
+      await app!.evaluate(({ shell }) => {
+        const g = globalThis as unknown as { __originalOpenExternal: typeof shell.openExternal };
+        shell.openExternal = g.__originalOpenExternal;
+      });
     }
   });
 

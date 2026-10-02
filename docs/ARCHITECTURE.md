@@ -528,6 +528,28 @@ SQLite-only and unscoped in accounts mode, same limitation as several
 domains named in Release A's own plan), and any linking between documents
 and tasks/milestones. Each is later work, not an oversight.
 
+**Phase 2E, Release 2E.1 — Safe Markdown (implemented, in review — see
+`docs/design/2E.1-safe-markdown.md`).** Knowledge content is Markdown,
+stored verbatim. One renderer (`components/knowledge/markdown-view.tsx`,
+react-markdown + remark-gfm) serves the editor preview, the read-only
+document page and list cards; it never produces an HTML string, shows raw
+HTML as text, never loads images, and admits only an explicit element list
+and the link policy in `core/knowledge/markdown-links.ts`. A linear
+complexity guard (budgets for nesting, emphasis delimiters, closing
+brackets, setext underlines and list markers) sends costly documents to a
+plain-text fallback before parsing; list summaries parse only a bounded
+prefix. `core/knowledge/markdown.ts` extracts visible text from the same
+tree into a derived, normalized `search_text` column (both databases),
+written by every writer including template application. Rows whose
+`search_indexed_at` no longer equals `updated_at` are re-derived one
+bounded batch (25 rows / 256 KiB) per search request
+(`core/knowledge/search-index.ts`), and a search over a project that still
+has such rows reports itself as incomplete instead of returning partial
+results as complete; only rows with fresh derived text can match, so a
+stale key left by an older build never returns a document for words it no
+longer contains. Desktop external links still leave only through
+`setWindowOpenHandler` → `shell.openExternal` (http/https).
+
 ### Where the work happens
 
 The desktop build is not a wrapper around a static page: it forks a real Next

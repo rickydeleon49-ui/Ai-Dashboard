@@ -554,7 +554,7 @@ function KnowledgeBaseCard({
             {highlighted.map((doc) => (
               <li key={doc.id} className="flex items-center gap-2 text-[13px]">
                 <Link
-                  href={`/projects/${projectId}/knowledge/${doc.id}/edit`}
+                  href={`/projects/${projectId}/knowledge/${doc.id}`}
                   className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)]"
                 >
                   {doc.title}

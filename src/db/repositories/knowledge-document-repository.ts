@@ -8,6 +8,8 @@ import type {
   KnowledgeDocument,
   KnowledgeDocumentCreateInput,
   KnowledgeDocumentQuery,
+  KnowledgeSearchQuery,
+  KnowledgeSearchResult,
   KnowledgeDocumentUpdateInput,
 } from "@/core/knowledge/types";
 
@@ -26,6 +28,13 @@ export interface KnowledgeDocumentRepository {
     projectId: string,
     query?: KnowledgeDocumentQuery,
   ): Promise<KnowledgeDocument[]>;
+  /**
+   * Searches one project. Re-derives at most one bounded batch of stale search
+   * text first, then reports whether every document could be searched.
+   */
+  search(workspaceId: string, projectId: string, query: KnowledgeSearchQuery): Promise<KnowledgeSearchResult>;
+  /** Categories in use in one project with their document counts, most used first — aggregated in the database. */
+  categoryCounts(workspaceId: string, projectId: string): Promise<{ name: string; count: number }[]>;
   findById(workspaceId: string, id: string): Promise<KnowledgeDocument | null>;
   create(workspaceId: string, input: KnowledgeDocumentCreateInput): Promise<KnowledgeDocument>;
   update(

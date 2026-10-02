@@ -495,6 +495,17 @@ export const knowledgeDocuments = pgTable(
     pinned: boolean("pinned").notNull().default(false),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    /**
+     * Derived (Release 2E.1): normalized title, category and visible document
+     * text, from `buildKnowledgeSearchText`. Never shown; never the source.
+     */
+    searchText: text("search_text"),
+    /**
+     * The `updated_at` the search text was derived at. NULL or different
+     * means stale — a pre-2E.1 row, or one written by an older build — and the
+     * repository re-derives it before searching.
+     */
+    searchIndexedAt: timestamp("search_indexed_at", { mode: "date" }),
   },
   (t) => [
     index("knowledge_document_project_idx").on(t.projectId),

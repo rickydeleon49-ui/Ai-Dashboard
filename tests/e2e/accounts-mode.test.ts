@@ -36,6 +36,11 @@
  *    - project and assignee filter lists beyond their limits show visible notices, and
  *      search reaches, selects and filters by values sorted after the first 500
  *    - rapid searches and workspace switches never apply stale results
+ * 7. Release 2E.1 safe Markdown knowledge in a real browser against PostgreSQL:
+ *    - member write/preview/save keeps the source and fresh derived search text
+ *    - viewer reads stored-XSS content inertly, with no writing controls; saves are refused
+ *    - foreign and cross-project document ids are not found
+ *    - a pre-2E.1 row renders and is backfilled for search without changing updated_at
  */
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -44,6 +49,8 @@ import { createServer as createNetServer } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { Client } from "pg";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { STORED_XSS_PAYLOADS } from "../helpers/markdown-fixtures";
+import { assertInertDom, inspectRendered, watch } from "./markdown-dom";
 
 const adminUrl =
   process.env.TEST_DATABASE_ADMIN_URL?.trim() ||
@@ -1554,5 +1561,245 @@ describe("Release 2D.3 templates (accounts mode, real browser)", () => {
     await page.goto(`${baseURL}/templates`);
     await page.getByTestId("template-list").waitFor();
     assert.ok(!((await page.content()) ?? "").includes("Other workspace secret template"));
+  });
+});
+
+describe("Release 2E.1 safe Markdown knowledge (accounts mode, real browser)", () => {
+  const OTHER_WS = "ws_e2e_markdown_other";
+  const OTHER_PROJ = "proj_e2e_markdown_other";
+  const SECOND_PROJ = "proj_e2e_markdown_second";
+  const NL = String.fromCharCode(10);
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+  let xssDocId = "";
+
+  async function pageFor(jar: ReturnType<typeof createCookieJar>): Promise<Page> {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    contexts.push(context);
+    await context.addCookies([
+      ...jar
+        .header()
+        .split("; ")
+        .filter(Boolean)
+        .filter((pair) => !pair.startsWith("cc-current-workspace="))
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+        }),
+      { name: "cc-current-workspace", value: WS_ID, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    return page;
+  }
+
+  // Seeded here so this suite never depends on another test body running first.
+  before(async () => {
+    browser = await chromium.launch();
+    const member = await pageFor(memberJar);
+    const created = await member.request.post(`${baseURL}/api/projects/${PROJ_ID}/knowledge`, {
+      data: { title: "Stored payloads", content: Object.values(STORED_XSS_PAYLOADS).join(NL + NL) },
+    });
+    assert.equal(created.status(), 201, await created.text());
+    xssDocId = ((await created.json()) as { document: { id: string } }).document.id;
+
+    await dbClient.query(
+      `INSERT INTO "workspace" ("id", "name", "slug", "kind", "created_by", "created_at", "updated_at")
+       VALUES ($1, 'Markdown Other Workspace', 'markdown-other-workspace', 'team', 'usr_owner', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_WS],
+    );
+    await dbClient.query(
+      `INSERT INTO "project" ("id", "workspace_id", "name", "status", "created_at", "updated_at")
+       VALUES ($1, $2, 'Markdown other project', 'active', NOW(), NOW()), ($3, $4, 'Markdown second project', 'active', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_PROJ, OTHER_WS, SECOND_PROJ, WS_ID],
+    );
+    // A foreign document, and a pre-2E.1 row with no derived search text.
+    await dbClient.query(
+      `INSERT INTO "knowledge_document" ("id", "workspace_id", "project_id", "title", "content", "created_at", "updated_at")
+       VALUES ('kdoc_e2e_foreign', $1, $2, 'Foreign secret runbook', '# Secret', NOW(), NOW()),
+              ('kdoc_e2e_legacy', $3, $4, 'Legacy plain note', 'Written long ago with **emphasis** and [a link](https://legacy.example).', NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      [OTHER_WS, OTHER_PROJ, WS_ID, PROJ_ID],
+    );
+  });
+
+  after(async () => {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser?.close();
+  });
+
+  it("a member writes, previews and saves Markdown; PostgreSQL keeps the source and fresh search text", async () => {
+    const page = await pageFor(memberJar);
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge/new`);
+    await page.getByLabel("Title", { exact: true }).fill("Hosted runbook");
+    const source = ["## Steps", "", "- [ ] Migrate", "- [x] Deploy", "", "Ask in [the channel](https://chat.example/c)."].join(NL);
+    await page.getByLabel("Content", { exact: true }).fill(source);
+    await page.getByRole("tab", { name: "Preview" }).click();
+    await page.getByRole("tabpanel", { name: "Preview" }).getByRole("heading", { name: "Steps", level: 3 }).waitFor();
+    await page.getByRole("tab", { name: "Write" }).click();
+    await page.getByRole("button", { name: "Save document" }).click();
+    await page.waitForURL(`**/projects/${PROJ_ID}/knowledge`);
+
+    const row = await dbClient.query(
+      `SELECT id, workspace_id, content, search_text, search_indexed_at = updated_at AS fresh FROM "knowledge_document" WHERE title = 'Hosted runbook'`,
+    );
+    assert.equal(row.rows.length, 1);
+    assert.equal(row.rows[0].workspace_id, WS_ID);
+    assert.equal(row.rows[0].content, source);
+    assert.equal(row.rows[0].search_text, "hosted runbook steps migrate deploy ask in the channel.");
+    assert.equal(row.rows[0].fresh, true);
+
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge/${row.rows[0].id}`);
+    await page.getByRole("heading", { name: "Steps", level: 3 }).waitFor();
+    assert.equal(await page.locator('[data-markdown-view] input[type="checkbox"]:checked').count(), 1);
+    assert.deepEqual(errors, []);
+  });
+
+  it("a viewer reads rendered stored payloads inertly, with no writing controls, and cannot save", async () => {
+    const page = await pageFor(viewerJar);
+    const watched = watch(page, new URL(baseURL).origin);
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge/${xssDocId}`, { waitUntil: "load" });
+    await page.getByRole("heading", { name: "Stored payloads", level: 1 }).waitFor();
+    assertInertDom(await inspectRendered(page), "viewer document page");
+    assert.equal(await page.getByRole("link", { name: "Edit" }).count(), 0);
+
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge`, { waitUntil: "load" });
+    await page.getByRole("link", { name: "Stored payloads" }).waitFor();
+    for (const name of ["New document", "Edit"]) assert.equal(await page.getByRole("link", { name }).count(), 0, name);
+    for (const name of ["Delete", "Pin document", "Unpin document"]) assert.equal(await page.getByRole("button", { name }).count(), 0, name);
+    const showFull = page.getByRole("button", { name: "Show full" });
+    while ((await showFull.count()) > 0) await showFull.first().click();
+    assertInertDom(await inspectRendered(page), "viewer expanded cards");
+
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge/${xssDocId}/edit`);
+    await page.getByText("Read-only access").waitFor();
+    assert.equal(await page.getByLabel("Content", { exact: true }).count(), 0, "no editor for a viewer");
+
+    const denied = await page.request.patch(`${baseURL}/api/projects/${PROJ_ID}/knowledge/${xssDocId}`, { data: { content: "# Overwritten" } });
+    assert.equal(denied.status(), 403);
+    const stored = await dbClient.query(`SELECT content FROM "knowledge_document" WHERE id = $1`, [xssDocId]);
+    assert.notEqual(stored.rows[0].content, "# Overwritten");
+
+    await page.waitForTimeout(300);
+    assert.deepEqual(watched.dialogs, []);
+    assert.deepEqual(watched.foreignRequests, []);
+  });
+
+  it("foreign and cross-project document ids are not found, and their titles never appear", async () => {
+    const page = await pageFor(ownerJar);
+    for (const path of [
+      `/projects/${OTHER_PROJ}/knowledge/kdoc_e2e_foreign`,
+      `/projects/${PROJ_ID}/knowledge/kdoc_e2e_foreign`,
+      `/projects/${SECOND_PROJ}/knowledge/${xssDocId}`,
+      `/projects/${SECOND_PROJ}/knowledge/${xssDocId}/edit`,
+    ]) {
+      const response = await page.goto(`${baseURL}${path}`);
+      assert.equal(response?.status(), 404, path);
+      const html = await page.content();
+      assert.ok(!html.includes("Foreign secret runbook"), path);
+      assert.ok(!html.includes("Stored payloads"), path);
+    }
+    const api = await page.request.get(`${baseURL}/api/projects/${PROJ_ID}/knowledge/kdoc_e2e_foreign`);
+    assert.equal(api.status(), 404);
+  });
+
+  it("a pre-2E.1 document renders and becomes searchable by its visible text only", async () => {
+    const page = await pageFor(viewerJar);
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge/kdoc_e2e_legacy`);
+    await page.locator("[data-markdown-view] strong", { hasText: "emphasis" }).waitFor();
+
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge?search=${encodeURIComponent("with emphasis and a link")}`);
+    await page.getByRole("link", { name: "Legacy plain note" }).waitFor();
+    await page.goto(`${baseURL}/projects/${PROJ_ID}/knowledge?search=legacy.example`);
+    await page.getByText("No documents match").waitFor();
+
+    const row = await dbClient.query(
+      `SELECT content, search_text, search_indexed_at = updated_at AS fresh FROM "knowledge_document" WHERE id = 'kdoc_e2e_legacy'`,
+    );
+    assert.equal(row.rows[0].content, "Written long ago with **emphasis** and [a link](https://legacy.example).");
+    assert.equal(row.rows[0].fresh, true, "the search text was derived without changing updated_at");
+  });
+});
+
+describe("Release 2E.1 review M2: honest pending search state (accounts mode, real browser)", () => {
+  const PENDING_PROJ = "proj_e2e_markdown_pending";
+  let browser: Browser;
+  const contexts: BrowserContext[] = [];
+
+  async function viewerPage(): Promise<Page> {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    contexts.push(context);
+    await context.addCookies([
+      ...viewerJar
+        .header()
+        .split("; ")
+        .filter(Boolean)
+        .filter((pair) => !pair.startsWith("cc-current-workspace="))
+        .map((pair) => {
+          const eq = pair.indexOf("=");
+          return { name: pair.slice(0, eq), value: pair.slice(eq + 1), url: baseURL };
+        }),
+      { name: "cc-current-workspace", value: WS_ID, url: baseURL },
+    ]);
+    const page = await context.newPage();
+    page.setDefaultTimeout(60_000);
+    return page;
+  }
+
+  before(async () => {
+    browser = await chromium.launch();
+    await dbClient.query(
+      `INSERT INTO "project" ("id", "workspace_id", "name", "status", "created_at", "updated_at")
+       VALUES ($1, $2, 'Markdown pending project', 'active', NOW(), NOW()) ON CONFLICT DO NOTHING`,
+      [PENDING_PROJ, WS_ID],
+    );
+    // 30 documents written before 2E.1 (no derived search text); the match sorts last.
+    const values: string[] = [];
+    const params: unknown[] = [WS_ID, PENDING_PROJ];
+    for (let i = 0; i < 30; i += 1) {
+      const id = `kdoc_e2e_pending_${String(i).padStart(2, "0")}`;
+      params.push(id, i === 29 ? "Late match" : `Old note ${i}`, i === 29 ? "contains the word glacier" : "nothing here");
+      const n = params.length;
+      values.push(`($${n - 2}, $1, $2, $${n - 1}, $${n}, NOW(), NOW())`);
+    }
+    await dbClient.query(
+      `INSERT INTO "knowledge_document" ("id", "workspace_id", "project_id", "title", "content", "created_at", "updated_at")
+       VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`,
+      params,
+    );
+  });
+
+  after(async () => {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser?.close();
+  });
+
+  it("says the search is incomplete, offers to continue, and finds the late match only once indexing completes", async () => {
+    const page = await viewerPage();
+    await page.goto(`${baseURL}/projects/${PENDING_PROJ}/knowledge?search=glacier`);
+    const notice = page.getByTestId("knowledge-search-pending");
+    await notice.waitFor();
+    assert.match((await notice.textContent()) ?? "", /still indexing 5 older documents/);
+    await page.getByRole("heading", { name: "No matches yet" }).waitFor();
+    assert.equal(await page.getByText("No documents match").count(), 0, "an incomplete search never claims there is no match");
+
+    const api = await page.request.get(`${baseURL}/api/projects/${PENDING_PROJ}/knowledge?search=glacier`);
+    const body = (await api.json()) as { documents: { title: string }[]; searchIndex: { complete: boolean; pending: number } };
+    assert.deepEqual(body.searchIndex, { complete: true, pending: 0 });
+    assert.deepEqual(body.documents.map((d) => d.title), ["Late match"]);
+
+    await page.getByRole("link", { name: "Continue indexing" }).click();
+    await page.getByRole("link", { name: "Late match" }).waitFor();
+    assert.equal(await notice.count(), 0, "a complete search shows no pending notice");
+
+    const stale = await dbClient.query(
+      `SELECT count(*)::int AS n FROM "knowledge_document" WHERE project_id = $1 AND (search_text IS NULL OR search_indexed_at IS DISTINCT FROM updated_at)`,
+      [PENDING_PROJ],
+    );
+    assert.equal(stale.rows[0].n, 0);
   });
 });
