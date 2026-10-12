@@ -313,6 +313,16 @@ Command: `agy -p "Create a file named hello2.txt containing hi." --output-format
 
 The fake agent fixture gets a "denies first, then ends the turn" mode, so (2) is covered by tests.
 
+#### Smoke test 5 results (Windows, `agy` 1.3.3, October 12, 2026): the upfront instruction works
+
+Command: the same as smoke test 4, with the prompt starting *"Shell commands are not available in this session. Use only file tools such as list_dir, view_file and write_to_file."*
+
+- **It went straight to `write_to_file`** for `hello3.txt` (`DONE`), then gave a one-line response. There was no `run_command`, no `denied_actions` and no read outside the workspace.
+- It took 49 seconds and about 5,300 new tokens plus 34,000 cached, far cheaper than the earlier tests.
+- **The path came back as `H:/agy-smoke/hello3.txt`, with forward slashes**, where earlier tests used `H:\agy-smoke\…`. The runtime path check normalises separators (and case, §5A) before comparing, and the test suite covers both forms.
+
+**Conclusion:** plan item 1 (the upfront instruction) is the primary mechanism, and item 2 (continuing a turn a denial ended, at most twice) stays as the fallback. **Antigravity CLI verification is complete for AW.3.** What remains belongs to the adapter's own tests, not to the open questions.
+
 ## 4. Data model (SQLite, desktop only)
 
 Projects reuse the existing `projects` table and its `local_path`. "Register a

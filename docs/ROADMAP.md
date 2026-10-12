@@ -573,7 +573,7 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 
 - ~~Confirm it as a deliberate subsystem~~ — **decided October 12, 2026**: this is now the product, desktop-first.
 - ~~Approve the architecture~~ — **decided**: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
-- Still open (needed for AW.2 and AW.3, not for AW.1): confirm the Codex login-status command (codex-cli 0.160.0 recorded) and the effort config key (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), plus `agy models` and the Antigravity smoke tests. (Recorded on October 12, 2026: `agy` 1.3.3 has a headless `--print` mode with stream-json, `--model` and `--effort`; Codex 0.162.1 on Windows is signed in. See §3.1–3.2 of the design note.) Make the `flight-deck-team` controller available for review (§10 of the design note).
+- Still open (needed for AW.2 and AW.3, not for AW.1): confirm the Codex login-status command (codex-cli 0.160.0 recorded) and the effort config key (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), (`agy models` and Antigravity smoke tests 1–5 completed on October 12, 2026; the implementer is edit-only, with runner-owned checks). (Recorded on October 12, 2026: `agy` 1.3.3 has a headless `--print` mode with stream-json, `--model` and `--effort`; Codex 0.162.1 on Windows is signed in. See §3.1–3.2 of the design note.) Make the `flight-deck-team` controller available for review (§10 of the design note).
 
 ### Release AW.1 — Vertical slice
 
