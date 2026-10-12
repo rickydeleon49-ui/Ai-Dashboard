@@ -1,8 +1,8 @@
 # Command Center / AI-Dashboard Product Roadmap
 
 **Repository:** `rickydeleon49-ui/Ai-Dashboard`  
-**Roadmap version:** 1.1  
-**Updated:** September 18, 2026  
+**Roadmap version:** 1.2  
+**Updated:** October 12, 2026  
 **Status:** Planning document; Phase 2 hardening is completed and merged. A fresh-start readiness correction is in independent review as the final prerequisite before Phase 2C.
 
 ## 1. Product vision
@@ -129,6 +129,9 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 | 7 | Phase 3 — Hosted SaaS Parity | Every supported domain is genuinely tenant-safe | Phase 2 platform foundations |
 | 8 | Phase 4 — Commercial SaaS | The product can onboard, bill, support, and retain customers | Hosted parity |
 | 9 | Phase 5 — Scale and Enterprise Readiness | Larger organizations can govern and operate safely | Commercial baseline |
+| D | Desktop track — Agent Workflow Control Center (AW.1–AW.4) | Run and monitor coordinated coding agents against any local project | Desktop local mode only; independent of the hosted phases — **planned, design approved pending §10A decisions** |
+
+The desktop track does not block, and is not blocked by, the hosted phases. It ships only in desktop local mode and is hidden and unreachable in both hosted modes (§16).
 
 ## 5. Phase 2 hardening — Release gate
 
@@ -556,6 +559,57 @@ Command Center connects planning work to real development and operational signal
 - Every externally visible or destructive AI action requires approval.
 - Usage and cost limits are enforced server-side.
 
+## 10A. Desktop track — Agent Workflow Control Center
+
+**Status:** Planned. The full design, security model and test plan are in [`docs/design/AW-agent-workflow-control-center.md`](design/AW-agent-workflow-control-center.md).
+
+**Availability:** Desktop only (§16). In password-hosted and accounts mode it is hidden and returns 404 from the API, because a server that launches CLI processes against filesystem paths must never be reachable by anyone but the local user.
+
+### Product outcome
+
+Pick a local project, choose an implementer (Claude Code or Antigravity), submit a task or ask for the next roadmap task, and watch a bounded plan → implement → check → independent review → up to three correction rounds. The result can be reviewed afterwards: diff, check results and review verdict. Merges, pushes, deploys and any other irreversible action each need a separate approval.
+
+### Decisions required before AW.1
+
+- Confirm this is built deliberately as the "automation is a later product" subsystem that `NEXT.md` defers, with its own top-level section, rather than as a sidebar page.
+- Approve the architecture: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
+- Run `codex exec --help` and the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
+
+### Release AW.1 — Vertical slice
+
+- Run, event, intent, lock and project-policy tables (SQLite, desktop only)
+- Agent runner process; isolated Git worktree per run under the app's user-data directory
+- Claude Code implementer (verified flags, no permission-bypass flags), runner-owned checks and diff, single-pass Claude review
+- Server-Sent Events with `Last-Event-ID` replay; Stop (kills the process group, preserves work as a `wip` commit); restart marks orphaned runs `interrupted`
+- `/agents` and run-detail pages built from existing UI primitives
+- A fake agent CLI plus a disposable synthetic-project demo, so tests and the demo need no credentials
+
+### Release AW.2 — Codex planner/reviewer and correction rounds
+
+- Codex adapter behind a capability probe; schema-validated planner and reviewer JSON
+- Up to three correction rounds driven by actionable findings
+
+### Release AW.3 — Antigravity and local advisor
+
+- Antigravity adapter **only if** a non-interactive mode is verified; otherwise it is shown as unavailable, never silently replaced
+- Optional LM Studio advisory summaries (Gemma 4 12B); advisory only, never part of the success decision
+
+### Release AW.4 — Policy, resume, non-Git projects, approvals
+
+- Per-project check commands, exclusions and test restrictions
+- Snapshot-and-init strategy for non-Git folders; approval-gated apply-back with a backup
+- Explicit resume from the last completed stage; approval-gated merge, push and publication
+
+### Desktop track exit criteria
+
+- No code path from an HTTP request body to a spawned process; workflow actions are structured intents only.
+- No permission-bypass flags in any generated command line (asserted by tests).
+- Two runs can never hold the same working copy.
+- `succeeded` is derived only from runner-observed facts: a non-empty diff confined to allowed paths, every required check passing, and a schema-valid reviewer approval.
+- Stop and crash recovery leave no orphaned processes, permission grants or locks.
+- Event reconnection neither loses nor duplicates events, including across a restart.
+- Credentials and authentication files are never read, stored or displayed.
+
 ## 11. Phase 3 — Hosted SaaS Parity
 
 ### Product outcome
@@ -873,6 +927,7 @@ No roadmap date should override a failed security, migration, backup, or data-is
 - Which AI providers and billing model will be supported in SaaS?
 - What usage limits belong to the free and paid plans?
 - Is Railway the initial production host, or only a staging environment?
+- Agent Workflow Control Center (§10A): confirm it as a deliberate desktop subsystem, approve the separate runner process, and verify the Codex and Antigravity headless CLIs.
 
 These decisions should be made before the release that depends on them, not all at once.
 

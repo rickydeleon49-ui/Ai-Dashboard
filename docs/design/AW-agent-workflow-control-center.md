@@ -1,0 +1,364 @@
+# Design Note: Agent Workflow Control Center
+
+**Status:** Proposal — review and implementation plan. No code yet.
+
+**Updated:** October 12, 2026
+
+**Context:** A request to add a general-purpose control center that runs and
+monitors coordinated coding agents (planner → implementer → checks → reviewer →
+corrections) against any local project. This note reviews that request against
+the existing architecture, records the decisions it needs, and splits it into
+releases that can each be reviewed on their own.
+
+---
+
+## 1. Verdict
+
+**Worth building, and the codebase is a good fit for it, but not as one change.**
+
+The request is about six features in one: a project registry, a durable
+orchestrator, three CLI adapters, a sandbox and permission model, a live event
+stream, and a review UI. Built as one change, it would produce a diff that
+nobody can review independently. That defeats the request's own last line.
+
+The dashboard already has most of the groundwork this needs:
+
+| Need | What already exists |
+| --- | --- |
+| Local project folders | `projects.local_path` and the desktop `desktop:open-local` IPC (folder, editor, terminal) |
+| An approval vocabulary | `src/core/ai/approvals.ts`: `auto` / `ask` / `never` per action, with `git_push` defaulting to `never` |
+| Streamed JSON parsing | `src/core/ai/ndjson.ts`, which handles chunk boundaries and is fully tested. Claude Code `--output-format stream-json` emits exactly this format. |
+| Supervising a child process | `desktop/ollama.js` (spawn, health, shutdown) and the Electron main process forking the server |
+| Localhost binding and protection against requests from other sites | `src/proxy.ts`, with a per-launch `DESKTOP_INTERNAL_SECRET` and cross-site checks on state-changing requests |
+| Restart-tolerant background work | `src/core/automation/scheduler.ts` (a `globalThis` singleton that recomputes from the database, not from timers) |
+| Design language | `PageHeader`, `Card`, `Badge`, `EmptyState` and the design tokens in `globals.css` |
+
+So this extends the codebase; nothing needs to be invented from scratch. The
+rest of this note covers the parts that are genuinely new and risky.
+
+## 2. Decisions needed before any code
+
+### 2.1 It conflicts with the current product direction, so decide deliberately
+
+`NEXT.md` says the app is *"a personal command center, not an AI agent
+platform"*, and that *"automation is a later product, not a sidebar page"*, because
+reliable jobs need logs, retries, cancellation, permissions, secrets and failure
+recovery. This feature is exactly that subsystem.
+
+There are two honest ways forward:
+
+- **(Recommended) Build it as that "later product", on purpose.** Give it its own
+  top-level section ("Agent Runs"), mark it desktop-only, and accept that it
+  comes with the logs, cancellation, recovery and permission work listed above.
+  This note plans for all of it.
+- Defer it and keep the dashboard smaller.
+
+Either is reasonable. Building it as a half-finished sidebar page is the one
+option the existing rules rule out.
+
+### 2.2 Desktop-only, and it fails closed everywhere else
+
+A server that launches CLI processes against a filesystem path amounts to remote
+code execution if anyone else can reach it. The feature must be **disabled
+unless the server runs in desktop local mode** (`DASHBOARD_LOCAL=1` with
+`DESKTOP_INTERNAL_SECRET`, bound to 127.0.0.1):
+
+- In hosted single-password mode and accounts mode (Railway), the routes return
+  404 and the navigation entry is hidden.
+- This is checked in `core/`, not only in the UI. The same pattern as
+  `isAccountsMode()`.
+
+### 2.3 Where the processes live: a dedicated runner, not the Next.js server
+
+Long-lived child processes do not belong inside Next.js route handlers.
+Development hot-reload, worker recycling and request timeouts all orphan or kill
+them. **Recommendation:** add a separate **agent runner** Node process, forked by
+the Electron main process alongside the server:
+
+```
+Electron main
+  ├─ fork() Next standalone server   (UI + API; never spawns agents)
+  └─ fork() agent runner             (owns every agent child process)
+          ▲
+          │ SQLite (WAL): run requests, stop requests, events
+          ▼
+  Next API ── SSE ──► browser
+```
+
+- The Next API **only writes intents** (create a run, stop a run, approve an
+  action) as rows. It never spawns anything. That makes "structured workflow
+  actions, not shell commands" true by construction: there is no code path from
+  an HTTP body to `spawn`.
+- The runner claims intents, owns the process groups, and appends events.
+- SQLite is the single source of truth. That gives restart recovery and
+  reconnection without a second protocol.
+- In `npm run dev` (web, no Electron), the runner starts as a separate
+  `npm run runner` script. The UI shows "Runner not running" rather than
+  pretending.
+
+## 3. Things in the request I could not verify here
+
+| Item | Status | Consequence |
+| --- | --- | --- |
+| Claude Code CLI | **Verified** (v2.1.296): `-p`, `--output-format stream-json`, `--model`, `--effort`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`, `--resume`, `--settings` | The implementer adapter can be built and tested now |
+| Codex CLI | Not installed in this environment | The adapter must discover its real options (`codex exec --help`, `--json`, sandbox and approval flags) on your Mac before it ships |
+| Antigravity | Not installed. It is primarily an IDE, and **whether it has a stable headless CLI is the biggest unknown in the request** | The adapter ships as "unavailable until verified". If no non-interactive mode exists, it cannot be an unattended implementer, and the UI must say so |
+| Model IDs "GPT-6.1 Sol", "Gemini 3.8 Flash High" | Unverified | These are stored as configured strings, validated against each CLI's own model listing where one exists, and **never substituted**. A rejected model fails the run with the CLI's own error message. |
+| Opus 5.5 | `claude-opus-5-5`, passed via `--model`, with `--effort medium` | — |
+| LM Studio + Gemma 4 12B | Not available here | Optional advisory adapter for LM Studio's OpenAI-compatible endpoint, default `127.0.0.1:1234`. It summarises only and never gates success. |
+| `flight-deck-team` controller | **Not reachable.** It is on your Mac (`/Users/rickymac/...`); this is a cloud container | See §10 for what to bring over |
+
+**Provider availability is a probe, not a setting.** Each adapter has a
+`probe()` that runs `--version` and an auth-status command, then reports
+installed, version, authenticated (yes/no) and supported models. A provider
+that fails its probe cannot be selected. The probe never reads, copies or
+displays credential files (`~/.claude`, `~/.codex`, keychains). It reports only
+the yes/no answer the CLI itself gives.
+
+## 4. Data model (SQLite, desktop only)
+
+Projects reuse the existing `projects` table and its `local_path`. "Register a
+local project folder" means creating or editing a project with a local path, so
+there is no parallel registry. The new tables are:
+
+```
+agent_project_policy   project_id PK → projects
+                       check_commands JSON   [{name, argv[], timeoutSec}]
+                       excluded_paths JSON   (globs the agents may not read or write)
+                       test_restrictions JSON (e.g. "no network", "unit only")
+                       roadmap_source TEXT   (path + parser kind, or null)
+                       defaults JSON         (planner/implementer/reviewer + model + effort)
+
+agent_run              id, project_id, status, stage, request JSON (task + roles),
+                       workspace_kind (git_worktree | snapshot_copy),
+                       workspace_path, base_ref, branch,
+                       correction_round 0..3, outcome JSON,
+                       runner_epoch, created_at, updated_at, ended_at
+
+agent_run_event        run_id, seq INTEGER  (PK run_id+seq, gapless per run)
+                       ts (DB time), stage, agent (planner|implementer|reviewer|
+                       checks|advisor|system), kind, payload JSON (bounded, redacted)
+
+agent_run_intent       id, run_id, kind (start|stop|approve|deny|resume),
+                       payload JSON, created_at, claimed_at   (API → runner queue)
+
+agent_workspace_lock   lock_key PK (realpath of the working copy), run_id
+```
+
+- **Statuses:** `queued → preparing → planning → implementing → checking →
+  reviewing → (correcting → checking → reviewing)×≤3 → awaiting_approval →
+  succeeded | failed | stopped | interrupted`.
+- **`agent_workspace_lock`** has a primary key on the working-copy realpath. The
+  insert happens in the same transaction that moves a run to `preparing`, so two
+  runs cannot hold the same working copy. A second run on the same project gets
+  its own worktree. A run that must touch the original folder (non-Git apply-back)
+  takes the lock on the original.
+- **`runner_epoch`** is a random value the runner generates at startup. Any run
+  that is still "active" with a stale epoch was orphaned by a crash or restart.
+  See §7.
+
+## 5. Workspace strategy
+
+| Project kind | Strategy |
+| --- | --- |
+| Git repository | `git worktree add <runstore>/wt/<runId> -b agent/<runId> <base>` from the current `HEAD`. Your checkout, index and uncommitted work are never touched. The result is a branch you can inspect, merge or delete. |
+| Git with uncommitted changes | The run starts from `HEAD`, **not** from your uncommitted edits, and the UI says so before you start. Snapshotting dirty state into the worktree is a later option. |
+| Not a Git repository | Copy into `<runstore>/snap/<runId>/base` (honouring exclusions and skipping `node_modules` and the like), then `git init` + commit there and work in a worktree of *that*. You get the same diff and review experience. Copying back to the original folder is a separate, approval-gated action that first makes a timestamped backup. |
+
+`<runstore>` lives under the app's user-data directory (`app.getPath("userData")/agent-runs`),
+next to the database, never inside the project. Cleanup removes worktrees only
+for runs you have dismissed, and never removes a branch that has unmerged commits
+without asking.
+
+## 6. Security model
+
+1. **Scope.** Each agent process runs with `cwd` set to the run's workspace.
+   Claude Code gets `--add-dir` only for that workspace. The runner rejects any
+   policy path that resolves (via `realpath`, after following symlinks) outside
+   the workspace. Excluded paths go in as `--disallowedTools` path rules plus a
+   post-run check that fails the run if an excluded path changed.
+2. **No bypass flags, ever.** `--dangerously-skip-permissions` and its
+   equivalents in the other CLIs are in a denylist that the adapter unit tests
+   assert against the generated argv. Permissions are granted narrowly instead.
+   For Claude Code, the runner writes a per-run `--settings` file into
+   `<runstore>/runs/<runId>/` that allows Read, Edit and Write plus
+   `Bash(<each configured check command>)`, and denies `git push`, `git merge`,
+   network-publishing commands and deletion outside the workspace. That file is
+   the "temporary permission grant" and is deleted when the run ends or is stopped.
+3. **Separate approval for anything external or irreversible.** Merging, pushing,
+   publishing, deploying, releasing, applying back to a non-Git folder, deleting
+   files outside the run workspace, and any check flagged `touches_real_data`
+   all become `awaiting_approval` intents. These reuse and extend
+   `AGENT_ACTION_SPECS` in `approvals.ts`, so there is one vocabulary.
+4. **No shell from the browser.** Check commands are `argv[]` arrays stored in
+   the project policy, run with `shell: false`. The policy editor validates them
+   with Zod. Run requests reference checks by name; they never contain commands.
+5. **Credentials.** Agent environment variables are an allowlist (PATH, HOME,
+   LANG, and each provider's documented variables). Event payloads go through a
+   redactor (known token patterns, `Authorization:`, anything matching the env
+   allowlist's secret names) before they are stored. Paths under credential
+   directories are never read by the dashboard.
+6. **HTTP.** This inherits `src/proxy.ts` unchanged: localhost-only, the desktop
+   secret, and cross-site rejection on POST, PUT, PATCH and DELETE. SSE is a GET
+   and is read-only.
+
+## 7. Orchestration and truthful status
+
+```
+inspect   runner reads CLAUDE.md / AGENTS.md / README / policy  (no agent)
+plan      planner → strict JSON {task, scope_paths, acceptance, checks[]}  (schema-validated)
+implement implementer CLI in the worktree, stream-json → events
+checks    runner runs the policy's check commands itself; records exit codes + bounded output
+diff      runner computes `git diff base...HEAD` + untracked files itself
+review    reviewer gets {plan, diff, check results} → strict JSON {verdict, findings[]}
+correct   if findings are actionable and round < 3 → implementer gets findings → checks → review
+final     outcome = f(diff non-empty, every required check passed, reviewer verdict = approve)
+```
+
+- **The agent's own claims never set the status.** `succeeded` requires all
+  three facts the runner observed itself: a non-empty diff confined to allowed
+  paths, every required check exiting 0, and a schema-valid reviewer approval.
+  Anything else is `failed`, with the specific missing fact named.
+- **Stop.** The runner `kill`s the process **group** (it spawns with
+  `detached: true` and sends `SIGTERM`, then `SIGKILL` after a grace period).
+  Commits are preserved: the implementer's work is committed to the run branch
+  before the stop is acknowledged, as `wip: stopped by user`. The per-run grant
+  is deleted, the lock is released, and the run becomes `stopped`.
+- **Restart recovery.** At startup the runner finds active runs with a stale
+  epoch, kills any surviving process group it recorded (by PGID), marks them
+  `interrupted`, and appends a `system` event explaining why. It does **not**
+  auto-restart them.
+- **Resume.** This is an explicit user action. It starts a new stage attempt
+  from the last *completed* stage boundary, re-using the worktree. For Claude
+  Code it may use `--resume <session-id>` when one was recorded. It is never
+  "pick up mid-command".
+
+## 8. Live events and reconnection
+
+- `GET /api/agent-runs/:id/events` is a Server-Sent Events stream. Each event's
+  `id:` is its `seq`. On reconnect, the browser sends `Last-Event-ID`, and the
+  server replays `seq > lastId` from SQLite, then tails. Because `seq` is
+  gapless per run, assigned in the insert transaction, and the client discards
+  `seq <= lastSeen`, there is **no loss and no duplication**, including across
+  a dashboard restart.
+- Payloads are bounded (for example, 16 KB per event, with long command output
+  split into chunks), so a chatty build cannot bloat the database or the browser.
+
+## 9. UI (existing components only)
+
+- `/agents`: a project picker (projects that have a `local_path`), a task box or
+  "Next roadmap task" (enabled only when the project has a roadmap source), role
+  and model and effort pickers populated from probes, and a run-history table.
+- `/agents/runs/[id]`: a stage timeline, a live event log filterable by agent,
+  a changed-files list with a unified diff, check results, review findings per
+  round, the final verdict with its three facts, and Stop, Resume and
+  approval buttons.
+- `/settings/agents`: provider probes (installed, version, authenticated yes/no,
+  models), defaults, and per-project policy.
+
+## 10. What to bring over from `flight-deck-team`
+
+That path lives on your Mac, so I could not read it. When it is available,
+either copy it into the repo under `reference/` (gitignored) or paste the key
+files. Then extract the **ideas** and drop the assumptions:
+
+- **Keep:** the stage machine, the prompt templates for planning and review, how
+  it parses each CLI's output, and its correction-loop rules.
+- **Drop and replace with per-project policy:** hard-coded project paths, its
+  roadmap file convention, its test commands, and any permission flags it
+  passes. Anything Flight-Training-specific becomes a field in
+  `agent_project_policy`, not a constant.
+
+## 11. Release plan
+
+Each release is a separate PR and is independently testable.
+
+| Release | Contents | Done when |
+| --- | --- | --- |
+| **AW.1 — Vertical slice** | Schema, runner process, Git worktree workspaces, Claude Code as implementer, runner-owned checks and diff, **single-pass review by Claude** (separate session), SSE with replay, Stop, restart → `interrupted`, `/agents` and run-detail pages, and a scripted **fake agent CLI** for tests and the demo | select project → choose implementer → submit → watch → inspect diff and verdict, demonstrated on a synthetic temp project |
+| AW.2 — Codex roles + corrections | Codex adapter (after the help/flag probe on your Mac) as planner and reviewer, structured planner and reviewer JSON, up to 3 correction rounds | Correction loop proven with the fake agent emitting findings |
+| AW.3 — Antigravity + LM Studio | Antigravity adapter **only if** a headless mode is verified; otherwise the UI shows a clear "unavailable" state. LM Studio advisory summaries. | Probe-driven availability, never a silent fallback |
+| AW.4 — Policy, resume, non-Git, approvals | Per-project policy editor, exclusions and test restrictions, non-Git snapshot strategy, explicit Resume, approval-gated merge, push and apply-back | Approval gates covered by tests |
+
+Starting AW.1 with only Claude Code is deliberate: it is the one CLI verified
+here, and the fake agent proves the orchestration without needing any real
+credentials in CI.
+
+## 12. Test plan (from AW.1 onward, `tests/unit/agent-*.test.ts`)
+
+All tests use the **fake agent CLI**, a small Node script that reads its
+instructions from env or argv and emits stream-json, edits files, sleeps or
+crashes on demand. Each test also uses a temp `git init` project under
+`os.tmpdir()`. No real providers are called and no real data is touched.
+
+| Area | Test |
+| --- | --- |
+| Project isolation | A policy path that escapes the workspace (via `..` or a symlink) is rejected. A changed excluded path fails the run. The worktree path is under run storage, never the original project. |
+| Input validation | Zod rejects shell strings, unknown roles, unverified models, unknown check names and oversized tasks. The generated argv never contains a bypass flag. |
+| Concurrency | Two concurrent starts on the same working copy produce one lock and one refusal. Two runs on the same project get separate worktrees. |
+| Event reconnection | Reconnecting with `Last-Event-ID` = k yields exactly `seq > k`, including after a simulated server restart. |
+| Cancellation | Stop kills a fake agent that spawned a grandchild (the process group is empty afterwards), the work is committed as `wip`, and the status is `stopped`. |
+| Cleanup | The per-run settings file is gone and the lock is released after success, failure, stop and crash recovery. |
+| Truthful status | A fake agent that *says* "all tests pass" while the check exits 1 produces `failed`. An empty diff produces `failed`. A malformed reviewer JSON produces `failed`, not approved. |
+| Recovery | A run left active with a stale epoch becomes `interrupted` with an explanatory event, and is not auto-restarted. |
+
+The demo is a script (`npm run agents:demo`) that creates a disposable project
+in a temp directory, registers it in a **temp database** (`DATABASE_PATH` points
+at the temp directory), runs the fake agent end to end, prints the event log
+and diff, and deletes everything.
+
+## 13. Risks and limitations to state up front
+
+- **Antigravity may not be scriptable.** That is a real possibility, and the
+  design treats it as a first-class outcome rather than a bug.
+- **The runner is only alive while the app is open**, the same as automations.
+  Closing the app interrupts runs, and they show as `interrupted`, honestly.
+- **Agent CLIs change their flags often.** Each adapter pins the flags it uses,
+  and the probe fails loudly when they disappear.
+- **Cost and quota.** Three roles × up to four passes can be expensive. The run
+  form should show which models will be used before you start. Adding a token or
+  cost readout is a later item.
+- **Scope of the permission model.** The CLIs' own sandboxes enforce the actual
+  file and command limits. The dashboard configures them narrowly and verifies
+  results afterwards, but it is not itself an OS-level sandbox.
+
+## 14. Kickoff checklist (before the first AW.1 commit)
+
+1. **Product decision (§2.1):** confirm the control center is a deliberate
+   desktop subsystem. Then update `NEXT.md` so it no longer contradicts the
+   roadmap.
+2. **Architecture decision (§2.3):** approve the separate runner process.
+3. **On the development Mac**, capture and paste into this note:
+   - `claude --version` and `claude --help`, to confirm the flags in §3 match the installed version
+   - `codex --version`, `codex exec --help`, and its login-status command
+   - The Antigravity CLI's `--help`, or confirmation that it has no headless mode
+   - `lms ls` (LM Studio), if the advisor is wanted
+4. **Make `flight-deck-team` available** (§10) and record which ideas carry over.
+5. **Create the branch** from the latest `main`. Run `npm run db:generate` once
+   before changing the schema to confirm the migration metadata is clean.
+
+## 15. AW.1 build list
+
+The order matters: each step is testable before the next one starts.
+
+| # | Files | What |
+| ---: | --- | --- |
+| 1 | `src/core/agents/types.ts`, `schema.ts` | Run statuses and stages, event kinds, the Zod schemas for run requests (task, roles, model, effort, check names) and for planner and reviewer output |
+| 2 | `src/db/schema.ts` + generated `drizzle/00xx_agent_runs.sql` | `agent_project_policy`, `agent_run`, `agent_run_event`, `agent_run_intent`, `agent_workspace_lock` (§4). SQLite only, and asserts desktop mode. |
+| 3 | `src/core/agents/availability.ts` | `isAgentRunsEnabled()`: true only in desktop local mode. Used by routes, navigation and the runner. |
+| 4 | `src/core/agents/events.ts` | Append (gapless `seq` inside a transaction), a bounded and redacted payload, and `readSince(runId, seq)` |
+| 5 | `src/core/agents/redact.ts` | Token, header and env-secret redaction. Pure, so it can be tested exhaustively. |
+| 6 | `src/core/agents/workspace.ts` | Worktree create and remove, realpath containment checks, lock acquire and release, and the `git diff base...HEAD` summary |
+| 7 | `src/core/agents/process.ts` | Spawn with `detached: true` and `shell: false`, record the process group ID, then stop the group with SIGTERM followed by SIGKILL. Fed through the existing `ndjson.ts` parser. |
+| 8 | `src/core/agents/adapters/claude-code.ts`, `adapters/fake.ts` | `probe()`, `buildArgv()` (asserted to never include a bypass flag), the per-run `--settings` grant file, and stream-json → events |
+| 9 | `src/core/agents/orchestrator.ts` | The stage machine in §7. The final status is computed only from facts the runner observed. |
+| 10 | `runner/index.ts` (+ `npm run runner`) | Claims intents, runs the orchestrator, epoch-based recovery at startup |
+| 11 | `desktop/main.js` | Forks the runner next to the server, passes the run-storage path, and stops it on quit |
+| 12 | `src/app/api/agent-runs/**` | `POST` creates a start intent, `POST /:id/stop` creates a stop intent, `GET /:id` returns the run, and `GET /:id/events` streams SSE with `Last-Event-ID` replay. All of them return 404 when the feature is disabled. |
+| 13 | `src/app/agents/**`, `src/components/agents/**`, `src/config/navigation.ts` | Run form, history, run detail (timeline, events, diff, checks, verdict, Stop) |
+| 14 | `tests/unit/agent-*.test.ts`, `tests/fixtures/fake-agent.mjs` | The test plan in §12 |
+| 15 | `scripts/agents-demo.ts` (+ `npm run agents:demo`) | Disposable synthetic project + temp database, end to end with the fake agent |
+| 16 | `README.md`, this note | Setup, usage, validation results, and the limitations that remain |
+
+AW.1 is done when `typecheck`, `lint` and `test:unit` pass, the demo runs
+cleanly, and the PR is open for independent review **without being merged**.
