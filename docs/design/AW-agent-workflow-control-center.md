@@ -252,7 +252,15 @@ Command: `agy -p "Create a file named hello.txt containing hi, then run the comm
 - **After the failures, the agent spawned a subagent** (`invoke_subagent`, `Model: "inherit"`) to try again. Subagents multiply cost and act out of view. **Rule:** `invoke_subagent` and `define_subagent` are not on the implementer allowlist, and using them fails the run unless you turn them on in that project's policy.
 - **Output encoding.** The file came back as UTF-16LE with a BOM. That is PowerShell 5.1's `*>` redirect, not `agy`: the runner reads the child's stdout pipe directly as UTF-8. Test fixtures copied from these files are converted to UTF-8 first.
 
-**Still to run:** `agy plugin list`, `agy agents`, and `agy help plugin` / `agy help agent`, to see whether plugins can be skipped per run and whether a restricted-tool agent can be defined. Then **re-run smoke test 2 with the broken telemetry plugin disabled**.
+#### Plugin and agent commands (Windows, `agy` 1.3.3, October 12, 2026)
+
+- **`agy plugin list` printed "No imported plugins."**, yet both smoke tests loaded hooks and skills from `%USERPROFILE%\.gemini\config\plugins\` (`googlecloudtools.datacloud_telemetry`, `data-agent-kit-plugin`). So `agy` also loads **legacy Gemini CLI plugins straight from `~/.gemini`**, outside its own registry (`agy plugin import [gemini|claude]` exists for migrating them). Consequences:
+  - The probe cannot rely on `agy plugin list`. It also lists the **directory names** under `~/.gemini/config/plugins` and flags any that contain hooks. It reads plugin names and hook manifests only, never anything else in `~/.gemini`, which also holds sign-in files.
+  - `agy plugin disable <name>` applies only to imported plugins, so it cannot switch off a legacy one. Moving the folder out of `config/plugins` can, and that decision is yours (the dashboard never does it).
+- **`agy agents` listed nothing**, and `agy agent` has no flags other than `--help`. There is no built-in, restricted-tool agent to use, and nothing in the help shows how to define one. So for now the tool allowlist (§3.2) is enforced **only by watching the tool calls during the run** and failing on a violation. That limitation is stated in the run form when Antigravity is the implementer.
+- Still to try later: whether an environment variable can point `agy` at an isolated config home (the equivalent of Codex's `--ignore-user-config`). Until one is verified, the plugin and hook acknowledgement in the run form stays.
+
+**Next:** re-run smoke test 2 with the broken telemetry plugin moved out of `~/.gemini/config/plugins`.
 
 ## 4. Data model (SQLite, desktop only)
 
