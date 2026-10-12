@@ -1,8 +1,8 @@
 # Command Center / AI-Dashboard Product Roadmap
 
 **Repository:** `rickydeleon49-ui/Ai-Dashboard`  
-**Roadmap version:** 1.1  
-**Updated:** September 18, 2026  
+**Roadmap version:** 1.2  
+**Updated:** October 12, 2026  
 **Status:** Planning document; Phase 2 hardening is completed and merged. A fresh-start readiness correction is in independent review as the final prerequisite before Phase 2C.
 
 ## 1. Product vision
@@ -129,6 +129,9 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 | 7 | Phase 3 — Hosted SaaS Parity | Every supported domain is genuinely tenant-safe | Phase 2 platform foundations |
 | 8 | Phase 4 — Commercial SaaS | The product can onboard, bill, support, and retain customers | Hosted parity |
 | 9 | Phase 5 — Scale and Enterprise Readiness | Larger organizations can govern and operate safely | Commercial baseline |
+| D | Desktop track — Agent Workflow Control Center (AW.1–AW.4) | Run and monitor coordinated coding agents against any local project | Desktop local mode only; independent of the hosted phases — **the product direction (confirmed October 12, 2026); AW.1 next** |
+
+The desktop track does not block, and is not blocked by, the hosted phases. It ships only in desktop local mode and is hidden and unreachable in both hosted modes (§16).
 
 ## 5. Phase 2 hardening — Release gate
 
@@ -556,6 +559,86 @@ Command Center connects planning work to real development and operational signal
 - Every externally visible or destructive AI action requires approval.
 - Usage and cost limits are enforced server-side.
 
+## 10A. Desktop track — Agent Workflow Control Center
+
+**Status:** Confirmed as the product direction on October 12, 2026. AW.1 is next. The full design, security model and test plan are in [`docs/design/AW-agent-workflow-control-center.md`](design/AW-agent-workflow-control-center.md).
+
+**Availability:** Desktop only (§16). In password-hosted and accounts mode it is hidden and returns 404 from the API, because a server that launches CLI processes against filesystem paths must never be reachable by anyone but the local user.
+
+### Product outcome
+
+Pick a local project, choose an implementer (Claude Code or Antigravity), submit a task or ask for the next roadmap task, and watch a bounded plan → implement → check → independent review → up to three correction rounds. The result can be reviewed afterwards: diff, check results and review verdict. Merges, pushes, deploys and any other irreversible action each need a separate approval.
+
+### Decisions before AW.1
+
+- ~~Confirm it as a deliberate subsystem~~ — **decided October 12, 2026**: this is now the product, desktop-first.
+- ~~Approve the architecture~~ — **decided**: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
+- Still open (needed for AW.2 and AW.3, not for AW.1): ~~confirm the Codex login-status command and the effort config key~~ **done October 12, 2026** (`codex login status` works; `model_reasoning_effort` is validated by the service, with values none, minimal, low, medium, high, xhigh and max) (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), (`agy models` and Antigravity smoke tests 1–5 completed on October 12, 2026; the implementer is edit-only, with runner-owned checks). (Recorded on October 12, 2026: `agy` 1.3.3 has a headless `--print` mode with stream-json, `--model` and `--effort`; Codex 0.162.1 on Windows is signed in. See §3.1–3.2 of the design note.) Make the `flight-deck-team` controller available for review (§10 of the design note).
+
+### Build sequence
+
+Each release is one PR, opened from the latest `main` after the previous release merges, and is never merged by an agent. The step-by-step build lists (files, order, tests, manual acceptance per machine) are in the design note: §15 for AW.1 and §16 for AW.2–AW.6, with the gates between releases in §16.1.
+
+| Release | Builds | Manual acceptance |
+|---|---|---|
+| AW.1 | Runner, worktrees, Claude Code implementer, checks, single-pass review, live events, Stop, recovery, run pages, settings for roots | Fake-agent demo, then a real Claude Code run on Windows and on the Mac |
+| AW.2 | Codex planner and reviewer, structured plan and review, up to 3 correction rounds, your inline diff comments | A real run with at least one correction round |
+| AW.3 | Antigravity implementer (file tools only, tool monitor), plugin and MCP acknowledgement, LM Studio advisor | A real Antigravity run on the Windows PC |
+| AW.4 | Project policy, next eligible task from the task board, non-Git projects, resume, approval-gated merge, push, draft PR and apply-back | Next-task pick, an approved draft PR, a non-Git apply-back |
+| AW.5 | Self-hosted on the mini PC, with operator sign-in, Tailscale-only binding and phone layout | Watching and approving from a phone |
+| AW.6 | Optional container sandbox (candidate) | A run inside a container |
+
+### Release AW.1 — Vertical slice
+
+- Run, event, intent, lock and project-policy tables (SQLite, desktop only)
+- Agent runner process; isolated Git worktree per run under the app's user-data directory
+- Claude Code implementer (verified flags, no permission-bypass flags), runner-owned checks and diff, single-pass Claude review
+- Server-Sent Events with `Last-Event-ID` replay; Stop (kills the process group, preserves work as a `wip` commit); restart marks orphaned runs `interrupted`
+- `/agents` and run-detail pages built from existing UI primitives
+- A fake agent CLI plus a disposable synthetic-project demo, so tests and the demo need no credentials
+- A commit per stage, a changed-files overview ordered for review, a startup worktree recovery report (report only), and a `diff2html` diff view (design note §10A)
+
+### Release AW.2 — Codex planner/reviewer and correction rounds
+
+- Codex adapter behind a capability probe; schema-validated planner and reviewer JSON
+- Up to three correction rounds driven by actionable findings
+- Per-round diff navigation; inline diff comments from you go to the agent as correction input, labelled as yours
+
+### Release AW.3 — Antigravity and local advisor
+
+- Antigravity implementer adapter: the headless `agy -p` mode is confirmed (1.3.3). It ships once the model-ID, sign-in and shell-permission smoke tests pass. Until then it is shown as unavailable, never silently replaced.
+- Optional LM Studio advisory summaries (Gemma 4 12B); advisory only, never part of the success decision
+
+### Release AW.4 — Policy, resume, non-Git projects, approvals
+
+- Per-project check commands, exclusions and test restrictions
+- Snapshot-and-init strategy for non-Git folders; approval-gated apply-back with a backup
+- Explicit resume from the last completed stage; approval-gated merge, push and publication
+- **Next eligible task from the dashboard's own task board** (open, unblocked by dependencies, not already in a run); the run links back to the task and posts its outcome to the task's activity
+- Opt-in links for dependency folders into worktrees; an approval-gated draft PR built from facts the runner recorded; worktree retention for dismissed runs
+
+### Release AW.5 (candidate) — Self-hosted on your own machine
+
+- Run the server and the runner headless on an always-on machine you own, such as a mini PC, so runs no longer depend on the desktop app being open
+- A separate opt-in mode with real operator authentication, private-interface binding (LAN or Tailscale) and TLS. It is never combined with accounts mode or Railway.
+- Requirements are in §2.2 of the design note; this is scheduled once the mini PC is available
+- Run list and run detail usable on a phone over Tailscale; approvals from the phone require the operator login again
+
+### Later candidate (AW.6) — Container sandbox per project
+
+- An OS-level boundary for Claude Code and Codex runs (Docker/Podman). Antigravity is excluded until it can sign in inside a container.
+
+### Desktop track exit criteria
+
+- No code path from an HTTP request body to a spawned process; workflow actions are structured intents only.
+- No permission-bypass flags in any generated command line (asserted by tests).
+- Two runs can never hold the same working copy.
+- `succeeded` is derived only from runner-observed facts: a non-empty diff confined to allowed paths, every required check passing, and a schema-valid reviewer approval.
+- Stop and crash recovery leave no orphaned processes, permission grants or locks.
+- Works on both **macOS and Windows**: CLIs are resolved without `.cmd` shims or a shell, process trees are stopped with each platform's own mechanism, and path containment holds under case-insensitive and drive-letter paths (design note §5A). The test suite passes on the Windows CI job.
+- Event reconnection neither loses nor duplicates events, including across a restart.
+- Credentials and authentication files are never read, stored or displayed.
+
 ## 11. Phase 3 — Hosted SaaS Parity
 
 ### Product outcome
@@ -873,6 +956,7 @@ No roadmap date should override a failed security, migration, backup, or data-is
 - Which AI providers and billing model will be supported in SaaS?
 - What usage limits belong to the free and paid plans?
 - Is Railway the initial production host, or only a staging environment?
+- Agent Workflow Control Center (§10A): verify the Codex and Antigravity headless CLIs (product direction and runner architecture decided October 12, 2026).
 
 These decisions should be made before the release that depends on them, not all at once.
 

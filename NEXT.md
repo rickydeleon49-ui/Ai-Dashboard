@@ -6,8 +6,27 @@ product direction currently in progress.
 
 ## The direction
 
-The app is a **personal command center**, not an AI agent platform. Six
-priorities, in the order they should be built:
+**Updated October 12, 2026: the Agent Workflow Control Center is now the
+product.** You pick a local project, choose an implementer (Claude Code or
+Antigravity), and watch a bounded plan → implement → check → independent review
+→ correction loop. You then review the verified result before anything is
+merged or published. It is desktop-first. Running it on an always-on machine you
+own, such as a mini PC, is a planned later mode (AW.5).
+
+- Design, security model, test plan and build list:
+  `docs/design/AW-agent-workflow-control-center.md`
+- Releases and exit criteria: `docs/ROADMAP.md` §10A
+- **Next step: AW.1**, the vertical slice. Its build list is §15 of the design
+  note. AW.1 needs only Claude Code. The Codex and Antigravity CLI checks on the
+  Mac are needed for AW.2 and AW.3.
+
+This replaces the earlier position that the app is "not an AI agent platform".
+Priority 6 below ("automation is a later product") is that product, built on
+purpose, with the logs, cancellation, permissions and recovery that priority
+demanded. The other priorities still stand as supporting work. Local projects
+being first-class (1) is now a direct prerequisite.
+
+The earlier priorities, kept for reference:
 
 1. **Local projects first-class** — one-click open folder, editor, terminal,
    GitHub, relevant URLs. This is what a desktop app can do that a browser tab
