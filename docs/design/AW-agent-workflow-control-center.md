@@ -36,7 +36,7 @@ The dashboard already has most of the groundwork this needs:
 So this extends the codebase; nothing needs to be invented from scratch. The
 rest of this note covers the parts that are genuinely new and risky.
 
-## 2. Decisions needed before any code
+## 2. Decisions (all made on October 12, 2026)
 
 ### 2.1 It conflicts with the current product direction, so decide deliberately
 
@@ -655,10 +655,86 @@ The order matters: each step is testable before the next one starts.
 | 10 | `runner/index.ts` (+ `npm run runner`) | Claims intents, runs the orchestrator, epoch-based recovery at startup, and the **worktree recovery report** (§10A idea 3: report mismatches, remove nothing) |
 | 11 | `desktop/main.js` | Forks the runner next to the server, passes the run-storage path, and stops it on quit |
 | 12 | `src/app/api/agent-runs/**` | `POST` creates a start intent, `POST /:id/stop` creates a stop intent, `GET /:id` returns the run, and `GET /:id/events` streams SSE with `Last-Event-ID` replay. All of them return 404 when the feature is disabled. |
-| 13 | `src/app/agents/**`, `src/components/agents/**`, `src/config/navigation.ts` | Run form, history, run detail (timeline, events, diff via `diff2html` (§10A), checks, verdict, Stop) |
+| 13 | `src/app/agents/**`, `src/app/settings/agents/**`, `src/components/agents/**`, `src/config/navigation.ts` | Run form, history, run detail (timeline, events, diff via `diff2html` (§10A), checks, verdict, Stop), and **settings: provider probes, workspace roots and the worktree root** (so `H:\Ai Repo clones` and `H:\Ai Repo worktrees` can be set from AW.1) |
 | 14 | `tests/unit/agent-*.test.ts`, `tests/fixtures/fake-agent.mjs` | The test plan in §12 |
 | 15 | `scripts/agents-demo.ts` (+ `npm run agents:demo`) | Disposable synthetic project + temp database, end to end with the fake agent |
 | 16 | `README.md`, this note | Setup, usage, validation results, and the limitations that remain |
 
 AW.1 is done when `typecheck`, `lint` and `test:unit` pass, the demo runs
 cleanly, and the PR is open for independent review **without being merged**.
+
+## 16. Build plan for AW.2–AW.6
+
+The same format as §15: steps in order, each testable before the next. Every release is **one PR**, opened from the latest `main` once the previous release has merged. It is never merged by an agent. Each release is done only when `typecheck`, `lint` and `test:unit` pass on the Linux **and Windows** CI jobs, its manual acceptance check passes on the named machine, and the PR is open for independent review.
+
+### 16.1 Delivery sequence and gates
+
+| Release | Starts when | Manual acceptance (machine) | Open items it needs first |
+| --- | --- | --- | --- |
+| AW.1 | #40 merged | Fake-agent demo, then one real Claude Code run on a scratch project in `H:\Ai Repo clones` (Windows PC) and one on the Mac | None |
+| AW.2 | AW.1 merged | A real run with Claude Code implementing, Codex planning and reviewing, and at least one correction round (Windows PC and Mac) | Codex effort-key check (§3.1). If the key is rejected, effort is shown as "not configurable for Codex" and only the default is allowed. Nothing is silently changed. |
+| AW.3 | AW.2 merged | A real run with Antigravity implementing and Codex reviewing, on the Windows PC | None. Antigravity verification is complete (§3.2). |
+| AW.4 | AW.3 merged | Next-task pick from a real project's task board; an approved draft PR; an apply-back on a non-Git scratch folder (Windows PC) | None |
+| AW.5 | The mini PC is running, and AW.4 merged | Watching and approving a run from a phone over Tailscale | Mini PC OS, Tailscale set up |
+| AW.6 | You decide to build it | A Claude Code run inside a container | Docker Desktop or Podman installed |
+
+### 16.2 AW.2 — Codex planner and reviewer, and correction rounds
+
+| # | Files | What |
+| ---: | --- | --- |
+| 1 | `src/core/agents/schemas/plan.ts`, `schemas/review.ts` | Zod schemas, which are the single source of truth, exported to JSON Schema files (Zod 4 `toJSONSchema`) for `--output-schema` and `--json-schema`. A plan is `{task, scope_paths[], acceptance[], checks[]}`. A review is `{verdict: approve\|request_changes, findings[{id, severity: blocking\|major\|minor\|nit, file?, line?, message, actionable}]}`. |
+| 2 | `src/core/agents/adapters/codex.ts` | `probe()` (`codex --version`; `codex login status` → signed in yes/no, cached with a timestamp). On Windows the executable is resolved from `%APPDATA%\npm\codex.cmd` to its real entry point (§5A). `buildArgv()` for the planner and reviewer roles: `exec -`, `--json`, `--output-schema`, `-o`, `-m`, `-c model_reasoning_effort=…`, `-s read-only`, `-C <worktree>`, `--ignore-user-config`. Denylist assertions (§3.1). |
+| 3 | `src/core/agents/prompts/{planner,reviewer,correction}.md` | Prompt templates. Project instructions (`CLAUDE.md`, `AGENTS.md`), diffs, check output and your comments go in as **fenced data blocks**, never as instructions. Any instruction text found inside them is ignored. |
+| 4 | `src/core/agents/orchestrator.ts` | Adds a `plan` stage before `implement`, and the loop `checks → review → correct`. **A round starts** when there is a blocking or major finding marked actionable, a required check failing, or a comment from you. **It ends** in `succeeded` (approve, required checks passing, non-empty diff confined to scope) or `failed`, naming the facts still missing after round 3. |
+| 5 | `src/core/agents/types.ts`, run form | Role settings per run: planner, implementer and reviewer, each with provider, model and effort, defaulting to Codex GPT-6.1 Sol (medium) for planner and reviewer. If the reviewer uses the same provider as the implementer, the run is labelled **"same provider, separate session"**, so independence is never overstated. |
+| 6 | `src/db/schema.ts` + migration | `agent_run_comment` (run, round, file, line, body, created_at) for your inline diff comments (§10A idea 4) |
+| 7 | `src/components/agents/**` | A round switcher on the diff (§10A idea 1), inline comments on diff lines, and per-round findings with severity |
+| 8 | `tests/unit/agent-orchestrator-rounds.test.ts`, `agent-codex-adapter.test.ts`, `tests/fixtures/fake-agent.mjs` | The fake agent emits plan and review JSON (valid, malformed and missing). Tests cover: malformed review → `failed`; a third failing round → `failed`, not a fourth; a user comment alone starts a round; schema export round-trip; denylist; Windows `.cmd` resolution against a fixture shim. |
+| 9 | `README.md`, this note | Codex setup and sign-in, role configuration, and what "same provider, separate session" means |
+
+### 16.3 AW.3 — Antigravity implementer and the LM Studio advisor
+
+| # | Files | What |
+| ---: | --- | --- |
+| 1 | `src/core/agents/adapters/antigravity.ts` | `probe()`: `agy --version`; `agy models` with ANSI codes stripped before parsing; the sign-in check (a minimal `-p` turn) **only on demand**, cached with a timestamp (about 25,000 tokens a time, §3.2). `buildArgv()`: `-p`, `--input-format stream-json`, `--output-format stream-json`, `--model`, `--effort`, `--mode accept-edits`, `--sandbox`, `--disable-slash-commands`, `--print-timeout <stage limit>`. Denylist (§3.2). |
+| 2 | `src/core/agents/adapters/antigravity-inventory.ts` | Lists plugin folder names in `~/.gemini/config/plugins`, flags the ones with hook manifests, and lists MCP server names in `~/.gemini/antigravity-cli/mcp`. It reads names and manifests only, never other files under `~/.gemini`. |
+| 3 | `src/core/agents/tool-monitor.ts` | The **implementer allowlist**: `view_file`, `list_dir`, `grep_search`, `find_by_name`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `finish`. Every path parameter is normalised (separators, case, realpath) and checked against the worktree. A tool outside the list, or a path outside the worktree, **stops the process group at once** and fails the run, naming the tool and path. `result.denied_actions` is recorded as events. |
+| 4 | `src/core/agents/prompts/implementer-antigravity.md`, orchestrator | The upfront "file tools only" instruction (smoke test 5). The continuation rule: if a turn ends with denials and no file changes, it continues via `--conversation <id>`, **at most twice per stage**, and then fails. |
+| 5 | Run form | When the inventory is not empty, the run form lists the plugins, hooks and MCP servers and needs an explicit acknowledgement, which is stored in the run request |
+| 6 | `src/core/agents/adapters/lmstudio.ts` | The advisor talks to LM Studio's OpenAI-compatible API on `127.0.0.1:1234`. The model ID comes from `/v1/models` exactly (Gemma 4 12B). After the final verdict it writes a summary of the run as an `advisor` event, labelled **advisory**. If it fails or is offline, the outcome is unchanged. It reuses the patterns of the existing local AI client. |
+| 7 | `tests/fixtures/agy/*.jsonl`, `tests/unit/agent-antigravity.test.ts` | The real smoke-test outputs, converted to UTF-8, replayed through the adapter. Tests cover: `SUCCESS` with an `ERROR` step → `failed` (smoke 1); a hook-blocked turn → `failed` (smoke 2); an outside-workspace read → stopped and `failed` (smoke 3); a denial-ended turn → two continuations, then `failed` (smoke 4); a forward-slash path inside the workspace → allowed (smoke 5); a subagent call → `failed`; inventory parsing; the advisor being offline does not change the outcome. |
+| 8 | `README.md`, this note | Antigravity setup, the plugin acknowledgement, the advisor, and the cost per run |
+
+### 16.4 AW.4 — Policy, tasks, non-Git projects, resume and approvals
+
+| # | Files | What |
+| ---: | --- | --- |
+| 1 | `src/app/settings/agents/projects/[id]/**`, `src/core/agents/policy.ts` | The project policy editor. **Check commands** are argv arrays, resolved and stored when saved (§5A), with a timeout each. **Excluded paths** are globs. **Test restrictions** pick which checks are required or optional for agent runs. They are never described as network or OS isolation, which needs AW.6. **Dependency links** (§10A idea 6) come with the shared-folder warning. |
+| 2 | `tool-monitor.ts`, `adapters/claude-code.ts`, `workspace.ts` | Exclusions are enforced three ways: the tool-path monitor (Antigravity), Claude Code `--disallowedTools` path rules, and a post-stage diff check that fails the run if an excluded path changed |
+| 3 | `src/core/agents/next-task.ts` | **Next eligible task** (§10A idea 5): the project's tasks with status `todo`, no unfinished "must complete before" dependency, and no link to an active run. They are ordered by priority (`urgent > high > medium > low`), then due date (earliest first, none last), then creation date. Subtasks are eligible, and their parents are not picked while they have open subtasks. A roadmap-file source is optional: the first unchecked `- [ ]` item under a configured heading. |
+| 4 | `src/db/schema.ts` + migration, `src/core/activity/**` | `agent_run.task_id`. When a run ends, its outcome (status, files changed, checks, verdict) is posted to the task's activity. **The task's status is never changed automatically.** |
+| 5 | `src/core/agents/snapshot.ts` | Non-Git projects: copy into run storage (honouring exclusions), `git init`, commit, then work in a worktree of that copy (§5). **Apply-back** is an approval: first a timestamped backup of the files to be overwritten, then only the changed files are copied, then their hashes are checked. |
+| 6 | `src/core/agents/resume.ts`, adapters | A `resume` intent continues from the last completed stage, using the recorded session IDs (`claude --resume`, `codex exec resume`, `agy --conversation`). It is refused if the worktree changed outside the run, which is detected by comparing it with the last stage commit. |
+| 7 | `src/core/agents/approvals.ts` (extends `src/core/ai/approvals.ts`), `src/db/schema.ts` | Approval-gated actions, each **previewed, approved, then executed by the runner and logged**: merging into a branch you choose (it refuses if your checkout is dirty, and takes the lock on it), pushing the run branch, **opening a draft PR** with a description built from recorded facts (§10A idea 7; existing GitHub connection; never merged), applying back, and deleting a worktree that has unmerged commits |
+| 8 | `src/core/agents/retention.ts` | A worktree retention setting for dismissed runs (§10A idea 3). It never removes branches with unmerged commits. |
+| 9 | Tests | Excluded-path change → `failed`. Next-task ordering, dependencies and active-run exclusion. Task status never changes. Snapshot apply-back with its backup and hash check. Resume refused after an outside change. Each approval kind refused without approval. Merge refused on a dirty checkout. The draft PR body contains only recorded facts. |
+| 10 | `README.md`, this note | The policy reference, approvals, and working with non-Git projects |
+
+### 16.5 AW.5 — Self-hosted on your mini PC
+
+| # | Files | What |
+| ---: | --- | --- |
+| 1 | `src/lib/auth-mode.ts`, `src/proxy.ts` | `AGENT_HOST_MODE=self-hosted`. It **refuses to start** with `AUTH_MODE=accounts`, `DATABASE_URL`, `DASHBOARD_PASSWORD` or any Railway environment variable present. |
+| 2 | `src/core/auth/operator.ts` | Single-operator sign-in (a password hash set once from the machine itself) with an HttpOnly, SameSite=Strict session cookie. It protects every route, **including the event stream**. Approvals require signing in again within the last 5 minutes. |
+| 3 | Server start-up | Binds only to the Tailscale address (or a LAN address you choose), never `0.0.0.0`. HTTPS through `tailscale cert`. |
+| 4 | `scripts/service/**` | Starts the server and runner headless as a service (systemd, launchd or a Windows service, depending on the mini PC's OS), so runs continue with no app open |
+| 5 | `src/components/agents/**` | Run list and run detail laid out for a phone (§10A idea 9) |
+| 6 | Tests | Refuses to start in the forbidden combinations. Unauthenticated event stream → 401. An approval with an old sign-in → refused. Binding to `0.0.0.0` → refused. |
+
+### 16.6 AW.6 (candidate) — A container sandbox per project
+
+| # | Files | What |
+| ---: | --- | --- |
+| 1 | `src/core/agents/sandbox/**` | Optional, per project: Claude Code and Codex runs execute in a Docker or Podman container with only the worktree mounted. Network access follows the project policy. |
+| 2 | Probe | Detects the container runtime. Antigravity is excluded until it can sign in inside a container. |
+| 3 | Tests | A write outside the mount fails. Network access with "no network" fails. Without a runtime, the setting is unavailable, never silently ignored. |

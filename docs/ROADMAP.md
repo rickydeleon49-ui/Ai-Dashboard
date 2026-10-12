@@ -575,6 +575,19 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 - ~~Approve the architecture~~ — **decided**: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
 - Still open (needed for AW.2 and AW.3, not for AW.1): confirm the Codex login-status command (codex-cli 0.160.0 recorded) and the effort config key (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), (`agy models` and Antigravity smoke tests 1–5 completed on October 12, 2026; the implementer is edit-only, with runner-owned checks). (Recorded on October 12, 2026: `agy` 1.3.3 has a headless `--print` mode with stream-json, `--model` and `--effort`; Codex 0.162.1 on Windows is signed in. See §3.1–3.2 of the design note.) Make the `flight-deck-team` controller available for review (§10 of the design note).
 
+### Build sequence
+
+Each release is one PR, opened from the latest `main` after the previous release merges, and is never merged by an agent. The step-by-step build lists (files, order, tests, manual acceptance per machine) are in the design note: §15 for AW.1 and §16 for AW.2–AW.6, with the gates between releases in §16.1.
+
+| Release | Builds | Manual acceptance |
+|---|---|---|
+| AW.1 | Runner, worktrees, Claude Code implementer, checks, single-pass review, live events, Stop, recovery, run pages, settings for roots | Fake-agent demo, then a real Claude Code run on Windows and on the Mac |
+| AW.2 | Codex planner and reviewer, structured plan and review, up to 3 correction rounds, your inline diff comments | A real run with at least one correction round |
+| AW.3 | Antigravity implementer (file tools only, tool monitor), plugin and MCP acknowledgement, LM Studio advisor | A real Antigravity run on the Windows PC |
+| AW.4 | Project policy, next eligible task from the task board, non-Git projects, resume, approval-gated merge, push, draft PR and apply-back | Next-task pick, an approved draft PR, a non-Git apply-back |
+| AW.5 | Self-hosted on the mini PC, with operator sign-in, Tailscale-only binding and phone layout | Watching and approving from a phone |
+| AW.6 | Optional container sandbox (candidate) | A run inside a container |
+
 ### Release AW.1 — Vertical slice
 
 - Run, event, intent, lock and project-policy tables (SQLite, desktop only)
