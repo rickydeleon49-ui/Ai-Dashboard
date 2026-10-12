@@ -223,7 +223,7 @@ was wrong: the help output lists one.
 
 1. ~~**`agy models`**~~ **Done** (October 12, 2026, Windows): the default is the model ID **`gemini-3.8-flash-high`** ("Gemini 3.8 Flash (High)"). "High" is part of the **model ID**, a fixed reasoning tier (`-low`, `-medium` and `-high` variants exist), not the `--effort` flag. The adapter therefore treats them as two settings: the model ID exactly as listed, and `--effort` separately (default `high`). The settings page shows both, so neither is ever silently derived from the other. The listing also offers `claude-*` and `gpt-oss-*` models through Antigravity. Picking one runs *Antigravity*, not Claude Code or Codex, and the run is labelled by provider **and** model, so the two are never confused. The listing output starts with an ANSI escape sequence (`ESC[K`), so the probe strips terminal control codes before parsing it.
 2. **Sign-in status.** The help lists no `login` or `status` command, so the probe needs a cheap way to report "signed in: yes/no", for example a minimal `-p` turn that fails in a recognisable way when signed out.
-3. **What happens under `accept-edits` when a turn needs a shell command (a build or tests).** Does it fail, skip the command or wait for input? Waiting would hang an unattended run. The runner runs the checks itself (§7), so the implementer may not need a shell at all. This test decides that.
+3. ~~**What happens under `accept-edits` when a turn needs a shell command**~~ **Done** (smoke test 3): it is auto-denied, reported in `result.denied_actions`, and does not hang. The implementer gets no shell; the runner runs the checks.
 4. **What `--project` / `--new-project` do.** Antigravity has its own project concept. The adapter must not create or change Antigravity projects as a side effect, unless that turns out to be how a working directory is chosen.
 5. ~~**The stream-json event shape**~~ **Done** (smoke test 1, below). It is the shape, which the event mapping and the fake agent fixture are built from.
 
@@ -260,7 +260,22 @@ Command: `agy -p "Create a file named hello.txt containing hi, then run the comm
 - **`agy agents` listed nothing**, and `agy agent` has no flags other than `--help`. There is no built-in, restricted-tool agent to use, and nothing in the help shows how to define one. So for now the tool allowlist (§3.2) is enforced **only by watching the tool calls during the run** and failing on a violation. That limitation is stated in the run form when Antigravity is the implementer.
 - Still to try later: whether an environment variable can point `agy` at an isolated config home (the equivalent of Codex's `--ignore-user-config`). Until one is verified, the plugin and hook acknowledgement in the run form stays.
 
-**Next:** re-run smoke test 2 with the broken telemetry plugin moved out of `~/.gemini/config/plugins`.
+#### Smoke test 3 results (Windows, `agy` 1.3.3, October 12, 2026): conclusive
+
+The same command as smoke test 2, with `googlecloudtools.datacloud_telemetry` moved out of `~/.gemini/config/plugins`. It took 50 seconds and about 35,000 tokens plus 51,000 cached.
+
+- **`--mode accept-edits` writes files without prompting.** `write_to_file` → `H:\agy-smoke\hello.txt` reached `DONE`.
+- **Shell commands are auto-denied in headless mode, and the run does not hang.** stderr said: *"a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)). Alternatively, re-run with --dangerously-skip-permissions…"*. The final `result` carries `denied_actions: [{action: "command", display_name: "RunCommand"}]`.
+- **The step state misleads.** The denied `run_command` step was reported as `DONE`, and `result.status` was `SUCCESS` with an empty response. The runner therefore takes denials **only from `result.denied_actions`** (and stderr), never from step state, and records each one as a run event.
+- **Reading outside the workspace is allowed, even with `--sandbox`.** `view_file` on `%USERPROFILE%\.gemini\config\plugins\data-agent-kit-plugin\skills\dak-setup\SKILL.md` reached `DONE` (140 lines). `--sandbox` restricts the terminal, not file reads. The runtime path check in §3.2 is therefore the only containment for reads, and it is required, not optional.
+
+**What this settles for the Antigravity implementer:**
+
+1. **No shell for the implementer, by design.** It edits files and the runner runs every check itself (§7). Shell denials are expected. They are shown in the event log ("Antigravity asked to run `git status`; denied, because checks are run by Command Center"), and they do not fail the run on their own. The check results the runner feeds back in correction rounds replace the need for the agent to run tests itself.
+2. **`permissions.allow` rules are possible but not used yet.** An allow-rule (`command(<target>)`) is the narrow equivalent of Claude Code's per-run `--settings` grant. It would be adopted only once the location of `settings.json` is known **and** it can be written outside the worktree. A settings file inside the workspace could be edited by the agent to widen its own permissions (§6). Until then, no command grants.
+3. **`--dangerously-skip-permissions` stays refused**, even though `agy` itself suggests it.
+4. **Reads outside the workspace fail the run.** Skills from legacy plugins make the agent read their files under `~/.gemini`, so with `data-agent-kit-plugin` installed, **every Antigravity run would fail** this check. The run form says so in advance, from the probe's plugin list, instead of letting the run fail after spending tokens. Your options are to move that plugin out as well, or to allow-list reads of that one plugin directory per machine, shown as a visible exception. The dashboard never quietly widens the check.
+5. **Cost.** Each run has a floor of roughly 25,000–35,000 input tokens before any project context, and turns take 5–10 seconds. Stage timeouts and the cost readout are set with that in mind.
 
 ## 4. Data model (SQLite, desktop only)
 
