@@ -295,6 +295,22 @@ Consequences:
 - **Any remaining plugin may inject skills** that make the agent read files outside the workspace, as `data-agent-kit-plugin` did. The out-of-workspace read check (§3.2) catches that. A clean smoke run with the remaining plugins confirms whether any of them do.
 - The CLI's own config home appears to be `.gemini\antigravity-cli`. That is a lead for finding an isolated-config option later (§3.2), still unverified.
 
+#### Smoke test 4 results (Windows, `agy` 1.3.3, October 12, 2026): one denied command ends the turn
+
+Command: `agy -p "Create a file named hello2.txt containing hi." --output-format stream-json --mode accept-edits --sandbox --print-timeout 180s`, run in a fresh scratch repository, with both problem plugins moved out.
+
+- **No reads outside the workspace this time.** The remaining five plugins did not cause any, so moving `data-agent-kit-plugin` out was enough.
+- **The agent's first action was a shell command** (`run_command` → `Get-ChildItem`, just to look around). It was denied, this time with `state: ERROR` and the message *"user denied permission to run command … Do not attempt to circumvent this denial … Proceed without performing this action."* In smoke test 3 the same kind of denial was reported as `DONE`, so step state is inconsistent and stays untrusted.
+- **The turn then ended without doing the task.** There was no `write_to_file`, the response was empty, `result.status` was `SUCCESS`, `denied_actions` held one command, and it took 38 seconds. In smoke test 3 the write happened only because it came *before* the command.
+
+**This changes the "implementer gets no shell" plan from smoke test 3.** Agents routinely list a directory or run `git status` before editing. If the first denial ends the turn, most real Antigravity runs would stop before doing anything. Each one would be reported as `failed` (empty diff), but they would waste a run every time. The plan, in order of preference:
+
+1. **Tell the agent up front.** The implementer prompt says that shell commands are unavailable, to use `list_dir`, `view_file`, `grep_search` and `find_by_name` to inspect the project, and that Command Center runs every build and test itself. This costs nothing but does not guarantee anything.
+2. **Continue a turn that a denial ended, a bounded number of times.** If a turn ends with `denied_actions` and no file changes, the runner continues the same conversation (`--conversation <id>`) with *"Shell commands are not available in this run. Continue the task with the file tools."* It does this at most **twice** per stage, and every continuation appears in the event log. It never tries again with wider permissions.
+3. **Narrow read-only command grants, only if they can be safe.** `permissions.allow` rules (for example `command(Get-ChildItem)`, `command(git status)`, `command(git diff)`) would avoid the problem entirely, but only once the location of `settings.json` is verified **and** the grant can be scoped to one run. A grant written into your global `agy` settings would apply to every other `agy` session on the machine, and to concurrent runs, while it existed. That conflicts with the "temporary, per-run grant" rule (§6). This stays unverified until then.
+
+The fake agent fixture gets a "denies first, then ends the turn" mode, so (2) is covered by tests.
+
 ## 4. Data model (SQLite, desktop only)
 
 Projects reuse the existing `projects` table and its `local_path`. "Register a
