@@ -1,6 +1,6 @@
 # Design Note: Agent Workflow Control Center
 
-**Status:** Proposal — review and implementation plan. No code yet.
+**Status:** Approved as the product direction (October 12, 2026). AW.1 is next. No code yet.
 
 **Updated:** October 12, 2026
 
@@ -56,6 +56,10 @@ There are two honest ways forward:
 Either is reasonable. Building it as a half-finished sidebar page is the one
 option the existing rules rule out.
 
+**Decision (October 12, 2026): confirmed.** The control center is now the
+product. It ships desktop-first, and the plan goes ahead as written, including
+the separate runner process in §2.3. `NEXT.md` has been updated to match.
+
 ### 2.2 Desktop-only, and it fails closed everywhere else
 
 A server that launches CLI processes against a filesystem path amounts to remote
@@ -67,6 +71,29 @@ unless the server runs in desktop local mode** (`DASHBOARD_LOCAL=1` with
   404 and the navigation entry is hidden.
 - This is checked in `core/`, not only in the UI. The same pattern as
   `isAccountsMode()`.
+
+#### Later: self-hosting on your own machine (for example, a mini PC)
+
+Running the control center on an always-on machine you own is a likely next
+step. It would also remove the "only runs while the app is open" limitation in
+§13. It is a **new, separate mode**, not a relaxation of the rule above, because
+the server would be reachable from other devices. It needs its own release
+(AW.5) with at least these requirements:
+
+- An explicit opt-in mode (for example, `AGENT_HOST_MODE=self-hosted`) that refuses
+  to start alongside `AUTH_MODE=accounts`, `DATABASE_URL` or a Railway environment.
+- Real operator authentication for every request, including the event stream.
+  The desktop secret is per-launch and local, so it cannot be reused for this.
+- Bind to a private interface only (the LAN address or a Tailscale/WireGuard
+  address), never `0.0.0.0` on a public network, and use TLS when reached over
+  the network.
+- Projects and run storage live on that machine. The browser never sends paths
+  outside its registered projects, just as on desktop.
+
+The architecture already allows for this. The runner is its own process, and
+state lives in SQLite, so it can run headless on the mini PC beside a
+`next start` server without Electron. AW.1–AW.4 stay desktop-only, and nothing
+in them may assume Electron is present apart from the fork in `desktop/main.js`.
 
 ### 2.3 Where the processes live: a dedicated runner, not the Next.js server
 
@@ -324,10 +351,8 @@ and diff, and deletes everything.
 
 ## 14. Kickoff checklist (before the first AW.1 commit)
 
-1. **Product decision (§2.1):** confirm the control center is a deliberate
-   desktop subsystem. Then update `NEXT.md` so it no longer contradicts the
-   roadmap.
-2. **Architecture decision (§2.3):** approve the separate runner process.
+1. ~~**Product decision (§2.1)**~~ **Done** (October 12, 2026): confirmed as the product, desktop-first. `NEXT.md` updated.
+2. ~~**Architecture decision (§2.3)**~~ **Done**: the separate runner process was approved with the plan.
 3. **On the development Mac**, capture and paste into this note:
    - `claude --version` and `claude --help`, to confirm the flags in §3 match the installed version
    - `codex --version`, `codex exec --help`, and its login-status command

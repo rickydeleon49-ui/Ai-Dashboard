@@ -129,7 +129,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 | 7 | Phase 3 — Hosted SaaS Parity | Every supported domain is genuinely tenant-safe | Phase 2 platform foundations |
 | 8 | Phase 4 — Commercial SaaS | The product can onboard, bill, support, and retain customers | Hosted parity |
 | 9 | Phase 5 — Scale and Enterprise Readiness | Larger organizations can govern and operate safely | Commercial baseline |
-| D | Desktop track — Agent Workflow Control Center (AW.1–AW.4) | Run and monitor coordinated coding agents against any local project | Desktop local mode only; independent of the hosted phases — **planned, design approved pending §10A decisions** |
+| D | Desktop track — Agent Workflow Control Center (AW.1–AW.4) | Run and monitor coordinated coding agents against any local project | Desktop local mode only; independent of the hosted phases — **the product direction (confirmed October 12, 2026); AW.1 next** |
 
 The desktop track does not block, and is not blocked by, the hosted phases. It ships only in desktop local mode and is hidden and unreachable in both hosted modes (§16).
 
@@ -561,7 +561,7 @@ Command Center connects planning work to real development and operational signal
 
 ## 10A. Desktop track — Agent Workflow Control Center
 
-**Status:** Planned. The full design, security model and test plan are in [`docs/design/AW-agent-workflow-control-center.md`](design/AW-agent-workflow-control-center.md).
+**Status:** Confirmed as the product direction on October 12, 2026. AW.1 is next. The full design, security model and test plan are in [`docs/design/AW-agent-workflow-control-center.md`](design/AW-agent-workflow-control-center.md).
 
 **Availability:** Desktop only (§16). In password-hosted and accounts mode it is hidden and returns 404 from the API, because a server that launches CLI processes against filesystem paths must never be reachable by anyone but the local user.
 
@@ -569,11 +569,11 @@ Command Center connects planning work to real development and operational signal
 
 Pick a local project, choose an implementer (Claude Code or Antigravity), submit a task or ask for the next roadmap task, and watch a bounded plan → implement → check → independent review → up to three correction rounds. The result can be reviewed afterwards: diff, check results and review verdict. Merges, pushes, deploys and any other irreversible action each need a separate approval.
 
-### Decisions required before AW.1
+### Decisions before AW.1
 
-- Confirm this is built deliberately as the "automation is a later product" subsystem that `NEXT.md` defers, with its own top-level section, rather than as a sidebar page.
-- Approve the architecture: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
-- Run `codex exec --help` and the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
+- ~~Confirm it as a deliberate subsystem~~ — **decided October 12, 2026**: this is now the product, desktop-first.
+- ~~Approve the architecture~~ — **decided**: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
+- Still open (needed for AW.2 and AW.3, not for AW.1): run `codex exec --help` and the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
 
 ### Release AW.1 — Vertical slice
 
@@ -599,6 +599,12 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 - Per-project check commands, exclusions and test restrictions
 - Snapshot-and-init strategy for non-Git folders; approval-gated apply-back with a backup
 - Explicit resume from the last completed stage; approval-gated merge, push and publication
+
+### Release AW.5 (candidate) — Self-hosted on your own machine
+
+- Run the server and the runner headless on an always-on machine you own, such as a mini PC, so runs no longer depend on the desktop app being open
+- A separate opt-in mode with real operator authentication, private-interface binding (LAN or Tailscale) and TLS. It is never combined with accounts mode or Railway.
+- Requirements are in §2.2 of the design note; this is scheduled once the mini PC is available
 
 ### Desktop track exit criteria
 
@@ -927,7 +933,7 @@ No roadmap date should override a failed security, migration, backup, or data-is
 - Which AI providers and billing model will be supported in SaaS?
 - What usage limits belong to the free and paid plans?
 - Is Railway the initial production host, or only a staging environment?
-- Agent Workflow Control Center (§10A): confirm it as a deliberate desktop subsystem, approve the separate runner process, and verify the Codex and Antigravity headless CLIs.
+- Agent Workflow Control Center (§10A): verify the Codex and Antigravity headless CLIs (product direction and runner architecture decided October 12, 2026).
 
 These decisions should be made before the release that depends on them, not all at once.
 
