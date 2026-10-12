@@ -203,7 +203,7 @@ was wrong: the help output lists one.
 | `--model <id>` | The configured model ("Gemini 3.8 Flash High" by default). Its exact ID is validated against **`agy models`**, which lists the available models, before the run starts. An unlisted model fails the run and is never substituted. |
 | `--effort high` | Effort, from the documented `low\|medium\|high\|xhigh\|max`. This flag is supported directly, unlike Codex's config key. |
 | `--mode accept-edits` | **Implementer.** Edits are accepted without prompting, which the request asks for inside the run's worktree. This is narrower than skipping all permissions. |
-| `--mode plan` | Planner or reviewer, if Antigravity is ever used in those roles. These roles read and never edit. |
+| ~~`--mode plan`~~ | **Not used.** Smoke test 1 showed that plan mode still runs shell commands (see below). Antigravity is implementer-only. |
 | `--sandbox` | "Terminal restrictions enabled". Always on. |
 | `--json-schema <file>` | Structured final output (applies to the final result in stream-json), the same way as Codex's `--output-schema` |
 | `--print-timeout <dur>` | Default `0s`, which waits until the turn completes. The runner sets an explicit per-stage limit, so a hung turn ends as `failed: timed out` instead of hanging forever. The "30-second timeout" in a community wrapper was that wrapper's own setting. |
@@ -225,7 +225,24 @@ was wrong: the help output lists one.
 2. **Sign-in status.** The help lists no `login` or `status` command, so the probe needs a cheap way to report "signed in: yes/no", for example a minimal `-p` turn that fails in a recognisable way when signed out.
 3. **What happens under `accept-edits` when a turn needs a shell command (a build or tests).** Does it fail, skip the command or wait for input? Waiting would hang an unattended run. The runner runs the checks itself (§7), so the implementer may not need a shell at all. This test decides that.
 4. **What `--project` / `--new-project` do.** Antigravity has its own project concept. The adapter must not create or change Antigravity projects as a side effect, unless that turns out to be how a working directory is chosen.
-5. **The stream-json event shape**, which the event mapping and the fake agent fixture are built from.
+5. ~~**The stream-json event shape**~~ **Done** (smoke test 1, below). It is the shape, which the event mapping and the fake agent fixture are built from.
+
+#### Smoke test 1 results (Windows, `agy` 1.3.3, October 12, 2026)
+
+Command: `agy -p "Reply with the single word OK." --output-format stream-json --mode plan --sandbox --print-timeout 120s`, run in a scratch Git repository on `H:`.
+
+- **Event shape.** First `{"event":"init", conversation_id, init:{cwd, tools[], permission_mode, expanded_commands}}`. Then `{"event":"step_update", step_update:{conversation_id, step_index, state: ACTIVE|DONE|ERROR, step_type: user_input|agent_response|tool|unknown, tool_name?, tool_info?{name, parameters}, text_delta?, duration_seconds?, usage?{input_tokens, output_tokens, thinking_tokens, cache_read_tokens, total_tokens}, error?{type, message}}}`. Finally `{"event":"result", result:{conversation_id, status, response, duration_seconds, num_turns, usage}}`. These map one-to-one onto run events, and the fake-agent fixture copies this shape.
+- **Being signed in shows up as a successful turn.** That works as a sign-in check, but it is expensive: this trivial turn used **about 29,000 tokens and took 50 seconds**, mostly system prompt. The probe therefore caches the result and runs it only when you press "Check sign-in", never on page load.
+- **`result.status` said `SUCCESS` although a step ended in `ERROR`.** This confirms §7: the runner records every `ERROR` step and never takes the CLI's own status as the outcome.
+- **Your plugins and hooks load in headless runs.** A `PreToolUse` hook from a user plugin (`googlecloudtools.datacloud_telemetry`, under `%USERPROFILE%\.gemini\config\plugins`) ran on the tool call, crashed because its bundle file was missing, and failed the call. Three consequences:
+  1. Runs depend on whatever plugins happen to be installed on that machine. This is the same problem Codex's `--ignore-user-config` solves, but the `agy` help lists no equivalent flag.
+  2. A third-party hook sees every tool call the agent makes, including file contents and commands. That is not acceptable for unattended runs without your knowledge.
+  3. **Rule:** before each run, the probe lists the installed plugins and hooks (`agy plugin list`). If any are enabled, the run form shows them and requires an explicit acknowledgement, until a way to run `agy` with an isolated config home is found and verified. Under the "never silently" rule, the dashboard also never disables your plugins for you.
+- **`--mode plan` is not read-only.** It issued a `run_command` (`Get-ChildItem -Force`) and reported `permission_mode: "request-review"`. Antigravity therefore stays **implementer-only**. Planner and reviewer roles need a CLI with a verified read-only mode (Codex `-s read-only`, or Claude Code with write tools disallowed).
+- **The tool surface is broad and cannot be narrowed from the command line.** The `init.tools` list includes browser control (`browser_*`, `execute_browser_javascript`), `search_web`, `read_url_content`, `call_mcp_tool`, `send_message`, `schedule`, `manage_inbox`, `run_workflow` and `generate_image`. Unlike Claude Code, `agy` has no `--allowedTools` / `--disallowedTools` flag. The mitigations are a custom `--agent` with a restricted toolset, if `agy agents` supports defining one (to verify), or recording every tool call and failing the run when a tool outside an allowlist was used. A tool that can reach the network is shown to you as such.
+- **Usage is reported for every step**, so a per-run token readout costs nothing extra to add (§13, cost).
+
+**Still to run:** smoke test 2 (`accept-edits` plus a shell command), `agy plugin list`, `agy agents`, and `agy help plugin` / `agy help agent`, to find out whether plugins can be skipped per run and whether a restricted-tool agent can be defined.
 
 ## 4. Data model (SQLite, desktop only)
 
