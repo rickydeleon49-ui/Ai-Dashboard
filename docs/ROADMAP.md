@@ -583,11 +583,13 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 - Server-Sent Events with `Last-Event-ID` replay; Stop (kills the process group, preserves work as a `wip` commit); restart marks orphaned runs `interrupted`
 - `/agents` and run-detail pages built from existing UI primitives
 - A fake agent CLI plus a disposable synthetic-project demo, so tests and the demo need no credentials
+- A commit per stage, a changed-files overview ordered for review, a startup worktree recovery report (report only), and a `diff2html` diff view (design note §10A)
 
 ### Release AW.2 — Codex planner/reviewer and correction rounds
 
 - Codex adapter behind a capability probe; schema-validated planner and reviewer JSON
 - Up to three correction rounds driven by actionable findings
+- Per-round diff navigation; inline diff comments from you go to the agent as correction input, labelled as yours
 
 ### Release AW.3 — Antigravity and local advisor
 
@@ -599,12 +601,19 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 - Per-project check commands, exclusions and test restrictions
 - Snapshot-and-init strategy for non-Git folders; approval-gated apply-back with a backup
 - Explicit resume from the last completed stage; approval-gated merge, push and publication
+- **Next eligible task from the dashboard's own task board** (open, unblocked by dependencies, not already in a run); the run links back to the task and posts its outcome to the task's activity
+- Opt-in links for dependency folders into worktrees; an approval-gated draft PR built from facts the runner recorded; worktree retention for dismissed runs
 
 ### Release AW.5 (candidate) — Self-hosted on your own machine
 
 - Run the server and the runner headless on an always-on machine you own, such as a mini PC, so runs no longer depend on the desktop app being open
 - A separate opt-in mode with real operator authentication, private-interface binding (LAN or Tailscale) and TLS. It is never combined with accounts mode or Railway.
 - Requirements are in §2.2 of the design note; this is scheduled once the mini PC is available
+- Run list and run detail usable on a phone over Tailscale; approvals from the phone require the operator login again
+
+### Later candidate (AW.6) — Container sandbox per project
+
+- An OS-level boundary for Claude Code and Codex runs (Docker/Podman). Antigravity is excluded until it can sign in inside a container.
 
 ### Desktop track exit criteria
 
