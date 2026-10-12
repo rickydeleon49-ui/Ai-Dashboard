@@ -128,8 +128,8 @@ Electron main
 | Item | Status | Consequence |
 | --- | --- | --- |
 | Claude Code CLI | **Verified** (v2.1.296): `-p`, `--output-format stream-json`, `--model`, `--effort`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`, `--resume`, `--settings` | The implementer adapter can be built and tested now |
-| Codex CLI | **Version 0.160.0. Help output verified** (`codex --version` and `codex exec --help`, from your Mac): `--json`, `--output-schema`, `-o`, `-m`, `-c`, `-s read-only/workspace-write`, `-C`, `--ignore-user-config`, `exec resume` | Adapter flags are settled. See §3.1. Login status and the effort config key still need confirming. |
-| Antigravity | Not installed. It is primarily an IDE, and **whether it has a stable headless CLI is the biggest unknown in the request** | The adapter ships as "unavailable until verified". If no non-interactive mode exists, it cannot be an unattended implementer, and the UI must say so |
+| Codex CLI | **Version 0.160.0 (Mac) and 0.162.1 (Windows, signed in with ChatGPT). Help output verified** (`codex exec --help`, from your Mac): `--json`, `--output-schema`, `-o`, `-m`, `-c`, `-s read-only/workspace-write`, `-C`, `--ignore-user-config`, `exec resume` | Adapter flags are settled. See §3.1. `codex login status` works ("Logged in using ChatGPT"). The effort config key still needs confirming. |
+| Antigravity (`agy`) | **Version 1.3.3. Help output verified** (Windows PC): `-p/--print`, `--output-format stream-json`, `--input-format stream-json`, `--model`, `--effort low…max`, `--mode accept-edits\|plan`, `--sandbox`, `--json-schema`, `--print-timeout`, `--conversation`, and an `agy models` listing | **Headless mode exists**, which resolves the biggest unknown. See §3.2. The model ID, sign-in check and shell-permission behaviour still need verifying. |
 | Model IDs "GPT-6.1 Sol", "Gemini 3.8 Flash High" | Unverified | These are stored as configured strings, validated against each CLI's own model listing where one exists, and **never substituted**. A rejected model fails the run with the CLI's own error message. |
 | Opus 5.5 | `claude-opus-5-5`, passed via `--model`, with `--effort medium` | — |
 | LM Studio + Gemma 4 12B | Not available here | Optional advisory adapter for LM Studio's OpenAI-compatible endpoint, default `127.0.0.1:1234`. It summarises only and never gates success. |
@@ -184,6 +184,48 @@ use and the ones it refuses.
 - ~~`codex --version`~~ **Done**: codex-cli 0.160.0. The probe records the version and warns when it changes, because flags move between releases.
 - The login-status command (likely `codex login status`), which the probe uses to report "authenticated: yes/no" without reading `~/.codex`
 - Confirmation that `-c model_reasoning_effort="medium"` is accepted, for example with `codex exec --strict-config -c model_reasoning_effort="medium" -s read-only "reply OK"` in a scratch Git repository
+
+### 3.2 Antigravity adapter (`agy` 1.3.3, from `agy --help` on the Windows PC, October 12, 2026)
+
+**Antigravity has a real headless mode**, so it can be the unattended
+implementer the request asks for. `agy` is a native executable
+(`%LOCALAPPDATA%\agy\bin\agy.exe` on Windows), so it needs no `.cmd`
+resolution (§5A). One third-party guide claimed it has no `--model` flag. That
+was wrong: the help output lists one.
+
+**Used:**
+
+| Flag | Purpose |
+| --- | --- |
+| `-p, --print` | Runs one turn non-interactively and exits |
+| `--output-format stream-json` | Live events for the run log, parsed with `ndjson.ts`. (`json` is the fallback if stream-json turns out to be partial.) |
+| `--input-format stream-json` | Sends the prompt (and the correction-round findings) as NDJSON on **stdin** rather than on the command line. It requires `--output-format stream-json`. |
+| `--model <id>` | The configured model ("Gemini 3.8 Flash High" by default). Its exact ID is validated against **`agy models`**, which lists the available models, before the run starts. An unlisted model fails the run and is never substituted. |
+| `--effort high` | Effort, from the documented `low\|medium\|high\|xhigh\|max`. This flag is supported directly, unlike Codex's config key. |
+| `--mode accept-edits` | **Implementer.** Edits are accepted without prompting, which the request asks for inside the run's worktree. This is narrower than skipping all permissions. |
+| `--mode plan` | Planner or reviewer, if Antigravity is ever used in those roles. These roles read and never edit. |
+| `--sandbox` | "Terminal restrictions enabled". Always on. |
+| `--json-schema <file>` | Structured final output (applies to the final result in stream-json), the same way as Codex's `--output-schema` |
+| `--print-timeout <dur>` | Default `0s`, which waits until the turn completes. The runner sets an explicit per-stage limit, so a hung turn ends as `failed: timed out` instead of hanging forever. The "30-second timeout" in a community wrapper was that wrapper's own setting. |
+| `--disable-slash-commands` | Text in a task, or in a reviewer finding, cannot trigger a slash command or skill expansion in print mode |
+| `--conversation <id>` | AW.4 resume, using the conversation ID recorded from the events |
+| `--add-dir` | **Not used** by default. The working directory is the run's worktree (set through the spawn `cwd`), and nothing else is added. |
+
+**Refused** (in the argv denylist and asserted by adapter tests):
+
+- `--dangerously-skip-permissions`, which auto-approves every tool request.
+- `--remote-control` and the `remote-control` / `mic-serve` subcommands, because they expose the session to another host.
+- `-c` / `--continue`. It resumes "the most recent conversation", which may not be this run's. Resume always uses an explicit `--conversation <id>`.
+- `--prompt-interactive` / `-i`, which is interactive and has no place in an unattended run.
+- `install` and `update` while a run is active, because they would change the CLI underneath it.
+
+**Still to verify, with a smoke test in a scratch Git repository:**
+
+1. **`agy models`**: the exact ID for "Gemini 3.8 Flash High", and whether "High" is part of the model name or is the effort level.
+2. **Sign-in status.** The help lists no `login` or `status` command, so the probe needs a cheap way to report "signed in: yes/no", for example a minimal `-p` turn that fails in a recognisable way when signed out.
+3. **What happens under `accept-edits` when a turn needs a shell command (a build or tests).** Does it fail, skip the command or wait for input? Waiting would hang an unattended run. The runner runs the checks itself (§7), so the implementer may not need a shell at all. This test decides that.
+4. **What `--project` / `--new-project` do.** Antigravity has its own project concept. The adapter must not create or change Antigravity projects as a side effect, unless that turns out to be how a working directory is chosen.
+5. **The stream-json event shape**, which the event mapping and the fake agent fixture are built from.
 
 ## 4. Data model (SQLite, desktop only)
 
@@ -372,7 +414,7 @@ Each release is a separate PR and is independently testable.
 | --- | --- | --- |
 | **AW.1 — Vertical slice** | Schema, runner process, Git worktree workspaces, Claude Code as implementer, runner-owned checks and diff, **single-pass review by Claude** (separate session), SSE with replay, Stop, restart → `interrupted`, `/agents` and run-detail pages, and a scripted **fake agent CLI** for tests and the demo | select project → choose implementer → submit → watch → inspect diff and verdict, demonstrated on a synthetic temp project |
 | AW.2 — Codex roles + corrections | Codex adapter (after the help/flag probe on your Mac) as planner and reviewer, structured planner and reviewer JSON, up to 3 correction rounds | Correction loop proven with the fake agent emitting findings |
-| AW.3 — Antigravity + LM Studio | Antigravity adapter **only if** a headless mode is verified; otherwise the UI shows a clear "unavailable" state. LM Studio advisory summaries. | Probe-driven availability, never a silent fallback |
+| AW.3 — Antigravity + LM Studio | Antigravity implementer adapter (headless mode confirmed, §3.2), after the smoke tests in §3.2 pass. LM Studio advisory summaries. | Probe-driven availability, never a silent fallback |
 | AW.4 — Policy, resume, non-Git, approvals | Per-project policy editor, exclusions and test restrictions, non-Git snapshot strategy, explicit Resume, approval-gated merge, push and apply-back | Approval gates covered by tests |
 
 Starting AW.1 with only Claude Code is deliberate: it is the one CLI verified
@@ -405,8 +447,9 @@ and diff, and deletes everything.
 
 ## 13. Risks and limitations to state up front
 
-- **Antigravity may not be scriptable.** That is a real possibility, and the
-  design treats it as a first-class outcome rather than a bug.
+- ~~**Antigravity may not be scriptable.**~~ **Resolved:** `agy -p` is a headless
+  mode (§3.2). What remains is how it behaves when a turn needs a shell
+  command, and how it reports sign-in status.
 - **The runner is only alive while the app is open**, the same as automations.
   Closing the app interrupts runs, and they show as `interrupted`, honestly.
 - **Agent CLIs change their flags often.** Each adapter pins the flags it uses,
@@ -425,7 +468,7 @@ and diff, and deletes everything.
 3. **On the development Mac**, capture and paste into this note:
    - `claude --version` and `claude --help`, to confirm the flags in §3 match the installed version
    - ~~`codex exec --help`~~ **Done** (§3.1). ~~`codex --version`~~ **Done** (0.160.0). Still needed: the login-status command and the effort-key check in §3.1. **Repeat the Claude and Codex checks on the Windows machine as well**, since availability is probed per machine (§5A).
-   - The Antigravity CLI's `--help`, or confirmation that it has no headless mode
+   - ~~The Antigravity CLI's `--help`~~ **Done** (`agy` 1.3.3 on Windows, §3.2). Still needed: `agy models` and the smoke tests in §3.2
    - `lms ls` (LM Studio), if the advisor is wanted
 4. **Make `flight-deck-team` available** (§10) and record which ideas carry over.
 5. **Create the branch** from the latest `main`. Run `npm run db:generate` once
