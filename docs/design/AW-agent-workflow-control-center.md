@@ -525,6 +525,36 @@ files. Then extract the **ideas** and drop the assumptions:
   passes. Anything Flight-Training-specific becomes a field in
   `agent_project_policy`, not a constant.
 
+## 10A. Prior art: open-source projects (surveyed October 12, 2026)
+
+A survey of open-source projects with 1,000 or more GitHub stars that orchestrate coding agents, plus libraries for the hard parts. Star counts and licences were read from each repository page on the survey date.
+
+### Whole applications: borrow ideas, do not adopt
+
+| Project | Stars | Licence | Stack | Relevant ideas | Why not adopt it |
+| --- | ---: | --- | --- | --- | --- |
+| [Parallel Code](https://github.com/johannesjo/parallel-code) | ~1.0k | MIT | Electron, SolidJS, TypeScript | **The closest match:** Claude Code, Codex, Gemini **and Antigravity** CLIs, a worktree per task, a diff viewer with inline review comments, and **symlinking `node_modules` and other gitignored folders into each worktree** so runs need no reinstall | macOS and Linux only. A different UI framework. Its own task model, with no planner, reviewer or correction loop. |
+| [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) | ~28k | Apache-2.0 | Rust + Node | **Inline diff comments sent back to the agent as feedback**, which is exactly the UI for correction rounds. It also normalises logs across about 10 agent CLIs. | **Sunsetting** (per its README), and a Rust backend |
+| [Crystal](https://github.com/stravu/crystal) | ~3.1k | MIT | Electron | An Electron app running Claude Code and Codex in parallel worktrees, the same shape as ours | Deprecated in February 2026 in favour of Nimbalyst |
+| [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires) | ~3.3k | MIT | Rust, tmux | `aoe agents` reports **availability per machine**, the same idea as our probe. It also has a web dashboard with diff review and an HTTP API. | tmux-based, so Windows works only through WSL2 |
+| [Claude Squad](https://github.com/smtg-ai/claude-squad) | ~8.2k | **AGPL-3.0** | Go, tmux | A worktree and branch per agent session | AGPL, so ideas only and **no code copied**. tmux, no Windows. |
+
+**Conclusion:** none of them replaces this design. Each would mean giving up this codebase's stack and its security rules: no shell, edit-only Antigravity, runner-owned checks, and outcomes the runner verifies itself. Several assume tmux, so they have no native Windows. Two ideas are adopted:
+
+1. **Symlinking ignored dependency folders into worktrees** (from Parallel Code). Without it, every run on a Node project starts with a full `npm install`. **Rule:** this is opt-in per project, as a list in the project policy (`node_modules`, `.venv`, …). On Windows it uses a junction, since symlinks need Developer Mode. The link is **read-only from the run's point of view**: a check that writes into a linked folder would change the original project's copy, so the policy editor warns about that, and a project can turn the feature off.
+2. **Inline diff comments as correction-round input** (from Vibe Kanban). In AW.2, you can comment on lines of the diff, and those comments join the reviewer's findings for the next round. They are labelled as yours, never merged into the reviewer's verdict.
+
+### Libraries
+
+| Library | Stars | Licence | Use | Decision |
+| --- | ---: | --- | --- | --- |
+| [diff2html](https://github.com/rtfpessoa/diff2html) | ~3.4k | MIT | Renders unified git diffs as HTML: line-by-line or side-by-side, syntax highlighting | **Adopt in AW.1** for the run-detail diff view. It is framework-agnostic and takes a diff string, so a small client component wraps it. That is one new runtime dependency, which fits the "small number of replaceable dependencies" rule in `ARCHITECTURE.md`. |
+| [execa](https://github.com/sindresorhus/execa) | ~7.6k | MIT | Process spawning, line streaming, termination | **Not adopted for now.** On Windows it resolves `.cmd` shims through `cross-spawn`, which runs them via `cmd.exe`. That is a shell, which §5A rules out. The existing `ndjson.ts` and `node:child_process` cover the rest. To be reconsidered only if its Windows path can be confirmed shell-free. |
+| [simple-git](https://github.com/steveukx/git-js) | ~3.9k | MIT | Git wrapper | **Not adopted.** It has no worktree commands, and plain `git` calls with argv arrays are just as simple. |
+| [tree-kill](https://github.com/pkrumins/node-tree-kill) | ~360 | MIT | Kill process trees | **Not adopted:** below the 1,000-star bar, last released in 2019, and it once had a command-injection bug. Its method (`taskkill /T /F` on Windows, `pgrep -P` on macOS) is about 30 lines in `process.ts`, written with argv arrays. |
+
+Any code borrowed from an MIT or Apache-2.0 project keeps that project's licence notice in a `THIRD_PARTY_NOTICES.md`. Nothing is copied from AGPL projects.
+
 ## 11. Release plan
 
 Each release is a separate PR and is independently testable.
@@ -611,7 +641,7 @@ The order matters: each step is testable before the next one starts.
 | 10 | `runner/index.ts` (+ `npm run runner`) | Claims intents, runs the orchestrator, epoch-based recovery at startup |
 | 11 | `desktop/main.js` | Forks the runner next to the server, passes the run-storage path, and stops it on quit |
 | 12 | `src/app/api/agent-runs/**` | `POST` creates a start intent, `POST /:id/stop` creates a stop intent, `GET /:id` returns the run, and `GET /:id/events` streams SSE with `Last-Event-ID` replay. All of them return 404 when the feature is disabled. |
-| 13 | `src/app/agents/**`, `src/components/agents/**`, `src/config/navigation.ts` | Run form, history, run detail (timeline, events, diff, checks, verdict, Stop) |
+| 13 | `src/app/agents/**`, `src/components/agents/**`, `src/config/navigation.ts` | Run form, history, run detail (timeline, events, diff via `diff2html` (§10A), checks, verdict, Stop) |
 | 14 | `tests/unit/agent-*.test.ts`, `tests/fixtures/fake-agent.mjs` | The test plan in §12 |
 | 15 | `scripts/agents-demo.ts` (+ `npm run agents:demo`) | Disposable synthetic project + temp database, end to end with the fake agent |
 | 16 | `README.md`, this note | Setup, usage, validation results, and the limitations that remain |
