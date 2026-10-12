@@ -157,7 +157,7 @@ use and the ones it refuses.
 | `--output-schema <file>` | **The key flag.** The planner and reviewer must return JSON matching a schema the runner writes into run storage. This replaces "parse the agent's prose" with validation, which the truthful-status rule in §7 depends on. |
 | `-o, --output-last-message <file>` | The final message is written to a file in run storage. The runner validates it again with Zod and does not trust stdout alone. |
 | `-m, --model <MODEL>` | The configured model ("GPT-6.1 Sol" by default), passed through exactly. A rejected model fails the run with Codex's own error. |
-| `-c model_reasoning_effort="<level>"` | Effort. **Still to verify:** the help output does not list the config key, so the probe confirms it is accepted before the run starts. If it is not, the run is refused instead of running at a different effort. |
+| `-c model_reasoning_effort="<level>"` | Effort. **Verified (October 12, 2026, Mac, 0.160.0):** the value is checked by the service. `"medium"` ran normally, and `"banana"` was rejected with HTTP 400: *"Supported values are: 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', and 'max'."* The dashboard also validates against that list **before** spawning, so a typo never costs a turn. Default: `medium`. |
 | `-s, --sandbox read-only` | **Planner and reviewer.** They read the worktree and never write to it. The runner computes the diff and runs the checks itself, so the reviewer needs no write access. |
 | `-s, --sandbox workspace-write` | Only if Codex is ever used as an *implementer* (not in the current plan) |
 | `-C, --cd <worktree>` | The working root is always the run's worktree, never your original folder |
@@ -182,8 +182,17 @@ use and the ones it refuses.
 **Still needed from the Mac** (for the probe):
 
 - ~~`codex --version`~~ **Done**: codex-cli 0.160.0. The probe records the version and warns when it changes, because flags move between releases.
-- The login-status command (likely `codex login status`), which the probe uses to report "authenticated: yes/no" without reading `~/.codex`
-- Confirmation that `-c model_reasoning_effort="medium"` is accepted, for example with `codex exec --strict-config -c model_reasoning_effort="medium" -s read-only "reply OK"` in a scratch Git repository
+- ~~The login-status command~~ **Done**: `codex login status` prints "Logged in using ChatGPT" (Windows, 0.162.1). The probe reports signed in yes/no from it without reading `~/.codex`.
+- ~~The effort key~~ **Done**: see the `-c model_reasoning_effort` row above.
+
+**Codex `--json` event shape** (Mac, 0.160.0), which the adapter and the fake-agent fixture copy:
+
+- `{"type":"thread.started","thread_id":…}`. The thread ID is recorded for AW.4 resume (`codex exec resume <id>`).
+- `{"type":"turn.started"}`
+- `{"type":"item.completed","item":{"id","type":"agent_message","text"}}`
+- `{"type":"turn.completed","usage":{input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_output_tokens}}`. Usage per turn feeds the cost readout.
+- On failure: `{"type":"error","message":…}` then `{"type":"turn.failed","error":{"message":…}}`. **The `message` holds a second JSON document encoded as a string** (the service's error body), so the adapter parses it a second time to show the real reason ("Invalid value 'banana'…") instead of an escaped blob.
+- A trivial "reply OK" turn used about 19,000 input tokens (13,000 of them cached).
 
 ### 3.2 Antigravity adapter (`agy` 1.3.3, from `agy --help` on the Windows PC, October 12, 2026)
 
@@ -630,7 +639,7 @@ and diff, and deletes everything.
 2. ~~**Architecture decision (§2.3)**~~ **Done**: the separate runner process was approved with the plan.
 3. **On the development Mac**, capture and paste into this note:
    - `claude --version` and `claude --help`, to confirm the flags in §3 match the installed version
-   - ~~`codex exec --help`~~ **Done** (§3.1). ~~`codex --version`~~ **Done** (0.160.0). Still needed: the login-status command and the effort-key check in §3.1. **Repeat the Claude and Codex checks on the Windows machine as well**, since availability is probed per machine (§5A).
+   - **Codex: all done** (§3.1). Help output and version (0.160.0 on the Mac, 0.162.1 on Windows), `codex login status` (Windows), and the effort key verified on the Mac on October 12, 2026. Availability is still probed per machine at run time (§5A).
    - ~~The Antigravity CLI's `--help`~~ **Done** (`agy` 1.3.3 on Windows, §3.2). Still needed: `agy models` and the smoke tests in §3.2
    - `lms ls` (LM Studio), if the advisor is wanted
 4. **Make `flight-deck-team` available** (§10) and record which ideas carry over.
@@ -672,7 +681,7 @@ The same format as §15: steps in order, each testable before the next. Every re
 | Release | Starts when | Manual acceptance (machine) | Open items it needs first |
 | --- | --- | --- | --- |
 | AW.1 | #40 merged | Fake-agent demo, then one real Claude Code run on a scratch project in `H:\Ai Repo clones` (Windows PC) and one on the Mac | None |
-| AW.2 | AW.1 merged | A real run with Claude Code implementing, Codex planning and reviewing, and at least one correction round (Windows PC and Mac) | Codex effort-key check (§3.1). If the key is rejected, effort is shown as "not configurable for Codex" and only the default is allowed. Nothing is silently changed. |
+| AW.2 | AW.1 merged | A real run with Claude Code implementing, Codex planning and reviewing, and at least one correction round (Windows PC and Mac) | None. The effort key was verified on October 12, 2026 (§3.1). |
 | AW.3 | AW.2 merged | A real run with Antigravity implementing and Codex reviewing, on the Windows PC | None. Antigravity verification is complete (§3.2). |
 | AW.4 | AW.3 merged | Next-task pick from a real project's task board; an approved draft PR; an apply-back on a non-Git scratch folder (Windows PC) | None |
 | AW.5 | The mini PC is running, and AW.4 merged | Watching and approving a run from a phone over Tailscale | Mini PC OS, Tailscale set up |
@@ -683,7 +692,7 @@ The same format as §15: steps in order, each testable before the next. Every re
 | # | Files | What |
 | ---: | --- | --- |
 | 1 | `src/core/agents/schemas/plan.ts`, `schemas/review.ts` | Zod schemas, which are the single source of truth, exported to JSON Schema files (Zod 4 `toJSONSchema`) for `--output-schema` and `--json-schema`. A plan is `{task, scope_paths[], acceptance[], checks[]}`. A review is `{verdict: approve\|request_changes, findings[{id, severity: blocking\|major\|minor\|nit, file?, line?, message, actionable}]}`. |
-| 2 | `src/core/agents/adapters/codex.ts` | `probe()` (`codex --version`; `codex login status` → signed in yes/no, cached with a timestamp). On Windows the executable is resolved from `%APPDATA%\npm\codex.cmd` to its real entry point (§5A). `buildArgv()` for the planner and reviewer roles: `exec -`, `--json`, `--output-schema`, `-o`, `-m`, `-c model_reasoning_effort=…`, `-s read-only`, `-C <worktree>`, `--ignore-user-config`. Denylist assertions (§3.1). |
+| 2 | `src/core/agents/adapters/codex.ts` | `probe()` (`codex --version`; `codex login status` → signed in yes/no, cached with a timestamp). On Windows the executable is resolved from `%APPDATA%\npm\codex.cmd` to its real entry point (§5A). `buildArgv()` for the planner and reviewer roles: `exec -`, `--json`, `--output-schema`, `-o`, `-m`, `-c model_reasoning_effort=<none\|minimal\|low\|medium\|high\|xhigh\|max>` (validated locally first), `-s read-only`, `-C <worktree>`, `--ignore-user-config`. Event mapping from the verified `--json` shape, with the nested error message decoded (§3.1). Denylist assertions (§3.1). |
 | 3 | `src/core/agents/prompts/{planner,reviewer,correction}.md` | Prompt templates. Project instructions (`CLAUDE.md`, `AGENTS.md`), diffs, check output and your comments go in as **fenced data blocks**, never as instructions. Any instruction text found inside them is ignored. |
 | 4 | `src/core/agents/orchestrator.ts` | Adds a `plan` stage before `implement`, and the loop `checks → review → correct`. **A round starts** when there is a blocking or major finding marked actionable, a required check failing, or a comment from you. **It ends** in `succeeded` (approve, required checks passing, non-empty diff confined to scope) or `failed`, naming the facts still missing after round 3. |
 | 5 | `src/core/agents/types.ts`, run form | Role settings per run: planner, implementer and reviewer, each with provider, model and effort, defaulting to Codex GPT-6.1 Sol (medium) for planner and reviewer. If the reviewer uses the same provider as the implementer, the run is labelled **"same provider, separate session"**, so independence is never overstated. |
