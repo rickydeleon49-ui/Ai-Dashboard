@@ -573,7 +573,7 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 
 - ~~Confirm it as a deliberate subsystem~~ — **decided October 12, 2026**: this is now the product, desktop-first.
 - ~~Approve the architecture~~ — **decided**: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
-- Still open (needed for AW.2 and AW.3, not for AW.1): run `codex exec --help` and the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
+- Still open (needed for AW.2 and AW.3, not for AW.1): confirm `codex --version`, the Codex login-status command and the effort config key (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), and run the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
 
 ### Release AW.1 — Vertical slice
 

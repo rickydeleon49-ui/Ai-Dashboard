@@ -128,7 +128,7 @@ Electron main
 | Item | Status | Consequence |
 | --- | --- | --- |
 | Claude Code CLI | **Verified** (v2.1.296): `-p`, `--output-format stream-json`, `--model`, `--effort`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`, `--resume`, `--settings` | The implementer adapter can be built and tested now |
-| Codex CLI | Not installed in this environment | The adapter must discover its real options (`codex exec --help`, `--json`, sandbox and approval flags) on your Mac before it ships |
+| Codex CLI | **Help output verified** (`codex exec --help`, from your Mac): `--json`, `--output-schema`, `-o`, `-m`, `-c`, `-s read-only/workspace-write`, `-C`, `--ignore-user-config`, `exec resume` | Adapter flags are settled. See §3.1. Version, login status and the effort config key still need confirming. |
 | Antigravity | Not installed. It is primarily an IDE, and **whether it has a stable headless CLI is the biggest unknown in the request** | The adapter ships as "unavailable until verified". If no non-interactive mode exists, it cannot be an unattended implementer, and the UI must say so |
 | Model IDs "GPT-6.1 Sol", "Gemini 3.8 Flash High" | Unverified | These are stored as configured strings, validated against each CLI's own model listing where one exists, and **never substituted**. A rejected model fails the run with the CLI's own error message. |
 | Opus 5.5 | `claude-opus-5-5`, passed via `--model`, with `--effort medium` | — |
@@ -141,6 +141,49 @@ installed, version, authenticated (yes/no) and supported models. A provider
 that fails its probe cannot be selected. The probe never reads, copies or
 displays credential files (`~/.claude`, `~/.codex`, keychains). It reports only
 the yes/no answer the CLI itself gives.
+
+### 3.1 Codex adapter (from `codex exec --help` on the development Mac, October 12, 2026)
+
+`codex exec` is a real non-interactive mode, so Codex can serve as planner and
+reviewer without a person at the keyboard. These are the flags the adapter will
+use and the ones it refuses.
+
+**Used:**
+
+| Flag | Purpose |
+| --- | --- |
+| `codex exec [PROMPT]`, with the prompt on **stdin** (`-`) | Long plans and diffs never go on the command line, where they would be visible in `ps` and limited in length |
+| `--json` | JSONL events on stdout, parsed with the existing `ndjson.ts` and mapped to run events |
+| `--output-schema <file>` | **The key flag.** The planner and reviewer must return JSON matching a schema the runner writes into run storage. This replaces "parse the agent's prose" with validation, which the truthful-status rule in §7 depends on. |
+| `-o, --output-last-message <file>` | The final message is written to a file in run storage. The runner validates it again with Zod and does not trust stdout alone. |
+| `-m, --model <MODEL>` | The configured model ("GPT-6.1 Sol" by default), passed through exactly. A rejected model fails the run with Codex's own error. |
+| `-c model_reasoning_effort="<level>"` | Effort. **Still to verify:** the help output does not list the config key, so the probe confirms it is accepted before the run starts. If it is not, the run is refused instead of running at a different effort. |
+| `-s, --sandbox read-only` | **Planner and reviewer.** They read the worktree and never write to it. The runner computes the diff and runs the checks itself, so the reviewer needs no write access. |
+| `-s, --sandbox workspace-write` | Only if Codex is ever used as an *implementer* (not in the current plan) |
+| `-C, --cd <worktree>` | The working root is always the run's worktree, never your original folder |
+| `--ignore-user-config` + explicit `-c` values | A `sandbox_mode` or approval default in your `~/.codex/config.toml` cannot quietly widen a run's permissions. Authentication still comes from `CODEX_HOME`. The dashboard never reads it. |
+| `codex exec resume <id>` | AW.4 resume, using the session ID recorded from the JSON events |
+
+**Refused** (in the argv denylist and asserted by adapter tests):
+
+- `--dangerously-bypass-approvals-and-sandbox` and `-s danger-full-access`. These are bypass flags and are never used unattended.
+- `--dangerously-bypass-hook-trust`.
+- `--approve-for-me`. It routes approval requests to automatic review, which amounts to unattended self-approval. Approvals in this product come from you (§6.3).
+- `--ignore-rules`. Your execpolicy rules can only narrow what Codex does, so they stay loaded.
+
+**Not used, and why:**
+
+- `--worktree`. The runner manages its own worktrees (§5), so lock, cleanup and diff behaviour are the same for every provider.
+- `codex exec review`. It is attractive, but it reviews the repository on its own terms. The reviewer must judge *the runner's* diff and check results, and that needs the structured prompt and output schema above. It is worth revisiting as an extra opinion later.
+- `--skip-git-repo-check`. It is never needed, because non-Git projects are turned into a Git snapshot first (§5).
+- `--ephemeral`. Sessions are kept so a run can be resumed, and the dashboard records only the session ID.
+- `--oss` and `--local-provider lmstudio`. These could point Codex at LM Studio, but the local advisor (Gemma) stays a separate adapter and never acts as a planner or reviewer by accident.
+
+**Still needed from the Mac** (for the probe):
+
+- `codex --version`
+- The login-status command (likely `codex login status`), which the probe uses to report "authenticated: yes/no" without reading `~/.codex`
+- Confirmation that `-c model_reasoning_effort="medium"` is accepted, for example with `codex exec --strict-config -c model_reasoning_effort="medium" -s read-only "reply OK"` in a scratch Git repository
 
 ## 4. Data model (SQLite, desktop only)
 
@@ -355,7 +398,7 @@ and diff, and deletes everything.
 2. ~~**Architecture decision (§2.3)**~~ **Done**: the separate runner process was approved with the plan.
 3. **On the development Mac**, capture and paste into this note:
    - `claude --version` and `claude --help`, to confirm the flags in §3 match the installed version
-   - `codex --version`, `codex exec --help`, and its login-status command
+   - ~~`codex exec --help`~~ **Done** (§3.1). Still needed: `codex --version`, the login-status command, and the effort-key check in §3.1
    - The Antigravity CLI's `--help`, or confirmation that it has no headless mode
    - `lms ls` (LM Studio), if the advisor is wanted
 4. **Make `flight-deck-team` available** (§10) and record which ideas carry over.
