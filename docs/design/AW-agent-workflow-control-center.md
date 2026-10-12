@@ -277,6 +277,24 @@ The same command as smoke test 2, with `googlecloudtools.datacloud_telemetry` mo
 4. **Reads outside the workspace fail the run.** Skills from legacy plugins make the agent read their files under `~/.gemini`, so with `data-agent-kit-plugin` installed, **every Antigravity run would fail** this check. The run form says so in advance, from the probe's plugin list, instead of letting the run fail after spending tokens. Your options are to move that plugin out as well, or to allow-list reads of that one plugin directory per machine, shown as a visible exception. The dashboard never quietly widens the check.
 5. **Cost.** Each run has a floor of roughly 25,000–35,000 input tokens before any project context, and turns take 5–10 seconds. Stage timeouts and the cost readout are set with that in mind.
 
+#### Where Antigravity keeps its extensions (Windows, October 12, 2026)
+
+A search of `%USERPROFILE%\.gemini` after both broken and skill-reading plugins were moved to `.gemini\plugins-disabled` shows that Antigravity's state is spread over several folders:
+
+| Folder | Holds |
+| --- | --- |
+| `.gemini\config\plugins\` | Legacy plugins that still load: `android-cli-plugin`, `chrome-devtools-plugin`, `gemini-api`, `google-antigravity-sdk`, `modern-web-guidance-plugin` |
+| `.gemini\antigravity-cli\mcp\` | **MCP servers for the CLI**, for example `data-agent-kit-plugin_dak-notebook` and `…_dak-viz` |
+| `.gemini\antigravity-cli\plugin_data\` | Plugin state |
+| `.gemini\antigravity\…`, `.gemini\antigravity-ide\…` | Separate copies for the IDE and the shared app |
+
+Consequences:
+
+- **Moving a plugin does not remove the MCP servers it registered.** `data-agent-kit`'s MCP servers are still configured under `antigravity-cli\mcp` and reachable through the `call_mcp_tool` tool. The probe therefore lists **both** plugin folder names (`config\plugins`) **and** MCP server names (`antigravity-cli\mcp`). It reads directory names and server names only, nothing else under `.gemini`.
+- **`call_mcp_tool` is not on the implementer allowlist by default.** An MCP server can reach networks, files and accounts outside the workspace, and the dashboard cannot see what a given server does. You can allow it per project, with each server named in the run form.
+- **Any remaining plugin may inject skills** that make the agent read files outside the workspace, as `data-agent-kit-plugin` did. The out-of-workspace read check (§3.2) catches that. A clean smoke run with the remaining plugins confirms whether any of them do.
+- The CLI's own config home appears to be `.gemini\antigravity-cli`. That is a lead for finding an isolated-config option later (§3.2), still unverified.
+
 ## 4. Data model (SQLite, desktop only)
 
 Projects reuse the existing `projects` table and its `local_path`. "Register a
