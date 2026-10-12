@@ -277,10 +277,32 @@ agent_workspace_lock   lock_key PK (realpath of the working copy), run_id
 | Git with uncommitted changes | The run starts from `HEAD`, **not** from your uncommitted edits, and the UI says so before you start. Snapshotting dirty state into the worktree is a later option. |
 | Not a Git repository | Copy into `<runstore>/snap/<runId>/base` (honouring exclusions and skipping `node_modules` and the like), then `git init` + commit there and work in a worktree of *that*. You get the same diff and review experience. Copying back to the original folder is a separate, approval-gated action that first makes a timestamped backup. |
 
-`<runstore>` lives under the app's user-data directory (`app.getPath("userData")/agent-runs`),
-next to the database, never inside the project. Cleanup removes worktrees only
-for runs you have dismissed, and never removes a branch that has unmerged commits
-without asking.
+#### Where things live: workspace roots and two kinds of run storage
+
+**All project work happens on a drive you choose.** On the Windows PC that is
+the `H:` drive: projects are in `H:\Ai Repo clones`, and worktrees go in
+`H:\Ai Repo worktrees`. The design therefore splits storage in two and makes
+both locations per-machine settings rather than fixed paths:
+
+| Setting | Holds | Windows PC | Default |
+| --- | --- | --- | --- |
+| **Workspace roots** (one or more) | The projects you can register | `H:\Ai Repo clones` | None. You add them in settings. |
+| **Worktree root** (`<worktrees>`) | One worktree or snapshot per run | `H:\Ai Repo worktrees\command-center` | `<userData>/agent-runs/wt` |
+| **Run control storage** (`<runstore>`) | The database, event logs, per-run permission-grant files, and schema files | Stays in `%APPDATA%\Command Center` on `C:` | `<userData>/agent-runs` |
+
+Rules that follow from this:
+
+- **A project must be inside a workspace root.** Registering a folder outside every root is refused, so a mistyped or malicious path cannot point an agent at `C:\Windows` or your home folder. Containment is checked with the normalised realpath (§5A), so a junction under `H:\Ai Repo clones` that leads elsewhere is rejected too.
+- **Permission grants never sit next to the code.** The per-run settings, schema and grant files live in `<runstore>` on `C:`, outside every workspace and worktree. An agent working in a worktree therefore cannot edit its own permissions.
+- **Command Center uses its own subfolder** (`…\Ai Repo worktrees\command-center\<shortId>`). `H:\Ai Repo worktrees` already holds worktrees made by other tools. The runner never lists, changes or cleans up anything it did not create. Its cleanup acts only on worktree paths recorded in its own database.
+- **Spaces in paths** (`Ai Repo clones`) are normal. Every spawn uses argv arrays with `shell: false`, and the test fixtures deliberately use paths that contain spaces.
+- **The drive has to be there.** If `H:` is missing (unplugged, renamed or not yet mounted), the probe shows "workspace root unavailable", new runs are refused, and recovery marks affected runs `interrupted`, saying why. Nothing falls back to `C:`.
+- **The same drive for repository and worktree is the fast path.** A Git worktree can live on another drive, but keeping clones and worktrees both on `H:` avoids cross-drive copying for non-Git snapshots.
+- **The filesystem should be NTFS.** On exFAT or FAT32, Git worktrees still work, but there are no file permissions or junctions, and case handling differs. The probe reports the filesystem type of each root and warns on anything other than NTFS (or APFS on the Mac).
+- **On the Mac**, the same settings point wherever your projects live there. The paths are per machine; the layout is the same.
+
+Cleanup removes worktrees only for runs you have dismissed, and never removes a
+branch that has unmerged commits without asking.
 
 ## 5A. macOS and Windows
 
@@ -391,7 +413,8 @@ final     outcome = f(diff non-empty, every required check passed, reviewer verd
   round, the final verdict with its three facts, and Stop, Resume and
   approval buttons.
 - `/settings/agents`: provider probes (installed, version, authenticated yes/no,
-  models), defaults, and per-project policy.
+  models), **workspace roots and the worktree root** (with drive and filesystem
+  status), defaults, and per-project policy.
 
 ## 10. What to bring over from `flight-deck-team`
 
@@ -430,7 +453,7 @@ crashes on demand. Each test also uses a temp `git init` project under
 
 | Area | Test |
 | --- | --- |
-| Project isolation | A policy path that escapes the workspace (via `..` or a symlink) is rejected. A changed excluded path fails the run. The worktree path is under run storage, never the original project. |
+| Project isolation | Registering a folder outside every workspace root is refused. A policy path that escapes the workspace (via `..`, a symlink or a junction) is rejected. Grant and schema files are never inside the worktree. Cleanup never touches a worktree it did not create. A missing root refuses new runs without falling back to another drive. Paths contain spaces. A changed excluded path fails the run. The worktree path is under run storage, never the original project. |
 | Input validation | Zod rejects shell strings, unknown roles, unverified models, unknown check names and oversized tasks. The generated argv never contains a bypass flag. |
 | Concurrency | Two concurrent starts on the same working copy produce one lock and one refusal. Two runs on the same project get separate worktrees. |
 | Event reconnection | Reconnecting with `Last-Event-ID` = k yields exactly `seq > k`, including after a simulated server restart. |
@@ -485,7 +508,7 @@ The order matters: each step is testable before the next one starts.
 | 3 | `src/core/agents/availability.ts` | `isAgentRunsEnabled()`: true only in desktop local mode. Used by routes, navigation and the runner. |
 | 4 | `src/core/agents/events.ts` | Append (gapless `seq` inside a transaction), a bounded and redacted payload, and `readSince(runId, seq)` |
 | 5 | `src/core/agents/redact.ts` | Token, header and env-secret redaction. Pure, so it can be tested exhaustively. |
-| 6 | `src/core/agents/workspace.ts` | Worktree create and remove, realpath containment checks, lock acquire and release, and the `git diff base...HEAD` summary |
+| 6 | `src/core/agents/workspace.ts`, `src/core/agents/roots.ts` | Workspace roots, the worktree root and run-control storage as per-machine settings (§5). Worktree create and remove inside Command Center's own subfolder only, realpath containment checks against the roots, a drive-missing check, lock acquire and release, and the `git diff base...HEAD` summary. |
 | 7 | `src/core/agents/process.ts`, `src/core/agents/resolve-executable.ts` | Spawn with `shell: false` from a resolved executable (no `.cmd` shims, §5A), and record the PID and process group. Stop: on macOS, SIGTERM then SIGKILL to the group; on Windows, `taskkill /T` then `/T /F`. Output goes through the existing `ndjson.ts` parser. |
 | 8 | `src/core/agents/adapters/claude-code.ts`, `adapters/fake.ts` | `probe()`, `buildArgv()` (asserted to never include a bypass flag), the per-run `--settings` grant file, and stream-json → events |
 | 9 | `src/core/agents/orchestrator.ts` | The stage machine in §7. The final status is computed only from facts the runner observed. |
