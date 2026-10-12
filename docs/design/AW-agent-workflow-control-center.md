@@ -128,7 +128,7 @@ Electron main
 | Item | Status | Consequence |
 | --- | --- | --- |
 | Claude Code CLI | **Verified** (v2.1.296): `-p`, `--output-format stream-json`, `--model`, `--effort`, `--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`, `--resume`, `--settings` | The implementer adapter can be built and tested now |
-| Codex CLI | **Help output verified** (`codex exec --help`, from your Mac): `--json`, `--output-schema`, `-o`, `-m`, `-c`, `-s read-only/workspace-write`, `-C`, `--ignore-user-config`, `exec resume` | Adapter flags are settled. See §3.1. Version, login status and the effort config key still need confirming. |
+| Codex CLI | **Version 0.160.0. Help output verified** (`codex --version` and `codex exec --help`, from your Mac): `--json`, `--output-schema`, `-o`, `-m`, `-c`, `-s read-only/workspace-write`, `-C`, `--ignore-user-config`, `exec resume` | Adapter flags are settled. See §3.1. Login status and the effort config key still need confirming. |
 | Antigravity | Not installed. It is primarily an IDE, and **whether it has a stable headless CLI is the biggest unknown in the request** | The adapter ships as "unavailable until verified". If no non-interactive mode exists, it cannot be an unattended implementer, and the UI must say so |
 | Model IDs "GPT-6.1 Sol", "Gemini 3.8 Flash High" | Unverified | These are stored as configured strings, validated against each CLI's own model listing where one exists, and **never substituted**. A rejected model fails the run with the CLI's own error message. |
 | Opus 5.5 | `claude-opus-5-5`, passed via `--model`, with `--effort medium` | — |
@@ -142,7 +142,7 @@ that fails its probe cannot be selected. The probe never reads, copies or
 displays credential files (`~/.claude`, `~/.codex`, keychains). It reports only
 the yes/no answer the CLI itself gives.
 
-### 3.1 Codex adapter (from `codex exec --help` on the development Mac, October 12, 2026)
+### 3.1 Codex adapter (codex-cli 0.160.0, from `codex exec --help` on the development Mac, October 12, 2026)
 
 `codex exec` is a real non-interactive mode, so Codex can serve as planner and
 reviewer without a person at the keyboard. These are the flags the adapter will
@@ -181,7 +181,7 @@ use and the ones it refuses.
 
 **Still needed from the Mac** (for the probe):
 
-- `codex --version`
+- ~~`codex --version`~~ **Done**: codex-cli 0.160.0. The probe records the version and warns when it changes, because flags move between releases.
 - The login-status command (likely `codex login status`), which the probe uses to report "authenticated: yes/no" without reading `~/.codex`
 - Confirmation that `-c model_reasoning_effort="medium"` is accepted, for example with `codex exec --strict-config -c model_reasoning_effort="medium" -s read-only "reply OK"` in a scratch Git repository
 
@@ -239,6 +239,30 @@ agent_workspace_lock   lock_key PK (realpath of the working copy), run_id
 next to the database, never inside the project. Cleanup removes worktrees only
 for runs you have dismissed, and never removes a branch that has unmerged commits
 without asking.
+
+## 5A. macOS and Windows
+
+The control center has to work the same way on your Mac and your Windows
+machine. The repository already ships desktop builds for both, and CI already
+runs a `Unit tests (Windows)` job, so this is a requirement from AW.1 onward,
+not a later port. Several parts of the design behave differently on Windows:
+
+| Concern | macOS | Windows | Rule |
+| --- | --- | --- | --- |
+| **Finding the CLI** | `claude` and `codex` on `PATH`, Homebrew paths | npm installs **`.cmd` shims**. Node refuses to spawn them with `shell: false`, and running them through a shell would bring back command-line injection. | Reuse the approach in `desktop/launch.js` and `desktop/ollama.js`: resolve to a real executable (a native `.exe`, or `node.exe` + the package's JS entry point found from the shim). **Never `shell: true`.** If the CLI cannot be resolved, the probe reports it as not installed, with the path it tried. |
+| **Check commands** (`npm test`, …) | Spawned directly | `npm` is also `npm.cmd` | Resolved the same way (`node.exe` + `npm-cli.js`) when the policy is saved, and stored as the resolved argv, so a run never resolves anything from text in a browser request |
+| **Stopping a run** | `detached: true` creates a process group; SIGTERM the group, then SIGKILL | No POSIX process groups or SIGTERM | Each platform gets its own stop routine: process groups on macOS; on Windows, `taskkill /PID <pid> /T` then `/T /F` after the grace period (a Job Object is a possible later upgrade). The cancellation test checks that **no grandchild process survives on either platform**. |
+| **Path containment** | APFS is usually case-insensitive | NTFS is case-insensitive; drive letters; `\\?\` and UNC prefixes; junctions | Compare `realpath.native` results after normalising case on both. Reject UNC and device paths as project roots. Treat junctions the same as symlinks. |
+| **Lock key** (`agent_workspace_lock`) | — | — | The normalised realpath, so `C:\Code\App` and `c:\code\app` are the same working copy |
+| **Git worktrees** | Fine | Long paths, and files held open by an editor or antivirus block removal | Keep run storage paths short (`<runstore>/wt/<shortId>`), set `core.longpaths=true` for the worktree, and retry removal with back-off. A worktree that still cannot be removed is reported, not ignored. |
+| **Diffs** | — | `core.autocrlf` can make every line appear changed | Compute diffs with `--ignore-cr-at-eol` for display and summaries, while the commit keeps what the agent wrote |
+| **Run storage** | `~/Library/Application Support/Command Center/agent-runs` | `%APPDATA%\Command Center\agent-runs` | Both come from `app.getPath("userData")`, as the database does today |
+| **Provider availability** | — | — | Probed **per machine**. A CLI that is installed and signed in on the Mac but not on Windows shows as unavailable there. Defaults are shared, but availability never is. |
+
+The fake agent CLI is a Node script started through `process.execPath`, so the
+whole test suite runs identically on the Linux and Windows CI jobs. macOS is
+covered locally and by the macOS desktop build. Adding a macOS unit-test job to
+CI is worth considering once the runner lands.
 
 ## 6. Security model
 
@@ -367,7 +391,8 @@ crashes on demand. Each test also uses a temp `git init` project under
 | Input validation | Zod rejects shell strings, unknown roles, unverified models, unknown check names and oversized tasks. The generated argv never contains a bypass flag. |
 | Concurrency | Two concurrent starts on the same working copy produce one lock and one refusal. Two runs on the same project get separate worktrees. |
 | Event reconnection | Reconnecting with `Last-Event-ID` = k yields exactly `seq > k`, including after a simulated server restart. |
-| Cancellation | Stop kills a fake agent that spawned a grandchild (the process group is empty afterwards), the work is committed as `wip`, and the status is `stopped`. |
+| Cancellation | Stop kills a fake agent that spawned a grandchild, and no descendant survives (checked on the Linux and **Windows** CI jobs). The work is committed as `wip` and the status is `stopped`. |
+| Cross-platform paths | Case and drive-letter variants of one folder map to one lock key. UNC and device roots are rejected. A junction or symlink out of the workspace is rejected. A `.cmd` shim is never spawned. |
 | Cleanup | The per-run settings file is gone and the lock is released after success, failure, stop and crash recovery. |
 | Truthful status | A fake agent that *says* "all tests pass" while the check exits 1 produces `failed`. An empty diff produces `failed`. A malformed reviewer JSON produces `failed`, not approved. |
 | Recovery | A run left active with a stale epoch becomes `interrupted` with an explanatory event, and is not auto-restarted. |
@@ -398,7 +423,7 @@ and diff, and deletes everything.
 2. ~~**Architecture decision (§2.3)**~~ **Done**: the separate runner process was approved with the plan.
 3. **On the development Mac**, capture and paste into this note:
    - `claude --version` and `claude --help`, to confirm the flags in §3 match the installed version
-   - ~~`codex exec --help`~~ **Done** (§3.1). Still needed: `codex --version`, the login-status command, and the effort-key check in §3.1
+   - ~~`codex exec --help`~~ **Done** (§3.1). ~~`codex --version`~~ **Done** (0.160.0). Still needed: the login-status command and the effort-key check in §3.1. **Repeat the Claude and Codex checks on the Windows machine as well**, since availability is probed per machine (§5A).
    - The Antigravity CLI's `--help`, or confirmation that it has no headless mode
    - `lms ls` (LM Studio), if the advisor is wanted
 4. **Make `flight-deck-team` available** (§10) and record which ideas carry over.
@@ -417,7 +442,7 @@ The order matters: each step is testable before the next one starts.
 | 4 | `src/core/agents/events.ts` | Append (gapless `seq` inside a transaction), a bounded and redacted payload, and `readSince(runId, seq)` |
 | 5 | `src/core/agents/redact.ts` | Token, header and env-secret redaction. Pure, so it can be tested exhaustively. |
 | 6 | `src/core/agents/workspace.ts` | Worktree create and remove, realpath containment checks, lock acquire and release, and the `git diff base...HEAD` summary |
-| 7 | `src/core/agents/process.ts` | Spawn with `detached: true` and `shell: false`, record the process group ID, then stop the group with SIGTERM followed by SIGKILL. Fed through the existing `ndjson.ts` parser. |
+| 7 | `src/core/agents/process.ts`, `src/core/agents/resolve-executable.ts` | Spawn with `shell: false` from a resolved executable (no `.cmd` shims, §5A), and record the PID and process group. Stop: on macOS, SIGTERM then SIGKILL to the group; on Windows, `taskkill /T` then `/T /F`. Output goes through the existing `ndjson.ts` parser. |
 | 8 | `src/core/agents/adapters/claude-code.ts`, `adapters/fake.ts` | `probe()`, `buildArgv()` (asserted to never include a bypass flag), the per-run `--settings` grant file, and stream-json → events |
 | 9 | `src/core/agents/orchestrator.ts` | The stage machine in §7. The final status is computed only from facts the runner observed. |
 | 10 | `runner/index.ts` (+ `npm run runner`) | Claims intents, runs the orchestrator, epoch-based recovery at startup |

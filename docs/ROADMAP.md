@@ -573,7 +573,7 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 
 - ~~Confirm it as a deliberate subsystem~~ — **decided October 12, 2026**: this is now the product, desktop-first.
 - ~~Approve the architecture~~ — **decided**: a dedicated **agent runner** process forked by the Electron main process. The Next.js server only records intents and streams events; it never spawns agents.
-- Still open (needed for AW.2 and AW.3, not for AW.1): confirm `codex --version`, the Codex login-status command and the effort config key (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), and run the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
+- Still open (needed for AW.2 and AW.3, not for AW.1): confirm the Codex login-status command (codex-cli 0.160.0 recorded) and the effort config key (`codex exec --help` was recorded on October 12, 2026; see §3.1 of the design note), and run the Antigravity CLI's help (if a headless mode exists) on the development Mac and record the real flags. Make the `flight-deck-team` controller available for review (§10 of the design note).
 
 ### Release AW.1 — Vertical slice
 
@@ -613,6 +613,7 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 - Two runs can never hold the same working copy.
 - `succeeded` is derived only from runner-observed facts: a non-empty diff confined to allowed paths, every required check passing, and a schema-valid reviewer approval.
 - Stop and crash recovery leave no orphaned processes, permission grants or locks.
+- Works on both **macOS and Windows**: CLIs are resolved without `.cmd` shims or a shell, process trees are stopped with each platform's own mechanism, and path containment holds under case-insensitive and drive-letter paths (design note §5A). The test suite passes on the Windows CI job.
 - Event reconnection neither loses nor duplicates events, including across a restart.
 - Credentials and authentication files are never read, stored or displayed.
 
