@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { LogIn } from "lucide-react";
+import { Eye, LogIn } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KnowledgeDocumentForm } from "@/components/knowledge/knowledge-document-form";
 import { projectRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
+import { resolveKnowledgePageAccess } from "@/core/knowledge/page-access";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,8 @@ export default async function NewKnowledgeDocumentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const workspaceId = await resolveWorkspaceIdForPage();
-  if (!workspaceId) {
+  const access = await resolveKnowledgePageAccess();
+  if (!access) {
     return (
       <EmptyState
         icon={LogIn}
@@ -31,9 +32,20 @@ export default async function NewKnowledgeDocumentPage({
       />
     );
   }
+  const { workspaceId, canEdit } = access;
 
   const project = await projectRepository.findById(workspaceId, id);
   if (!project) notFound();
+
+  if (!canEdit) {
+    return (
+      <EmptyState
+        icon={Eye}
+        title="Read-only access"
+        description="Viewers can read this project's knowledge base but cannot add documents."
+      />
+    );
+  }
 
   return (
     <div className="space-y-5">

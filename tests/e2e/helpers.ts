@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 
 import crypto from "node:crypto";
 
@@ -194,4 +194,22 @@ export function pageErrors(page: Page): string[] {
 
 export function clearPageErrors(page: Page): void {
   errorsByPage.get(page)?.splice(0);
+}
+
+/**
+ * Waits until React has hydrated the element.
+ *
+ * The server-rendered HTML is visible and fillable before React attaches to
+ * it. Input made in that window is lost or merged with the server value, and
+ * DOM changes are thrown away when React reconciles. On a fast machine the
+ * window is too short to notice; on a CI runner it is not. React marks every
+ * node it has claimed with a `__reactFiber$` key, so wait for that.
+ */
+export async function waitForHydration(locator: Locator): Promise<void> {
+  await locator.waitFor();
+  const element = await locator.elementHandle();
+  await locator.page().waitForFunction(
+    (node) => node !== null && Object.keys(node).some((key) => key.startsWith("__reactFiber$")),
+    element,
+  );
 }

@@ -7,6 +7,8 @@ import { KnowledgeDocumentCard } from "@/components/knowledge/knowledge-document
 import { KnowledgeDocumentFilters } from "@/components/knowledge/knowledge-document-filters";
 import { knowledgeDocumentRepository, projectRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
+import { resolveKnowledgePageAccess } from "@/core/knowledge/page-access";
+import { summarizeMarkdown } from "@/core/knowledge/markdown";
 import type { SearchParams } from "@/lib/routing";
 
 export const dynamic = "force-dynamic";
@@ -18,18 +20,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: project ? `Knowledge — ${project.name}` : "Knowledge base" };
 }
 
-/** Categories in use for this project, with counts — mirrors `promptCategories()`'s own reasoning. */
-function categoriesWithCounts(documents: { category: string | null }[]): { name: string; count: number }[] {
-  const counts = new Map<string, number>();
-  for (const doc of documents) {
-    if (!doc.category) continue;
-    counts.set(doc.category, (counts.get(doc.category) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
-}
-
 /** A project's knowledge base — see docs/OVERVIEW.md §2 for the release this landed in. */
 export default async function ProjectKnowledgePage({
   params,
@@ -39,8 +29,8 @@ export default async function ProjectKnowledgePage({
   searchParams: SearchParams;
 }) {
   const { id } = await params;
-  const workspaceId = await resolveWorkspaceIdForPage();
-  if (!workspaceId) {
+  const access = await resolveKnowledgePageAccess();
+  if (!access) {
     return (
       <EmptyState
         icon={LogIn}
@@ -49,6 +39,7 @@ export default async function ProjectKnowledgePage({
       />
     );
   }
+  const { workspaceId, canEdit } = access;
 
   const project = await projectRepository.findById(workspaceId, id);
   if (!project) notFound();
@@ -58,15 +49,31 @@ export default async function ProjectKnowledgePage({
     const value = raw[key];
     return Array.isArray(value) ? value[0] : value;
   };
-  const search = first("search");
+  const search = first("search")?.trim() || undefined;
   const category = first("category");
 
-  const [documents, allDocuments] = await Promise.all([
-    knowledgeDocumentRepository.list(workspaceId, project.id, { search, category }),
-    knowledgeDocumentRepository.list(workspaceId, project.id),
+  // Categories are counted in the database rather than by loading every
+  // document. A search re-derives at most one bounded batch of older
+  // documents' search text and reports whether any are still pending.
+  const [listing, categories] = await Promise.all([
+    search
+      ? knowledgeDocumentRepository.search(workspaceId, project.id, { search, category })
+      : knowledgeDocumentRepository.list(workspaceId, project.id, { category }).then((documents) => ({ documents, index: null })),
+    knowledgeDocumentRepository.categoryCounts(workspaceId, project.id),
   ]);
-  const categories = categoriesWithCounts(allDocuments);
+  const { documents, index } = listing;
+  const incomplete = index !== null && !index.complete;
   const filtered = Boolean(search || category);
+
+  // A link to the same search, with a counter so it always navigates: each
+  // visit indexes one more bounded batch.
+  const round = Number.parseInt(first("indexing") ?? "0", 10);
+  const continueParams = new URLSearchParams();
+  if (search) continueParams.set("search", search);
+  if (category) continueParams.set("category", category);
+  continueParams.set("indexing", String((Number.isFinite(round) ? round : 0) + 1));
+  const continueHref = `/projects/${project.id}/knowledge?${continueParams.toString()}`;
+  const pendingLabel = index ? `${index.pending} older ${index.pending === 1 ? "document" : "documents"}` : "";
 
   return (
     <div className="space-y-5">
@@ -84,36 +91,55 @@ export default async function ProjectKnowledgePage({
         </nav>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-fg">{project.name}</h1>
-          <Link
-            href={`/projects/${project.id}/knowledge/new`}
-            className={buttonClasses("primary", "md")}
-          >
-            New document
-          </Link>
+          {canEdit ? (
+            <Link
+              href={`/projects/${project.id}/knowledge/new`}
+              className={buttonClasses("primary", "md")}
+            >
+              New document
+            </Link>
+          ) : null}
         </div>
       </div>
 
       <KnowledgeDocumentFilters categories={categories} />
 
+      {incomplete ? (
+        <div
+          role="status"
+          data-testid="knowledge-search-pending"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-200"
+        >
+          <p>
+            Search is still indexing {pendingLabel} in this project, so these results may be missing matches.
+          </p>
+          <Link href={continueHref} className={buttonClasses("secondary", "md")}>
+            Continue indexing
+          </Link>
+        </div>
+      ) : null}
+
       {documents.length === 0 ? (
         <EmptyState
           icon={BookOpen}
-          title={filtered ? "No documents match" : "No documents yet"}
+          title={incomplete ? "No matches yet" : filtered ? "No documents match" : "No documents yet"}
           description={
-            filtered
-              ? "Try a different search, or clear the filters."
-              : "Notes, runbooks, decisions — anything future-you would want to find here."
+            incomplete
+              ? `Nothing indexed so far matches. ${pendingLabel} still to index could.`
+              : filtered
+                ? "Try a different search, or clear the filters."
+                : "Notes, runbooks, decisions — anything future-you would want to find here."
           }
           action={
             filtered ? (
               <Link href={`/projects/${project.id}/knowledge`} className={buttonClasses("secondary", "lg")}>
                 Clear filters
               </Link>
-            ) : (
+            ) : canEdit ? (
               <Link href={`/projects/${project.id}/knowledge/new`} className={buttonClasses("primary", "lg")}>
                 New document
               </Link>
-            )
+            ) : undefined
           }
         />
       ) : (
@@ -123,7 +149,13 @@ export default async function ProjectKnowledgePage({
           </p>
           <div className="grid gap-3 lg:grid-cols-2">
             {documents.map((document) => (
-              <KnowledgeDocumentCard key={document.id} projectId={project.id} document={document} />
+              <KnowledgeDocumentCard
+                key={document.id}
+                projectId={project.id}
+                document={document}
+                summary={summarizeMarkdown(document.content)}
+                canEdit={canEdit}
+              />
             ))}
           </div>
         </>

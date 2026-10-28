@@ -148,6 +148,26 @@ describe("postgres templates: parity and CRUD", () => {
     assert.deepEqual(events.map((e) => e.metadata), [{ source: "template", templateId: id, templateName: "Launch template" }]);
   });
 
+  it("writes template documents with fresh derived search text (Release 2E.1), source untouched", async () => {
+    const id = await newTemplate();
+    const r = await repo.apply(WA, id, req(requestKey("pg-search-text")), owner);
+    assert.equal(r.kind, "created");
+    if (r.kind !== "created") return;
+    const rows = (
+      await db.execute(
+        `SELECT title, content, search_text, search_indexed_at = updated_at AS fresh FROM knowledge_document WHERE project_id = '${r.project.id}' ORDER BY title` as never,
+      )
+    ).rows as { title: string; content: string; search_text: string | null; fresh: boolean }[];
+    assert.deepEqual(
+      rows.map((row) => [row.title, row.content, row.search_text, row.fresh]),
+      [
+        ["FAQ", "Questions.", "faq questions.", true],
+        ["Launch runbook", "# Runbook\nSteps.", "launch runbook operations runbook steps.", true],
+      ],
+    );
+    assert.deepEqual((await docs.search(WA, r.project.id, { search: "steps" })).documents.map((d) => d.title), ["Launch runbook"]);
+  });
+
   it("round-trips the document and cascades child rows on delete", async () => {
     const id = await newTemplate();
     const stored = (await repo.get(WA, id))!;

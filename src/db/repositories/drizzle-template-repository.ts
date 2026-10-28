@@ -22,6 +22,7 @@ import {
   taskDependencies,
   tasks,
 } from "../schema";
+import { buildKnowledgeSearchText } from "@/core/knowledge/markdown";
 import { createId } from "@/lib/ids";
 import { MAX_TEMPLATES_PER_WORKSPACE } from "@/core/templates/limits";
 import { previewTemplate } from "@/core/templates/validate";
@@ -426,6 +427,8 @@ export class DrizzleTemplateRepository implements TemplateRepository {
                 pinned: d.pinned,
                 createdAt: now,
                 updatedAt: now,
+                searchText: buildKnowledgeSearchText(d),
+                searchIndexedAt: now,
               })),
             )
             .run();

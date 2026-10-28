@@ -174,3 +174,154 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Rendered knowledge-document Markdown (components/knowledge/markdown-view.tsx).
+ *
+ * Nothing inside a document may widen the page: long words and URLs wrap,
+ * and code blocks and tables scroll inside their own box instead.
+ */
+.markdown-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text);
+}
+/*
+ * A single line break inside a paragraph is a CommonMark soft break, which a
+ * browser would show as a space. Knowledge documents were plain text shown
+ * with their line breaks before Release 2E.1, so keep showing them.
+ */
+.markdown-body :is(p, li, td, th) {
+  white-space: pre-line;
+}
+.markdown-body > * + *,
+.markdown-body [data-markdown-mode] > * + * {
+  margin-top: 0.75em;
+}
+.markdown-body :is(h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin-top: 1.25em;
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body h2 { font-size: 1.3em; }
+.markdown-body h3 { font-size: 1.15em; }
+.markdown-body h4 { font-size: 1.02em; }
+.markdown-body :is(h5, h6) { font-size: 0.95em; color: var(--text-muted); }
+.markdown-body :is(ul, ol) {
+  padding-left: 1.4em;
+}
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body li + li,
+.markdown-body li > :is(ul, ol) {
+  margin-top: 0.25em;
+}
+.markdown-body ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.markdown-body li.task-list-item input[type="checkbox"] {
+  margin-right: 0.45em;
+  vertical-align: -0.1em;
+  accent-color: var(--accent);
+}
+.markdown-body a[href] {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown-body a[href]:focus-visible,
+.markdown-body pre:focus-visible,
+.markdown-body .markdown-table:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.markdown-body .markdown-unsafe-link {
+  text-decoration: line-through dotted;
+  color: var(--text-muted);
+}
+.markdown-body .markdown-image {
+  display: inline-block;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  padding: 0 0.4em;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 0.9em;
+  color: var(--text-muted);
+}
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.markdown-body :not(pre) > code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.88em;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.markdown-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  white-space: pre;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75em 0.9em;
+  tab-size: 2;
+}
+.markdown-body pre.markdown-plain {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.markdown-body .markdown-notice {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.markdown-body .markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  min-width: 100%;
+  overflow-wrap: normal;
+  font-size: 0.95em;
+}
+.markdown-body :is(th, td) {
+  border-bottom: 1px solid var(--border);
+  padding: 0.4em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-body th {
+  font-weight: 600;
+  background: var(--bg-subtle);
+}
+.markdown-body tr:last-child > td {
+  border-bottom: 0;
+}
+.markdown-body section[data-footnotes] {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5em;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}

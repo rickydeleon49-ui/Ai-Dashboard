@@ -42,7 +42,20 @@ export async function GET(request: NextRequest, { params }: Context) {
     );
   }
 
-  const documents = await knowledgeDocumentRepository.list(workspaceId, id, parsed.data);
+  const { search, category } = parsed.data;
+  if (search) {
+    // A search re-derives at most one bounded batch of stale search text and
+    // says whether every document could be searched. `searchIndex.complete:
+    // false` means older documents are still pending: these results may be
+    // missing matches, and repeating the request continues the indexing.
+    const result = await knowledgeDocumentRepository.search(workspaceId, id, { search, category });
+    return NextResponse.json({
+      documents: result.documents,
+      searchIndex: { complete: result.index.complete, pending: result.index.pending },
+    });
+  }
+
+  const documents = await knowledgeDocumentRepository.list(workspaceId, id, { category });
   return NextResponse.json({ documents });
 }
 

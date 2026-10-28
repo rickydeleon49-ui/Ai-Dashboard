@@ -120,6 +120,13 @@
       "when": 1790485786856,
       "tag": "0016_reusable_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790828939096,
+      "tag": "0017_knowledge_search_text",
+      "breakpoints": true
     }
   ]
 }

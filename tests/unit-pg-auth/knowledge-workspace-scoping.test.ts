@@ -319,3 +319,78 @@ describe("Knowledge base API: role enforcement", () => {
     assert.equal(deleteResponse.status, 200);
   });
 });
+
+describe("Knowledge base API: Markdown documents (Release 2E.1)", () => {
+  it("stores Markdown verbatim, lets viewers read and search it but never save it, and enforces the limit", async () => {
+    const ownerCookie = await signIn("md-kb-owner@example.com");
+    const createWsResponse = await workspacesRoute.POST(
+      apiRequest("POST", "/api/workspaces", { cookie: ownerCookie, body: { name: "Markdown Knowledge" } }),
+    );
+    const { workspace } = (await createWsResponse.json()) as { workspace: { id: string } };
+    const ownerInWorkspace = `${ownerCookie}; cc-current-workspace=${workspace.id}`;
+    const project = await createProject(ownerInWorkspace, "Markdown Project");
+
+    const source = [
+      "# Release notes",
+      "",
+      "Visible **summary** text.",
+      "",
+      "<script>window.__xss = 1</script>",
+      "",
+      "[portal](https://hidden-destination.example) [bad](javascript:alert(1))",
+      "",
+      "![tracker](https://tracker.example/p.png)",
+    ].join(String.fromCharCode(10));
+    const doc = await createDocument(ownerInWorkspace, project.id, "Notes", { content: source, category: "ops" });
+
+    const viewerCookie = await joinWorkspaceAs("md-kb-viewer@example.com", workspace.id, "viewer", ownerCookie);
+    const read = await knowledgeDocRoute.GET(
+      apiRequest("GET", `/api/projects/${project.id}/knowledge/${doc.id}`, { cookie: viewerCookie }),
+      { params: Promise.resolve({ id: project.id, docId: doc.id }) },
+    );
+    assert.equal(read.status, 200);
+    assert.equal(((await read.json()) as { document: { content: string } }).document.content, source, "the source is returned byte-for-byte");
+
+    const search = async (cookie: string, q: string, projectId = project.id) => {
+      const res = await knowledgeRoute.GET(
+        apiRequest("GET", `/api/projects/${projectId}/knowledge?search=${encodeURIComponent(q)}`, { cookie }),
+        { params: Promise.resolve({ id: projectId }) },
+      );
+      return { status: res.status, titles: res.status === 200 ? ((await res.json()) as { documents: { title: string }[] }).documents.map((d) => d.title) : [] };
+    };
+    assert.deepEqual(await search(viewerCookie, "visible summary text"), { status: 200, titles: ["Notes"] });
+    assert.deepEqual(await search(viewerCookie, "hidden-destination"), { status: 200, titles: [] });
+    assert.deepEqual(await search(viewerCookie, "tracker.example"), { status: 200, titles: [] });
+
+    const viewerSave = await knowledgeDocRoute.PATCH(
+      apiRequest("PATCH", `/api/projects/${project.id}/knowledge/${doc.id}`, { cookie: viewerCookie, body: { content: "# Overwritten" } }),
+      { params: Promise.resolve({ id: project.id, docId: doc.id }) },
+    );
+    assert.equal(viewerSave.status, 403);
+    const afterViewer = await knowledgeDocRoute.GET(
+      apiRequest("GET", `/api/projects/${project.id}/knowledge/${doc.id}`, { cookie: ownerInWorkspace }),
+      { params: Promise.resolve({ id: project.id, docId: doc.id }) },
+    );
+    assert.equal(((await afterViewer.json()) as { document: { content: string } }).document.content, source);
+
+    const atLimit = await knowledgeDocRoute.PATCH(
+      apiRequest("PATCH", `/api/projects/${project.id}/knowledge/${doc.id}`, { cookie: ownerInWorkspace, body: { content: "x".repeat(50_000) } }),
+      { params: Promise.resolve({ id: project.id, docId: doc.id }) },
+    );
+    assert.equal(atLimit.status, 200);
+    const overLimit = await knowledgeRoute.POST(
+      apiRequest("POST", `/api/projects/${project.id}/knowledge`, { cookie: ownerInWorkspace, body: { title: "Too long", content: "x".repeat(50_001) } }),
+      { params: Promise.resolve({ id: project.id }) },
+    );
+    assert.equal(overLimit.status, 422);
+
+    // Someone in another workspace learns nothing, not even through search.
+    const outsiderCookie = await signIn("md-kb-outsider@example.com");
+    assert.equal((await search(outsiderCookie, "notes")).status, 404);
+    const foreignRead = await knowledgeDocRoute.GET(
+      apiRequest("GET", `/api/projects/${project.id}/knowledge/${doc.id}`, { cookie: outsiderCookie }),
+      { params: Promise.resolve({ id: project.id, docId: doc.id }) },
+    );
+    assert.equal(foreignRead.status, 404);
+  });
+});
