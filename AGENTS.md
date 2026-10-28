@@ -10,9 +10,11 @@
   rounds, reviews, tests independently and merges, and may implement a round
   itself when that is faster or Antigravity is unavailable.
 - The owner wants a **full review** every round.
-- **Rule:** an implementer never approves or merges its own round. When Claude
-  implements, Antigravity does a read-only review (`REVIEW.md`) before Claude
-  runs the full gates and merges; Claude still answers every finding.
+- **Rule:** no round merges without an independent review. When Antigravity
+  implements, Claude reviews and merges. When Claude implements, Antigravity
+  does a read-only review (`REVIEW.md`); Claude answers every finding in
+  `REVIEW-RESPONSE.md` (fixed, or rejected with evidence) before running the
+  full gates and merging.
 
 ### When Claude is out of usage
 
@@ -42,7 +44,9 @@ has reviewed it, starting with the newest round folder.
 
 - One round is one small, exact slice with a written brief (`prompt.md`): goal,
   files in scope, files out of scope, acceptance checks.
-- Each round gets its own worktree from the latest `main`:
+- Each round gets its own worktree from the latest `main`. Fetch first so
+  `origin/main` is current:
+  `git -C "H:/Ai Repo clones/Ai-Dashboard" fetch origin`, then
   `git -C "H:/Ai Repo clones/Ai-Dashboard" worktree add -b <branch> "H:/Ai Repo clones/Ai-Dashboard-<round>" origin/main`.
 - Branch names: `roadmap/<round>` for features, `fix/<round>` for fixes,
   `docs/<round>` for docs only.
@@ -59,9 +63,13 @@ has reviewed it, starting with the newest round folder.
 - **No:** real tokens or API keys, the real data folder
   (`%APPDATA%\Command Center\data`), real user databases, or network beyond
   loopback test servers. Tests use `DATABASE_PATH` pointing at a temp file.
-- Schema changes go through `src/db/schema.ts` plus `npm run db:generate`;
-  never hand-edit or delete an existing migration in `drizzle/` or
-  `drizzle-pg/`.
+- **Agent features stay desktop-only:** in hosted and accounts mode they are
+  hidden and their API returns 404. Only the agent runner process spawns
+  agents, never the Next.js server.
+- Schema changes go through `src/db/schema.ts` plus `npm run db:generate`
+  (SQLite) and `src/db/schema.pg.ts` plus `npm run db:generate:pg`
+  (Postgres); never hand-edit or delete an existing migration in `drizzle/`
+  or `drizzle-pg/`.
 - Finish by writing `result.md` in the round folder: what changed, the
   commands run and their results, and anything left undone.
 
@@ -72,8 +80,11 @@ has reviewed it, starting with the newest round folder.
    - `npm run typecheck`
    - `npm run lint`
    - `npm run test:unit`, twice
-   - `npm run db:generate`, then `git status --porcelain -- drizzle` must be
-     empty (no migration drift)
+   - migration drift: `npm run db:generate` (with `DATABASE_PATH` set to a
+     temp file) and `npm run db:generate:pg` (any `DATABASE_URL`; generate
+     does not connect), then
+     `git status --porcelain --untracked-files=all -- drizzle drizzle-pg`
+     must be empty
    - `npm run test:e2e` (also proves the production build)
    - `npm run desktop:build`, then `npm run test:desktop` for anything that
      touches `desktop/`, packaging or the data folder
