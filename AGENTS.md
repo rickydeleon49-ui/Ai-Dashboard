@@ -4,20 +4,21 @@
 
 ## Roles (owner, 28 October 2026)
 
-- **Implementers, in order:** Codex first; Antigravity (`agy`) when Codex is
-  low or out of usage. When Codex resets, new rounds go back to Codex; an
-  in-flight round by another implementer is allowed to finish.
-- **Claude** plans and assigns precise rounds, reviews, tests independently
-  and merges.
+- **Only two agents work on this project: Claude and Antigravity (`agy`).**
+  No other agent (Codex, Gemini, Qwen or others) is used here.
+- **Antigravity** implements most rounds. **Claude** plans and assigns precise
+  rounds, reviews, tests independently and merges, and may implement a round
+  itself when that is faster or Antigravity is unavailable.
 - The owner wants a **full review** every round.
-- **Rule:** an implementer never approves or merges its own round.
+- **Rule:** an implementer never approves or merges its own round. When Claude
+  implements, Antigravity does a read-only review (`REVIEW.md`) before Claude
+  runs the full gates and merges; Claude still answers every finding.
 
 ### When Claude is out of usage
 
-Codex takes over the reviewer, tester and merger role and follows the
-**Reviewer and merger recipe** below exactly. Antigravity implements meanwhile.
-No implementer reviews or merges its own round. Claude takes the role back when
-its usage returns, starting with the newest round folder.
+Antigravity may implement briefed rounds and leave them uncommitted with
+`result.md`. Nothing is committed, pushed or merged until Claude is back and
+has reviewed it, starting with the newest round folder.
 
 ## Where the state lives
 
