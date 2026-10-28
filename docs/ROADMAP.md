@@ -3,7 +3,7 @@
 **Repository:** `rickydeleon49-ui/Ai-Dashboard`  
 **Roadmap version:** 1.3  
 **Updated:** October 28, 2026  
-**Status:** Planning document. Phase 2 hardening, Phase 2C (2C.1–2C.6) and Phase 2D (2D.1–2D.3) are merged to `main`. Release 2E.1 (Safe Markdown) is rebased on `main` and in review (PR #39). The Agent Workflow Control Center (§10A) is the product direction; AW.1 is next.
+**Status:** Planning document. Phase 2 hardening, Phase 2C (2C.1–2C.6), Phase 2D (2D.1–2D.3) and Release 2E.1 (Safe Markdown, PR #39) are merged to `main`. The Agent Workflow Control Center (§10A) is the product direction; AW.1 is next.
 
 ## 1. Product vision
 
@@ -119,7 +119,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 
 #### Phase 2E — in progress
 
-- **Release 2E.1: Safe Markdown** (implemented on `phase2e/safe-markdown` from `64481dd`; uncommitted, pending independent review — **not merged**). Design and evidence: `docs/design/2E.1-safe-markdown.md`.
+- **Release 2E.1: Safe Markdown** (**merged** October 28, 2026 via PR #39). Design and evidence: `docs/design/2E.1-safe-markdown.md`.
   - Write/Preview editing, a read-only document page and expanded list cards share one AST-based renderer (react-markdown + remark-gfm); raw HTML is shown as text, images never load, links pass an http(s)/in-app/anchor allowlist
   - Plain-text extraction from the same parser feeds a derived, normalized `search_text` column on both databases, populated by every writer (including template application); older documents are re-indexed one bounded batch per search, and searches report themselves as incomplete until that finishes
   - Desktop external links continue through the existing Electron `setWindowOpenHandler` boundary; no new shell or IPC capability
@@ -133,7 +133,7 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
 | — | Fresh-start readiness correction | First request against a new install never 500s | Hardening release — **merged to main** |
 | 2 | Phase 2C — Team Collaboration | Members can coordinate work together | Releases 2C.1–2C.6 merged — **completed** |
 | 3 | Phase 2D — Planning and Templates | Teams can plan time and repeat workflows | Stable task model — Releases 2D.1–2D.3 **merged (PRs #35, #37, #38)** |
-| 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history — Release 2E.1 **implemented, in review** |
+| 4 | Phase 2E — Knowledge 2.0 | Knowledge becomes structured, searchable, and connected | Safe files and activity history — Release 2E.1 **merged** (October 28, 2026) |
 | 5 | Phase 2F — Durable Automation | Reliable recurring and asynchronous work | Tenant-safe execution model |
 | 6 | Phase 2G — Integrations, Monitoring, and Reviewed AI | External data and AI become operational tools | Durable jobs and secret isolation |
 | 7 | Phase 3 — Hosted SaaS Parity | Every supported domain is genuinely tenant-safe | Phase 2 platform foundations |
@@ -362,7 +362,7 @@ Project knowledge becomes a structured workspace reference system rather than a 
 
 ### Release 2E.1 — Safe Markdown
 
-**Status:** implemented on `phase2e/safe-markdown`, pending independent review; not merged. See `docs/design/2E.1-safe-markdown.md` for the rendering and URL policy, the search strategy, limits, compatibility and rollback.
+**Status:** merged to `main` on October 28, 2026 (PR #39). See `docs/design/2E.1-safe-markdown.md` for the rendering and URL policy, the search strategy, limits, compatibility and rollback.
 
 #### Features
 
