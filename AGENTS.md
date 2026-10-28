@@ -26,11 +26,11 @@ its usage returns, starting with the newest round folder.
 - `NEXT.md`: the current direction; `HANDOFF.md`: build and packaging gotchas.
 - `docs/design/AW-agent-workflow-control-center.md`: §15 is the AW.1 build
   list, §16 covers AW.2–AW.6.
-- Outside the repo, on the Windows PC (main clone `H:Ai Repo clonesAi-Dashboard`):
-  - `C:\Users\ricky\code\.ai-dash-loop\<round>\`: one folder per round with
+- Outside the repo, on the Windows PC (main clone `H:\Ai Repo clones\Ai-Dashboard`):
+  - `H:\Ai Repo clones\.ai-dash-loop\<round>\`: one folder per round with
     `prompt.md`, the implementer log, `result.md`, gate logs and
     `REVIEW.md`;
-  - `C:\Users\ricky\code\.ai-dash-loop\REVIEW_CHECKLIST.md`: the review recipe.
+  - `H:\Ai Repo clones\.ai-dash-loop\REVIEW_CHECKLIST.md`: the review recipe.
 - The owner's notes (Obsidian, synced to every machine):
   `Projects/AI Dashboard/` holds `Dashboard.md`, `Decisions Inbox.md` and
   `Rounds/`. The reviewer reads the Decisions Inbox at the start of each
