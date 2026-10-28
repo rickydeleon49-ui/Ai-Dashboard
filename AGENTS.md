@@ -26,7 +26,7 @@ its usage returns, starting with the newest round folder.
 - `NEXT.md`: the current direction; `HANDOFF.md`: build and packaging gotchas.
 - `docs/design/AW-agent-workflow-control-center.md`: §15 is the AW.1 build
   list, §16 covers AW.2–AW.6.
-- Outside the repo, on the Windows PC:
+- Outside the repo, on the Windows PC (main clone `H:Ai Repo clonesAi-Dashboard`):
   - `C:\Users\ricky\code\.ai-dash-loop\<round>\`: one folder per round with
     `prompt.md`, the implementer log, `result.md`, gate logs and
     `REVIEW.md`;
@@ -42,7 +42,7 @@ its usage returns, starting with the newest round folder.
 - One round is one small, exact slice with a written brief (`prompt.md`): goal,
   files in scope, files out of scope, acceptance checks.
 - Each round gets its own worktree from the latest `main`:
-  `git -C C:/Users/ricky/code/Ai-Dashboard worktree add -b <branch> C:/Users/ricky/code/Ai-Dashboard-<round> origin/main`.
+  `git -C "H:/Ai Repo clones/Ai-Dashboard" worktree add -b <branch> "H:/Ai Repo clones/Ai-Dashboard-<round>" origin/main`.
 - Branch names: `roadmap/<round>` for features, `fix/<round>` for fixes,
   `docs/<round>` for docs only.
 - Several independent rounds can be combined into one PR to save CI minutes.
