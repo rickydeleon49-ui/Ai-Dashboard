@@ -6,10 +6,12 @@
  * served by a CDN. A desktop app has no CDN, so they are copied in here.
  */
 import { spawnSync } from "node:child_process";
-import { cp, mkdtemp, readdir, readlink, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runPrepareDesktopPayload } from "./package-payload.mjs";
+import { TraceBoundaryError, limitsFromEnv } from "./trace-boundary.mjs";
 
 const require_ = createRequire(import.meta.url);
 const root = process.cwd();
@@ -89,78 +91,40 @@ if (!(await exists(path.join(standalone, "server.js")))) {
   process.exit(1);
 }
 
-// Client-side JS/CSS chunks.
-await cp(path.join(root, ".next", "static"), path.join(standalone, ".next", "static"), {
-  recursive: true,
-});
-console.log("• copied .next/static");
-
-// Anything served from /public, if the project has any.
-if (await exists(path.join(root, "public"))) {
-  await cp(path.join(root, "public"), path.join(standalone, "public"), {
-    recursive: true,
-  });
-  console.log("• copied public/");
-}
-
 /*
- * Replace symlinks with real copies.
+ * Everything after `next build` — copying static assets, public/ and the
+ * migrations, materialising symlinks, removing a stray build database and any
+ * environment file Next copied, cleaning the trace manifests, and the final
+ * packaging gate — runs through one entry point that records where every
+ * payload file came from. See desktop/package-payload.mjs.
  *
- * Next emits the standalone bundle with a symlink per external server package
- * (better-sqlite3 here), pointing at the real copy inside the same bundle.
- * That is fine on the machine that builds it, but electron-builder recreates
- * every symlink when it copies the bundle into the app — and creating a symlink
- * on Windows requires Administrator rights or Developer Mode, so packaging fails
- * with EPERM for anyone who has neither.
+ * Static assets: `next build` leaves them out of the standalone output (they
+ * are normally served by a CDN); a desktop app has no CDN.
  *
- * Materialising the links keeps resolution behaviour identical and leaves the
- * bundle as plain files, which every platform can copy without special rights.
- */
-async function materializeSymlinks(dir) {
-  let replaced = 0;
-
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-
-    if (entry.isSymbolicLink()) {
-      const target = path.resolve(path.dirname(full), await readlink(full));
-      if (!(await exists(target))) {
-        // A link to something outside the bundle would be dangling once
-        // packaged; dropping it is better than shipping a broken path.
-        await rm(full, { force: true });
-        console.log(`• removed dangling symlink ${entry.name}`);
-        continue;
-      }
-      await rm(full, { recursive: true, force: true });
-      await cp(target, full, { recursive: true, dereference: true });
-      replaced += 1;
-    } else if (entry.isDirectory()) {
-      replaced += await materializeSymlinks(full);
-    }
-  }
-
-  return replaced;
-}
-
-const replaced = await materializeSymlinks(standalone);
-if (replaced > 0) {
-  console.log(`• replaced ${replaced} symlink(s) with real files (Windows cannot create them without elevation)`);
-}
-
-/*
+ * Symlinks: Next emits the standalone bundle with a symlink per external
+ * server package (better-sqlite3 here). electron-builder recreates every
+ * symlink when it copies the bundle into the app — and creating a symlink on
+ * Windows requires Administrator rights or Developer Mode, so packaging fails
+ * with EPERM for anyone who has neither. They are replaced with validated
+ * copies of what they point at.
+ *
  * Migrations must ship: the app applies them on first launch so a new install
  * (or a new machine) creates its database without a manual step.
+ *
+ * Trace boundary: the webpack file tracer can pull arbitrary runtime
+ * filesystem roots into a route's `.nft.json`, and Next copies traced files
+ * into the bundle. The build refuses — with a redacted, aggregate report —
+ * rather than hand electron-builder a payload containing anything whose origin
+ * is outside the project, its dependencies or the build output.
  */
-await cp(path.join(root, "drizzle"), path.join(standalone, "drizzle"), {
-  recursive: true,
-});
-console.log("• copied drizzle migrations");
-
-// Belt and braces: never ship a database inside the application bundle.
-const strayData = path.join(standalone, "data");
-if (await exists(strayData)) {
-  await rm(strayData, { recursive: true, force: true });
-  console.log("• removed stray build database from bundle");
+let limits;
+try {
+  limits = limitsFromEnv(process.env);
+} catch (err) {
+  console.error(err instanceof TraceBoundaryError ? err.message : "Invalid TRACE_BOUNDARY_* limit.");
+  process.exit(1);
 }
+const { code } = runPrepareDesktopPayload({ root, limits });
+if (code !== 0) process.exit(code);
 
 console.log("Standalone bundle ready for packaging.");

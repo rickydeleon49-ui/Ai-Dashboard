@@ -39,10 +39,24 @@ export interface ProjectContext {
   git: GitInfo;
 }
 
+/**
+ * The current user's home directory, read at run time.
+ *
+ * Deliberately behind a function rather than inlined into `path.join`: the
+ * build's file tracer evaluates `os.homedir()` statically, and joined with a
+ * user-supplied suffix it becomes a wildcard over the entire profile of the
+ * machine doing the build. That put a filename inventory of the builder's home
+ * directory into the AI routes' trace manifests (see desktop/trace-boundary.mjs).
+ * The tracer does not evaluate calls to local functions.
+ */
+function homeDirectory(): string {
+  return os.homedir();
+}
+
 /** Expands a leading `~` and makes the path absolute. */
 export function resolveLocalPath(localPath: string): string {
   const expanded = localPath.startsWith("~")
-    ? path.join(os.homedir(), localPath.slice(1))
+    ? path.join(homeDirectory(), localPath.slice(1))
     : localPath;
   return path.resolve(expanded);
 }
