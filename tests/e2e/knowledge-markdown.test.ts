@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { Page } from "playwright";
-import { baseURL, newPage, pageErrors, start, stop } from "./helpers";
+import { baseURL, newPage, pageErrors, start, stop, waitForHydration } from "./helpers";
 import { STORED_XSS_PAYLOADS } from "../helpers/markdown-fixtures";
 import { assertInertDom, inspectRendered, watch as watchOrigin } from "./markdown-dom";
 
@@ -57,6 +57,7 @@ describe("knowledge Markdown (real browser)", () => {
     const page = await newPage();
     const watched = watch(page);
     await page.goto(`/projects/${projectId}/knowledge/new`, { waitUntil: "domcontentloaded" });
+    await waitForHydration(page.getByLabel("Content", { exact: true }));
     await page.getByLabel("Title", { exact: true }).fill("Runbook");
 
     const source = lines(
@@ -127,6 +128,7 @@ describe("knowledge Markdown (real browser)", () => {
     const id = await createDocument("Failing save", "original");
     const page = await newPage();
     await page.goto(`/projects/${projectId}/knowledge/${id}/edit`, { waitUntil: "domcontentloaded" });
+    await waitForHydration(page.getByLabel("Content", { exact: true }));
     await page.getByLabel("Content", { exact: true }).fill("# Unsaved work");
 
     await page.route(`**/api/projects/${projectId}/knowledge/${id}`, (route) =>
@@ -163,6 +165,7 @@ describe("knowledge Markdown (real browser)", () => {
     // The list page renders the same documents as summaries, and expanded.
     await page.goto(`/projects/${projectId}/knowledge?search=xss`, { waitUntil: "load" });
     const showFull = page.getByRole("button", { name: "Show full" });
+    await waitForHydration(showFull.first());
     // Each click renames that button to "Collapse", so always take the first left.
     while ((await showFull.count()) > 0) await showFull.first().click();
     assertInertDom(await inspectRendered(page), "expanded list cards");
@@ -176,6 +179,8 @@ describe("knowledge Markdown (real browser)", () => {
     const id = await createDocument("Canary", "plain words");
     const page = await newPage();
     await page.goto(`/projects/${projectId}/knowledge/${id}`, { waitUntil: "load" });
+    // Injected before hydration, the node is discarded when React reconciles.
+    await waitForHydration(page.locator("[data-markdown-view]").first());
     // Inject what the renderer must never produce, and let it run.
     await page.evaluate(() => {
       const root = document.querySelector("[data-markdown-view]")!;
@@ -331,6 +336,7 @@ describe("knowledge Markdown (real browser)", () => {
     await page.goto(`/projects/${searchProject}/knowledge`, { waitUntil: "domcontentloaded" });
 
     const searchBox = page.getByLabel("Search knowledge base");
+    await waitForHydration(searchBox);
     await searchBox.fill("the portal daily");
     await page.waitForURL(/search=the\+portal\+daily|search=the%20portal%20daily/);
     await page.getByRole("link", { name: "Portal guide" }).waitFor();

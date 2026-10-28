@@ -3,7 +3,7 @@
 **Repository:** `rickydeleon49-ui/Ai-Dashboard`  
 **Roadmap version:** 1.3  
 **Updated:** October 28, 2026  
-**Status:** Planning document. Phase 2 hardening, Phase 2C (2C.1–2C.6), Phase 2D (2D.1–2D.3) and Release 2E.1 (Safe Markdown) are merged to `main`. The Agent Workflow Control Center (§10A) is the product direction; AW.1 is next.
+**Status:** Planning document. Phase 2 hardening, Phase 2C (2C.1–2C.6) and Phase 2D (2D.1–2D.3) are merged to `main`. Release 2E.1 (Safe Markdown) is rebased on `main` and in review (PR #39). The Agent Workflow Control Center (§10A) is the product direction; AW.1 is next.
 
 ## 1. Product vision
 
