@@ -77,6 +77,42 @@ let ollamaState = { state: "unknown", owned: false, error: null };
  *   Windows %APPDATA%\Command Center
  *   Linux   ~/.config/Command Center
  */
+/**
+ * Decides whether a test may relocate the per-user directory.
+ *
+ * A desktop test must never read or write the real profile — its database,
+ * uploads, window state, or the settings encryption key all live under
+ * `userData`. Moving `userData` itself isolates every one of them at once,
+ * rather than overriding the database path and missing the rest.
+ *
+ * `DESKTOP_TEST_USER_DATA` is honoured only in a test run from a checkout. A
+ * packaged build ignores it outright, so no environment variable can ever
+ * point a shipped application at a different profile.
+ *
+ * Pure, so the decision can be tested without launching Electron. Returns
+ *   { dir }    — relocate userData here
+ *   { error }  — refuse to start rather than fall back to the real profile
+ *   null       — use the normal per-user directory
+ */
+function resolveTestUserDataOverride({ env, isPackaged, isTestEnv: testEnv }) {
+  if (isPackaged) return null;
+
+  const dir = env.DESKTOP_TEST_USER_DATA;
+  if (!dir) {
+    // DESKTOP_TEST_MODE is only ever set by the desktop test harness. A test
+    // that forgot to isolate itself must fail, not quietly use real data.
+    return env.DESKTOP_TEST_MODE === "1"
+      ? { error: "DESKTOP_TEST_MODE is set without DESKTOP_TEST_USER_DATA; refusing to use the real profile." }
+      : null;
+  }
+
+  if (!testEnv) return null;
+  if (!path.isAbsolute(dir)) {
+    return { error: `DESKTOP_TEST_USER_DATA must be an absolute path, got "${dir}".` };
+  }
+  return { dir };
+}
+
 function resolveUserPaths() {
   const userData = app.getPath("userData");
   const dataDir = path.join(userData, "data");
@@ -217,21 +253,35 @@ async function startServer(env) {
     );
   }
 
+  const childEnv = {
+    ...process.env,
+    ...env,
+    NODE_ENV: "production",
+    ELECTRON_RUN_AS_NODE: "1",
+    PORT: String(port),
+    HOSTNAME: "127.0.0.1",
+    // Tells the server it is running locally, so it does not demand the
+    // password a public deployment requires. Safe because the server binds
+    // 127.0.0.1 on a random port and nothing off this machine can reach it.
+    DASHBOARD_LOCAL: "1",
+    DESKTOP_INTERNAL_SECRET: desktopSecret,
+  };
+
+  // Lets the desktop test prove which files the server was really given,
+  // rather than trusting what the test asked for. Never set when packaged.
+  if (isTestEnv && !app.isPackaged) {
+    app.desktopPathsForTesting = {
+      userData: app.getPath("userData"),
+      database: childEnv.DATABASE_PATH,
+      uploads: childEnv.UPLOADS_DIR,
+      settingsKey: path.join(app.getPath("userData"), "settings-key.enc"),
+      windowState: windowStateFile(),
+    };
+  }
+
   serverProcess = fork(serverEntry, [], {
     cwd: root,
-    env: {
-      ...process.env,
-      ...env,
-      NODE_ENV: "production",
-      ELECTRON_RUN_AS_NODE: "1",
-      PORT: String(port),
-      HOSTNAME: "127.0.0.1",
-      // Tells the server it is running locally, so it does not demand the
-      // password a public deployment requires. Safe because the server binds
-      // 127.0.0.1 on a random port and nothing off this machine can reach it.
-      DASHBOARD_LOCAL: "1",
-      DESKTOP_INTERNAL_SECRET: desktopSecret,
-    },
+    env: childEnv,
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
 
@@ -801,8 +851,24 @@ function registerLocalActions() {
 if (app) {
   app.setName("Command Center");
 
+  // Before anything touches userData — including the single-instance lock,
+  // which is keyed on it, so a test run also cannot collide with a real copy.
+  const testUserData = resolveTestUserDataOverride({
+    env: process.env,
+    isPackaged: app.isPackaged,
+    isTestEnv,
+  });
+  const refused = Boolean(testUserData?.error);
+  if (refused) {
+    console.error(`[desktop] ${testUserData.error}`);
+    app.exit(1);
+  } else if (testUserData?.dir) {
+    fs.mkdirSync(testUserData.dir, { recursive: true });
+    app.setPath("userData", testUserData.dir);
+  }
+
   // A second launch should focus the existing window, not open a second database.
-  if (!app.requestSingleInstanceLock()) {
+  if (refused || !app.requestSingleInstanceLock()) {
     app.quit();
   } else {
     app.on("second-instance", () => {
@@ -877,6 +943,7 @@ if (app) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     validateInternalUrlForTesting: validateAndResolveInternalUrl,
+    resolveTestUserDataOverride,
     recoverFromServerCrash,
     ...(isTestEnv
       ? {
