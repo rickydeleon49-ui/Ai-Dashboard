@@ -10,15 +10,20 @@ import { Select } from "@/components/ui/field";
 import { TASK_PRIORITY_META, TASK_STATUS_META } from "@/core/tasks/labels";
 import { TASK_STATUSES, type Milestone, type Task } from "@/core/tasks/types";
 import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
-import { cn, formatDate } from "@/lib/utils";
+import { todayInTimeZone, type DateOnly } from "@/core/calendar/dates";
+import { cn } from "@/lib/utils";
+import { formatDueDate, isDueBefore } from "@/lib/due-dates";
+import { useBrowserTimeZone } from "@/lib/use-browser-time-zone";
 import { AssigneeBadge } from "./assignee-picker";
 import { TaskChecklistBadge } from "./task-checklist";
 import { BulkActionsBar } from "./bulk-actions-bar";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
-function isOverdue(task: Task): boolean {
-  return Boolean(task.dueDate) && !DONE_STATUSES.has(task.status) && new Date(task.dueDate!) < new Date();
+// A due date is a whole calendar day (its stored UTC date); only "today" comes
+// from the browser's zone, and it is unknown (null) during server rendering.
+function isOverdue(task: Task, today: DateOnly | null): boolean {
+  return !DONE_STATUSES.has(task.status) && isDueBefore(task.dueDate, today);
 }
 
 export function MyWorkList({
@@ -265,6 +270,7 @@ function MyWorkRow({
   assigneeMember?: WorkspaceMemberDisplaySummary | null;
 }) {
   const router = useRouter();
+  const timeZone = useBrowserTimeZone();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -295,7 +301,7 @@ function MyWorkRow({
     router.refresh();
   }
 
-  const overdue = isOverdue(task);
+  const overdue = isOverdue(task, timeZone ? todayInTimeZone(timeZone) : null);
 
   return (
     <div className="rounded-lg border border-line bg-surface">
@@ -360,7 +366,7 @@ function MyWorkRow({
 
         {task.dueDate ? (
           <span className={cn("shrink-0 text-[11.5px]", overdue ? "text-red-400" : "text-faint")}>
-            {formatDate(task.dueDate)}
+            {formatDueDate(task.dueDate)}
           </span>
         ) : null}
 

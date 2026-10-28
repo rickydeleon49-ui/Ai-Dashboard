@@ -38,6 +38,7 @@ import type { Project, ProjectFile } from "@/core/projects/types";
 import type { Milestone, Task } from "@/core/tasks/types";
 import type { KnowledgeDocument } from "@/core/knowledge/types";
 import { formatCompact, formatDate, formatRelative } from "@/lib/utils";
+import { formatDueDate } from "@/lib/due-dates";
 import { isAccountsMode } from "@/lib/auth-mode";
 
 export const dynamic = "force-dynamic";
@@ -492,7 +493,7 @@ function MilestonesTasksCard({
                     {MILESTONE_STATUS_META[m.status].label}
                   </Badge>
                   {m.dueDate ? (
-                    <span className="shrink-0 text-[11.5px] text-faint">{formatDate(m.dueDate)}</span>
+                    <span className="shrink-0 text-[11.5px] text-faint">{formatDueDate(m.dueDate)}</span>
                   ) : null}
                 </li>
               ))}

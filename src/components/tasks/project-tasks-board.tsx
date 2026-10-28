@@ -34,15 +34,20 @@ import {
   type Task,
 } from "@/core/tasks/types";
 import type { WorkspaceMemberDisplaySummary, WorkspaceRole } from "@/core/workspaces/types";
-import { cn, formatDate } from "@/lib/utils";
+import { todayInTimeZone, type DateOnly } from "@/core/calendar/dates";
+import { cn } from "@/lib/utils";
+import { formatDueDate, formatInstantDate, isDueBefore } from "@/lib/due-dates";
+import { useBrowserTimeZone } from "@/lib/use-browser-time-zone";
 import { AssigneeBadge, AssigneePicker } from "./assignee-picker";
 import { TaskChecklist, TaskChecklistBadge } from "./task-checklist";
 import { BulkActionsBar } from "./bulk-actions-bar";
 
 const DONE_STATUSES = new Set(["done", "cancelled"]);
 
-function isOverdue(task: Task): boolean {
-  return Boolean(task.dueDate) && !DONE_STATUSES.has(task.status) && new Date(task.dueDate!) < new Date();
+// A due date is a whole calendar day (its stored UTC date); only "today" comes
+// from the browser's zone, and it is unknown (null) during server rendering.
+function isOverdue(task: Task, today: DateOnly | null): boolean {
+  return !DONE_STATUSES.has(task.status) && isDueBefore(task.dueDate, today);
 }
 
 async function postJson(url: string, method: string, body?: unknown): Promise<{ ok: boolean; error?: string }> {
@@ -270,8 +275,8 @@ export function ProjectTasksBoard({
                       {MILESTONE_STATUS_META[group.milestone.status].label}
                     </Badge>
                     {group.milestone.dueDate ? (
-                      <span className="shrink-0 text-[11.5px] text-faint">
-                        Due {formatDate(group.milestone.dueDate)}
+                      <span data-testid="milestone-due" className="shrink-0 text-[11.5px] text-faint">
+                        Due {formatDueDate(group.milestone.dueDate)}
                       </span>
                     ) : null}
                     <span className="shrink-0 text-[11.5px] tabular-nums text-faint">
@@ -658,6 +663,7 @@ function TaskRow({
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const timeZone = useBrowserTimeZone();
   const [progressOverride, setProgressOverride] = useState<{
     taskId: string;
     done: number;
@@ -713,7 +719,8 @@ function TaskRow({
     );
   }
 
-  const overdue = isOverdue(task);
+  const overdue = isOverdue(task, timeZone ? todayInTimeZone(timeZone) : null);
+  const assignedOn = formatInstantDate(task.assignedAt, timeZone);
   const assigneeMember = task.assigneeId && membersMap ? membersMap.get(task.assigneeId) : null;
   const assignerMember = task.assignedBy && membersMap ? membersMap.get(task.assignedBy) : null;
 
@@ -786,8 +793,12 @@ function TaskRow({
         ) : null}
 
         {task.dueDate ? (
-          <span className={cn("shrink-0 text-[11.5px]", overdue ? "text-red-400" : "text-faint")}>
-            {formatDate(task.dueDate)}
+          <span
+            data-testid="task-due"
+            data-overdue={overdue ? "true" : undefined}
+            className={cn("shrink-0 text-[11.5px]", overdue ? "text-red-400" : "text-faint")}
+          >
+            {formatDueDate(task.dueDate)}
           </span>
         ) : null}
 
@@ -831,7 +842,7 @@ function TaskRow({
               {task.assignedBy
                 ? ` by ${assignerMember?.name || assignerMember?.email || "teammate"}`
                 : ""}
-              {task.assignedAt ? ` on ${formatDate(task.assignedAt)}` : ""}
+              {assignedOn ? ` on ${assignedOn}` : ""}
             </p>
           ) : null}
 

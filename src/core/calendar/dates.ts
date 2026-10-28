@@ -216,7 +216,15 @@ export function validateRange(from: unknown, to: unknown): { from: DateOnly; to:
   return { from, to };
 }
 
-/** Human label for a date-only value, formatted in UTC so it can never shift a day. */
-export function formatDayLabel(value: DateOnly, options: Intl.DateTimeFormatOptions): string {
-  return new Date(toUtcMs(value)).toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
+/**
+ * Human label for a date-only value, formatted in UTC so it can never shift a day.
+ * Pass an explicit `locale` when the label is server-rendered, so the server and
+ * browser produce identical text during hydration.
+ */
+export function formatDayLabel(
+  value: DateOnly,
+  options: Intl.DateTimeFormatOptions,
+  locale?: string,
+): string {
+  return new Date(toUtcMs(value)).toLocaleDateString(locale, { ...options, timeZone: "UTC" });
 }

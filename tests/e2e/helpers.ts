@@ -56,7 +56,11 @@ async function waitForServer(timeoutMs = 90_000): Promise<void> {
   throw new Error(`Server did not start within ${timeoutMs}ms`);
 }
 
-export async function start(): Promise<void> {
+/**
+ * `timeZone` sets the server process's TZ, so tests can make the server and
+ * browser zones differ on purpose (hydration of date-only values).
+ */
+export async function start(options: { timeZone?: string } = {}): Promise<void> {
   root = mkdtempSync(path.join(tmpdir(), "cc-e2e-"));
   e2eSecret = crypto.randomBytes(32).toString("hex");
 
@@ -92,6 +96,7 @@ export async function start(): Promise<void> {
       // Automations firing mid-run would change data underneath pages that
       // have already rendered, making failures depend on wall-clock timing.
       DASHBOARD_DISABLE_SCHEDULER: "1",
+      ...(options.timeZone ? { TZ: options.timeZone } : {}),
     },
     stdio: "ignore",
     },
