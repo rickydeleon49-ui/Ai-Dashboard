@@ -227,6 +227,24 @@ describe("desktop templates: application", () => {
     assert.ok(!event.metadata.includes(requestKey("full")), "the request key is never exposed");
   });
 
+  it("writes template documents with fresh derived search text (Release 2E.1), source untouched", async () => {
+    const id = await createTemplate();
+    const r = await applyTemplate(id, { idempotencyKey: requestKey("search-text"), startDate: FIXTURE_START });
+    assert.equal(r.status, 201, r.text);
+    const rows = db.all<{ title: string; content: string; search_text: string | null; fresh: number }>(
+      sql`SELECT title, content, search_text, search_indexed_at = updated_at AS fresh FROM knowledge_documents WHERE project_id = ${r.body.project.id} ORDER BY title`,
+    );
+    assert.deepEqual(
+      rows.map((row) => [row.title, row.content, row.search_text, row.fresh]),
+      [
+        ["FAQ", "Questions.", "faq questions.", 1],
+        ["Launch runbook", "# Runbook\nSteps.", "launch runbook operations runbook steps.", 1],
+      ],
+    );
+    const found = (await repos.knowledgeDocumentRepository.search(LOCAL_WORKSPACE_ID, r.body.project.id, { search: "steps" })).documents;
+    assert.deepEqual(found.map((d) => d.title), ["Launch runbook"]);
+  });
+
   it("replays the same key and request, and conflicts on a different request with the same key", async () => {
     const id = await createTemplate();
     const key = requestKey("retry");

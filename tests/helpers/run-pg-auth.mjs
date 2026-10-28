@@ -25,6 +25,7 @@ const defaultFiles = [
   "tests/unit-pg-auth/calendar-api.test.ts",
   "tests/unit-pg-auth/timeline-api.test.ts",
   "tests/unit-pg-auth/templates-api.test.ts",
+  "tests/unit-pg-auth/knowledge-workspace-scoping.test.ts",
 ];
 
 const targetFiles = process.argv.slice(2);

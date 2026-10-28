@@ -6,6 +6,7 @@
  * request body.
  */
 import { z } from "zod";
+import { KNOWLEDGE_CONTENT_MAX } from "./markdown";
 
 /** Empty strings from a form should become null, not "". */
 const optionalCategory = z
@@ -18,7 +19,7 @@ const optionalCategory = z
 
 const documentFields = {
   title: z.string().trim().min(1, "Title is required").max(200),
-  content: z.string().max(50_000),
+  content: z.string().max(KNOWLEDGE_CONTENT_MAX),
   category: optionalCategory,
   pinned: z.coerce.boolean(),
 };

@@ -785,8 +785,11 @@ describe("bulk task editing UI flows", () => {
       });
     });
 
+    // Listen before clicking: the mocked response is immediate and can beat a
+    // listener registered afterwards.
+    const retried = page.waitForResponse((r) => r.url().includes("/api/tasks/bulk"));
     await retryBtn.click();
-    await page.waitForResponse((r) => r.url().includes("/api/tasks/bulk"));
+    await retried;
     await page.unroute("**/api/tasks/bulk");
 
     // Crucial: Only retryable task was sent!
