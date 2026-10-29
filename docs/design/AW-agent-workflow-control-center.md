@@ -670,11 +670,14 @@ The order matters: each step is testable before the next one starts.
 | 16 | `README.md`, this note | Setup, usage, validation results, and the limitations that remain |
 
 AW.1 is done when `typecheck`, `lint` and `test:unit` pass, the demo runs
-cleanly, and the PR is open for independent review **without being merged**.
+cleanly, and every slice has passed independent review and merged. How the
+steps are sliced into rounds and PRs: [`AW1-slices.md`](AW1-slices.md).
+(Owner decision, October 28, 2026: Claude merges each PR once its independent
+review is answered and CI is green on the exact head; see `AGENTS.md`.)
 
 ## 16. Build plan for AW.2–AW.6
 
-The same format as §15: steps in order, each testable before the next. Every release is **one PR**, opened from the latest `main` once the previous release has merged. It is never merged by an agent. Each release is done only when `typecheck`, `lint` and `test:unit` pass on the Linux **and Windows** CI jobs, its manual acceptance check passes on the named machine, and the PR is open for independent review.
+The same format as §15: steps in order, each testable before the next. Every release ships as one or more PRs (batches of rounds), each opened from the latest `main`; a release starts once the previous one has merged. Claude merges each PR after its independent review is answered and CI is green on the exact head (owner, October 28, 2026). Each release is done only when `typecheck`, `lint` and `test:unit` pass on the Linux **and Windows** CI jobs, its manual acceptance check passes on the named machine, and every PR has passed independent review and merged.
 
 ### 16.1 Delivery sequence and gates
 

@@ -5,7 +5,12 @@
 ## Roles (owner, 28 October 2026)
 
 - **Only two agents work on this project: Claude and Antigravity (`agy`).**
-  No other agent (Codex, Gemini, Qwen or others) is used here.
+  No other agent (Codex, Gemini CLI, Qwen or others) is used here. Claude's
+  own subagents count as Claude: Haiku for mechanical work, Sonnet for
+  well-briefed slices and focused reviews. Antigravity picks its model by task
+  size (Gemini 3.8 Flash Low/Medium for small, exact rounds; Flash High for
+  plans and reviews). This is about who builds the repo; the app itself still
+  supports other agents (Codex is AW.2's planner and reviewer).
 - **Antigravity** implements most rounds. **Claude** plans and assigns precise
   rounds, reviews, tests independently and merges, and may implement a round
   itself when that is faster or Antigravity is unavailable.
@@ -33,7 +38,11 @@ has reviewed it, starting with the newest round folder.
   - `H:\Ai Repo clones\.ai-dash-loop\<round>\`: one folder per round with
     `prompt.md`, the implementer log, `result.md`, gate logs and
     `REVIEW.md`;
-  - `H:\Ai Repo clones\.ai-dash-loop\REVIEW_CHECKLIST.md`: the review recipe.
+  - `H:\Ai Repo clones\.ai-dash-loop\REVIEW_CHECKLIST.md`: the review recipe;
+  - scripts in the same folder: `new-round.sh` (worktree + round folder),
+    `gates.sh <round> [quick|full|desktop]` (every gate below, with a
+    summary) and `agy-run.sh <round> <implement|review|plan> [model]`.
+- `docs/design/AW1-slices.md`: AW.1 split into rounds and PR batches.
 - The owner's notes (Obsidian, synced to every machine):
   `Projects/AI Dashboard/` holds `Dashboard.md`, `Decisions Inbox.md` and
   `Rounds/`. The reviewer reads the Decisions Inbox at the start of each
@@ -67,9 +76,10 @@ has reviewed it, starting with the newest round folder.
   hidden and their API returns 404. Only the agent runner process spawns
   agents, never the Next.js server.
 - Schema changes go through `src/db/schema.ts` plus `npm run db:generate`
-  (SQLite) and `src/db/schema.pg.ts` plus `npm run db:generate:pg`
-  (Postgres); never hand-edit or delete an existing migration in `drizzle/`
-  or `drizzle-pg/`.
+  (SQLite) and, for tables hosted mode also uses, `src/db/schema.pg.ts` plus
+  `npm run db:generate:pg` (Postgres). Desktop-only tables (the agent tables)
+  are SQLite only. Never hand-edit or delete an existing migration in
+  `drizzle/` or `drizzle-pg/`.
 - Finish by writing `result.md` in the round folder: what changed, the
   commands run and their results, and anything left undone.
 
