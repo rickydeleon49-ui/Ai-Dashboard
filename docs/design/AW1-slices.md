@@ -11,7 +11,8 @@ Written October 28, 2026.
 
 - Code lives in `src/core/agents/` (as the design note says), routes in
   `src/app/api/agent-runs/`, pages in `src/app/agents/` and
-  `src/app/settings/agents/`, tests in `tests/unit/agent-*.test.ts`.
+  `src/app/settings/agents/`, components in `src/components/agents/`, tests
+  in `tests/unit/agent-*.test.ts`.
 - **SQLite only.** The agent tables are desktop-only (§4), so there is no
   `schema.pg.ts` change and no `drizzle-pg/` migration.
 - **Only the runner spawns agents.** API routes record intents and stream
@@ -45,13 +46,13 @@ triage. The builder is chosen by risk, not size:
 | AW1-03 | 2, 4 | The five tables in `src/db/schema.ts` + generated SQLite migration; `events.ts` (gapless `seq` in a transaction, bounded and redacted payload, `readSince`) | Antigravity | M | 01, 02 | A |
 | AW1-04 | 6 (part) | `roots.ts`: workspace roots, worktree root and run storage as per-machine settings; realpath containment; drive-missing check; workspace locks | Sonnet | M | 03 | B |
 | AW1-05 | 6 (rest) | `workspace.ts`: worktree create/remove inside Command Center's own folder only, a runner-authored commit after each stage, `git diff base...HEAD` summary with the review-ordered changed-files list | Antigravity | M | 04 | B |
-| AW1-06 | 7 | `process.ts`, `resolve-executable.ts`: `shell: false` from a resolved path (no `.cmd` shims), PID and group recorded, Stop via SIGTERM→SIGKILL (macOS) or `taskkill /T` then `/T /F` (Windows), output through `src/core/ai/ndjson.ts` | Sonnet | M | 01 | B |
+| AW1-06 | 7 | `process.ts`, `resolve-executable.ts`: `shell: false` from a resolved path (no `.cmd` shims), PID and group recorded, Stop via SIGTERM→SIGKILL (macOS) or `taskkill /T` then `/T /F` (Windows), output through `src/core/ai/ndjson.ts` | Sonnet | M | — | B |
 | AW1-07 | 8, 14 (part) | `adapters/claude-code.ts` (`probe`, `buildArgv` asserted to never contain a bypass flag, per-run `--settings` grant file, stream-json → events), `adapters/fake.ts`, `tests/fixtures/fake-agent.mjs` | Antigravity | M | 03, 06 | C |
 | AW1-08 | 9 | `orchestrator.ts`: the §7 stage machine with a single-pass review; final status only from facts the runner observed | Claude | L | 05, 07 | C |
 | AW1-09 | 10 | `runner/index.ts` + `npm run runner`: claims intents, runs the orchestrator, epoch-based recovery at startup, worktree recovery report (report only) | Sonnet | M | 08 | C |
 | AW1-10 | 11 | `desktop/main.js`: fork the runner beside the server, pass the run-storage path, stop it on quit. **Gates: `desktop`** | Antigravity | S | 09 | C |
 | AW1-11 | 12 | `src/app/api/agent-runs/**`: start/stop intents, run read, SSE events with `Last-Event-ID` replay; 404 when disabled | Antigravity | M | 03 | D |
-| AW1-12 | 13 (part) | Settings: provider probes, workspace roots, worktree root; navigation entry (desktop only) | Antigravity | M | 04, 11 | D |
+| AW1-12 | 13 (part) | Settings: provider probes, workspace roots, worktree root; navigation entry (desktop only) | Antigravity | M | 01, 04, 07 | D |
 | AW1-13 | 13 (rest) | Run form, history, run detail (timeline, events, checks, verdict, Stop, diff view). **Gates: `full`** | Antigravity | L | 11, 12 | D |
 | AW1-14 | 15, 16 | `scripts/agents-demo.ts` + `npm run agents:demo` (synthetic project, temp DB, fake agent); README and design-note results | Antigravity (script), Haiku (docs) | S | all | E |
 
@@ -60,7 +61,9 @@ once. AW1-11 can start as soon as AW1-03 merges, alongside batch C.
 
 **PR batches** (to save CI minutes): **A** foundation (01–03), **B** workspace
 and process (04–06), **C** agents and runner (07–10), **D** API and UI (11–13),
-**E** demo and docs (14). Each batch merges before the next one starts.
+**E** demo and docs (14). Each batch merges before the next one starts. A
+slice with no unmerged dependencies may be built early from the latest
+`main` (as AW1-06 is, alongside batch A); it still ships in its own batch.
 
 ## Open items
 

@@ -677,7 +677,7 @@ review is answered and CI is green on the exact head; see `AGENTS.md`.)
 
 ## 16. Build plan for AW.2–AW.6
 
-The same format as §15: steps in order, each testable before the next. Every release ships as one or more PRs (batches of rounds), each opened from the latest `main`; a release starts once the previous one has merged. Claude merges each PR after its independent review is answered and CI is green on the exact head (owner, October 28, 2026). Each release is done only when `typecheck`, `lint` and `test:unit` pass on the Linux **and Windows** CI jobs, its manual acceptance check passes on the named machine, and the PR is open for independent review.
+The same format as §15: steps in order, each testable before the next. Every release ships as one or more PRs (batches of rounds), each opened from the latest `main`; a release starts once the previous one has merged. Claude merges each PR after its independent review is answered and CI is green on the exact head (owner, October 28, 2026). Each release is done only when `typecheck`, `lint` and `test:unit` pass on the Linux **and Windows** CI jobs, its manual acceptance check passes on the named machine, and every PR has passed independent review and merged.
 
 ### 16.1 Delivery sequence and gates
 
