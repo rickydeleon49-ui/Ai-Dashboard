@@ -598,7 +598,20 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const { db } = await import("@/db/client");
-  const storage = await getAgentStorageSettings();
+  // The server owns migrations and runs them as it starts. On a fresh install the
+  // runner can get here first, so wait for the tables rather than migrating too
+  // (two processes migrating at once could apply the same migration twice).
+  let storage: Awaited<ReturnType<typeof getAgentStorageSettings>> | undefined;
+  for (let attempt = 0; storage === undefined; attempt++) {
+    try {
+      storage = await getAgentStorageSettings();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/no such table/i.test(message) || attempt >= 120) throw error;
+      if (attempt === 0) ndjsonLog("info", "waiting for the database to be migrated", { error: message });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
   const runner = createRunner({ db });
   // Recovery assumes every other-epoch run is dead, so only the lock holder may run it.
   const lock = acquireRunnerLock(storage.runStore, runner.epoch);
@@ -618,6 +631,9 @@ async function main(): Promise<void> {
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+  // Forked by the desktop app: if it dies, the IPC channel closes. Don't outlive
+  // it as an orphan that holds the runner lock and keeps agents running.
+  if (process.send) process.on("disconnect", () => shutdown("parent exited"));
   process.on("message", (message) => {
     if (message && typeof message === "object" && (message as { type?: unknown }).type === "shutdown") {
       shutdown("ipc");
@@ -626,7 +642,7 @@ async function main(): Promise<void> {
   await runner.start();
 }
 
-if (process.argv[1] && /runner[\\/]index\.ts$/.test(process.argv[1])) {
+if (process.argv[1] && /(?:runner[\\/]index\.ts|runner\.js)$/.test(process.argv[1])) {
   main().catch((error) => {
     ndjsonLog("error", "runner failed to start", { error: error instanceof Error ? error.message : String(error) });
     process.exit(1);

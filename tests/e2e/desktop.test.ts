@@ -21,6 +21,7 @@ import { assertInertDom, inspectRendered, watch } from "./markdown-dom";
 
 const standaloneServer = path.resolve(".next/standalone/server.js");
 const hasStandalone = existsSync(standaloneServer);
+const standaloneRunner = path.resolve(".next/standalone/runner.js");
 
 let app: ElectronApplication | null = null;
 let window: Page;
@@ -67,6 +68,7 @@ type DesktopPaths = {
   uploads: string;
   settingsKey: string;
   windowState: string;
+  runner?: string;
 };
 let profile: DesktopPaths;
 
@@ -131,9 +133,12 @@ before(async () => {
   };
   try {
     assert.equal(path.resolve(live), path.resolve(root), "Electron userData is not the temporary profile");
-    for (const key of Object.keys(expected) as (keyof DesktopPaths)[]) {
-      assert.equal(path.resolve(profile[key]), path.resolve(expected[key]), `${key} is not in the temporary profile`);
-      assert.ok(!isWithin(realProfile, profile[key]), `${key} points into the real profile`);
+    // Only the profile paths: `runner` is the bundled runner entry, which lives with the app, not the profile.
+    for (const key of Object.keys(expected) as (keyof typeof expected)[]) {
+      const actual = profile[key];
+      assert.ok(actual, `${key} was not reported`);
+      assert.equal(path.resolve(actual), path.resolve(expected[key]), `${key} is not in the temporary profile`);
+      assert.ok(!isWithin(realProfile, actual), `${key} points into the real profile`);
     }
   } catch (error) {
     await app.close().catch(() => undefined);
@@ -191,6 +196,53 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
     // The installed application's profile is exactly as it was before launch.
     assert.notEqual(path.resolve(database), path.resolve(realDatabase));
     assert.deepEqual(fingerprint(), realProfileBefore);
+  });
+
+  it("bundles and starts the agent runner beside the standalone server", async () => {
+    // 1. runner.js exists in the standalone bundle
+    assert.ok(existsSync(standaloneRunner), `expected runner bundle at ${standaloneRunner}`);
+
+    // 2. runner process started (test hook and startup log)
+    const runnerInfo = await app!.evaluate(({ app: electronApp }) => {
+      const g = electronApp as unknown as {
+        desktopPathsForTesting?: { runner?: string };
+        runnerLogsForTesting?: string[];
+        runnerPidForTesting?: number;
+      };
+      return {
+        runnerPath: g.desktopPathsForTesting?.runner,
+        logs: g.runnerLogsForTesting ?? [],
+        pid: g.runnerPidForTesting,
+      };
+    });
+
+    assert.ok(runnerInfo.runnerPath, "the runner entry path was not exposed on desktopPathsForTesting");
+    assert.equal(
+      path.resolve(runnerInfo.runnerPath),
+      standaloneRunner,
+      "runner path should point to standalone/runner.js",
+    );
+    assert.ok(typeof runnerInfo.pid === "number" && runnerInfo.pid > 0, "the runner process PID should be valid");
+
+    // Startup log line matching runner/index.ts ("runner starting")
+    let hasStartupLog = false;
+    for (let i = 0; i < 300; i++) { // up to 30 s: on a fresh profile the runner waits for migrations
+      const logs = await app!.evaluate(({ app: electronApp }) => {
+        const g = electronApp as unknown as { runnerLogsForTesting?: string[] };
+        return g.runnerLogsForTesting ?? [];
+      });
+      hasStartupLog = logs.some((line) => {
+        try {
+          const parsed = JSON.parse(line);
+          return parsed.msg === "runner starting";
+        } catch {
+          return line.includes("runner starting");
+        }
+      });
+      if (hasStartupLog) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(hasStartupLog, 'the runner should emit its startup log message ("runner starting")');
   });
 
   it("opens a window serving the dashboard", async () => {
@@ -462,5 +514,38 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
   // copy of Command Center open during the run would legitimately change these.
   it("still has not touched the real profile after exercising the app", () => {
     assert.deepEqual(fingerprint(), realProfileBefore);
+  });
+
+  it("stops the runner on quit with no leftover process", async () => {
+    const runnerPid = await app!.evaluate(({ app: electronApp }) => {
+      const g = electronApp as unknown as { runnerPidForTesting?: number };
+      return g.runnerPidForTesting ?? null;
+    });
+    assert.ok(runnerPid && runnerPid > 0, "runner process PID was not recorded");
+
+    const isAlive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (err: unknown) {
+        return (err as { code?: string })?.code !== "ESRCH";
+      }
+    };
+
+    assert.equal(isAlive(runnerPid), true, "runner process should be running before app quits");
+
+    await app!.close();
+    app = null;
+
+    let stopped = false;
+    for (let i = 0; i < 150; i++) {
+      if (!isAlive(runnerPid)) {
+        stopped = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    assert.equal(stopped, true, `runner process (PID ${runnerPid}) was not stopped on app quit`);
   });
 });
