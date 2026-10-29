@@ -188,17 +188,20 @@ export function worktreeReport(db: AgentDatabase, worktreeRoot: string, log: Log
  */
 export function claimNextIntent(
   db: AgentDatabase,
-  options: { excludeKinds?: string[] } = {},
+  options: { excludeKinds?: string[]; excludeIds?: string[] } = {},
 ): AgentRunIntentRow | null {
   const exclude = options.excludeKinds ?? [];
+  const excludeIds = options.excludeIds ?? [];
   for (let attempt = 0; attempt < 5; attempt++) {
     const candidate = db
       .select()
       .from(agentRunIntents)
       .where(
-        exclude.length > 0
-          ? and(isNull(agentRunIntents.claimedAt), notInArray(agentRunIntents.kind, exclude))
-          : isNull(agentRunIntents.claimedAt),
+        and(
+          isNull(agentRunIntents.claimedAt),
+          exclude.length > 0 ? notInArray(agentRunIntents.kind, exclude) : undefined,
+          excludeIds.length > 0 ? notInArray(agentRunIntents.id, excludeIds) : undefined,
+        ),
       )
       .orderBy(asc(agentRunIntents.createdAt), asc(sql`rowid`))
       .limit(1)
@@ -215,6 +218,70 @@ export function claimNextIntent(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Single-runner lock
+// ---------------------------------------------------------------------------
+
+export type RunnerLockResult =
+  | { ok: true; lockPath: string; release: () => void }
+  | { ok: false; holderPid: number | null };
+
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Exclusive <runStore>/runner.lock holding {pid, epoch, startedAt}. A lock
+ * whose pid is dead is replaced; a live holder means this runner must not start
+ * (and must not run recovery, which would interrupt the holder's runs).
+ */
+export function acquireRunnerLock(
+  runStore: string,
+  epoch: string,
+  deps: { isAlive?: (pid: number) => boolean; pid?: number } = {},
+): RunnerLockResult {
+  const isAlive = deps.isAlive ?? isPidAlive;
+  const lockPath = nodePath.join(runStore, "runner.lock");
+  fs.mkdirSync(runStore, { recursive: true });
+  const body = JSON.stringify({ pid: deps.pid ?? process.pid, epoch, startedAt: new Date().toISOString() });
+  const release = () => {
+    try {
+      const held = JSON.parse(fs.readFileSync(lockPath, "utf8")) as { epoch?: unknown };
+      if (held.epoch === epoch) fs.rmSync(lockPath, { force: true });
+    } catch {
+      // Already gone or replaced: not ours to remove.
+    }
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = fs.openSync(lockPath, "wx");
+      try {
+        fs.writeSync(fd, body);
+      } finally {
+        fs.closeSync(fd);
+      }
+      return { ok: true, lockPath, release };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    let holderPid: number | null = null;
+    try {
+      const held = JSON.parse(fs.readFileSync(lockPath, "utf8")) as { pid?: unknown };
+      if (typeof held.pid === "number") holderPid = held.pid;
+    } catch {
+      // Unreadable or half-written: treated as stale below.
+    }
+    if (holderPid !== null && isAlive(holderPid)) return { ok: false, holderPid };
+    fs.rmSync(lockPath, { force: true });
+  }
+  return { ok: false, holderPid: null };
+}
+
 export interface RunnerOverrides {
   db: AgentDatabase;
   epoch?: string;
@@ -228,7 +295,12 @@ export interface RunnerOverrides {
   isDirectory?: (p: string) => boolean;
   pollIntervalMs?: number;
   stopGraceMs?: number;
+  /** Clock for the stop-intent re-release backoff (tests). */
+  now?: () => number;
 }
+
+/** A stop intent released because its run is not ours is not re-claimed for this long. */
+export const RELEASED_INTENT_BACKOFF_MS = 5000;
 
 interface ActiveRun {
   runId: string;
@@ -260,6 +332,8 @@ export function createRunner(overrides: RunnerOverrides): Runner {
   let timer: NodeJS.Timeout | null = null;
   let stopping = false;
   let ticking = false;
+  const now = overrides.now ?? Date.now;
+  const releasedAt = new Map<string, number>();
 
   const event = (runId: string, stage: string | null, kind: "warning" | "error" | "status_changed", payload: unknown) =>
     appendEvent(db, { runId, stage, agent: "system", kind, payload });
@@ -396,13 +470,21 @@ export function createRunner(overrides: RunnerOverrides): Runner {
           .where(and(eq(agentRuns.id, intent.runId), eq(agentRuns.status, "queued")))
           .run();
         if ((result as { changes: number }).changes === 1) {
+          releaseLocksForRun(db, intent.runId);
           await event(intent.runId, null, "warning", { message: "stopped by user before it started" });
           await event(intent.runId, "final", "status_changed", { status: "stopped", stage: "final" });
           log("info", "stopped a queued run", { runId: intent.runId });
         }
         return;
       }
-      log("info", "stop intent ignored: run is not active in this runner", { runId: intent.runId, status: row.status });
+      if (!(TERMINAL_STATUSES as readonly string[]).includes(row.status)) {
+        // Another runner may host it: put the intent back so it is not lost.
+        db.update(agentRunIntents).set({ claimedAt: null }).where(eq(agentRunIntents.id, intent.id)).run();
+        releasedAt.set(intent.id, now());
+        log("warn", "stop intent released: run is not active in this runner", { runId: intent.runId, status: row.status });
+        return;
+      }
+      log("info", "stop intent ignored: run is already finished", { runId: intent.runId, status: row.status });
       return;
     }
 
@@ -410,7 +492,12 @@ export function createRunner(overrides: RunnerOverrides): Runner {
   }
 
   async function tick(): Promise<boolean> {
-    const intent = claimNextIntent(db, { excludeKinds: active ? ["start"] : [] });
+    const t = now();
+    for (const [id, at] of releasedAt) if (t - at >= RELEASED_INTENT_BACKOFF_MS) releasedAt.delete(id);
+    const intent = claimNextIntent(db, {
+      excludeKinds: active ? ["start"] : [],
+      excludeIds: [...releasedAt.keys()],
+    });
     if (!intent) return false;
     await handleIntent(intent);
     return true;
@@ -459,7 +546,42 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       if (current) {
         log("info", "shutting down: stopping the active run", { runId: current.runId });
         current.controller.abort();
-        await Promise.race([current.done, new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref())]);
+        let finished = false;
+        await Promise.race([
+          current.done.then(() => {
+            finished = true;
+          }),
+          new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref()),
+        ]);
+        if (!finished) {
+          const row = db.select().from(agentRuns).where(eq(agentRuns.id, current.runId)).get();
+          if (row && !(TERMINAL_STATUSES as readonly string[]).includes(row.status)) {
+            db.update(agentRuns)
+              .set({ status: "interrupted", endedAt: ISO_NOW, updatedAt: ISO_NOW })
+              .where(eq(agentRuns.id, current.runId))
+              .run();
+            releaseLocksForRun(db, current.runId);
+            fire(
+              appendEvent(db, {
+                runId: current.runId,
+                stage: row.stage,
+                agent: "system",
+                kind: "warning",
+                payload: { message: "the runner shut down before the run could stop; it was interrupted" },
+              }),
+            );
+            fire(
+              appendEvent(db, {
+                runId: current.runId,
+                stage: row.stage,
+                agent: "system",
+                kind: "status_changed",
+                payload: { status: "interrupted", stage: row.stage },
+              }),
+            );
+            log("warn", "run did not stop in time; marked interrupted", { runId: current.runId });
+          }
+        }
       }
       log("info", "runner stopped");
     },
@@ -476,13 +598,23 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const { db } = await import("@/db/client");
+  const storage = await getAgentStorageSettings();
   const runner = createRunner({ db });
+  // Recovery assumes every other-epoch run is dead, so only the lock holder may run it.
+  const lock = acquireRunnerLock(storage.runStore, runner.epoch);
+  if (!lock.ok) {
+    ndjsonLog("info", "another runner is already running; exiting", { holderPid: lock.holderPid });
+    process.exit(0);
+  }
   let shuttingDown = false;
   const shutdown = (reason: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     ndjsonLog("info", "shutdown requested", { reason });
-    void runner.shutdown().then(() => process.exit(0));
+    void runner.shutdown().then(() => {
+      lock.release();
+      process.exit(0);
+    });
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
