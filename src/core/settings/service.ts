@@ -42,6 +42,11 @@ export const SETTING_KEYS = {
   /** Path to the Hermes executable. Never passed to a shell. */
   aiHermesPath: "ai.hermes_path",
   aiLastProjectId: "ai.last_project_id",
+
+  /* Agent Workflow storage (AW section 5), per machine. Roots are a JSON array. */
+  agentWorkspaceRoots: "agent.workspace_roots",
+  agentWorktreeRoot: "agent.worktree_root",
+  agentRunStore: "agent.run_store",
 } as const;
 
 /**
