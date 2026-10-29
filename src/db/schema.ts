@@ -702,3 +702,109 @@ export const projectTemplateApplications = sqliteTable(
 );
 
 export type ProjectTemplateRow = typeof projectTemplates.$inferSelect;
+
+/**
+ * Agent Workflow Control Center tables (Release AW.1, §2.2, §4).
+ * Desktop-only: agent orchestration runs strictly in local desktop mode,
+ * never in hosted or accounts mode (where agent routes return 404).
+ * SQLite only — these tables have no Postgres counterpart in schema.pg.ts.
+ */
+export const agentProjectPolicies = sqliteTable(
+  "agent_project_policy",
+  {
+    projectId: text("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    checkCommands: text("check_commands").notNull().default("[]"),
+    excludedPaths: text("excluded_paths").notNull().default("[]"),
+    testRestrictions: text("test_restrictions").notNull().default("[]"),
+    defaults: text("defaults").notNull().default("{}"),
+    roadmapSource: text("roadmap_source"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+  },
+);
+export const agentProjectPolicy = agentProjectPolicies;
+
+export const agentRuns = sqliteTable(
+  "agent_run",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("queued"),
+    stage: text("stage"),
+    request: text("request").notNull().default("{}"),
+    workspaceKind: text("workspace_kind"),
+    workspacePath: text("workspace_path"), // null until the workspace is prepared
+    baseRef: text("base_ref"),
+    branch: text("branch"),
+    correctionRound: integer("correction_round").notNull().default(0),
+    outcome: text("outcome"),
+    runnerEpoch: text("runner_epoch"),
+    createdAt: text("created_at").notNull().default(now),
+    updatedAt: text("updated_at").notNull().default(now),
+    endedAt: text("ended_at"),
+  },
+  (t) => [
+    index("agent_run_project_created_idx").on(t.projectId, t.createdAt),
+    index("agent_run_status_idx").on(t.status),
+  ],
+);
+export const agentRun = agentRuns;
+
+export const agentRunEvents = sqliteTable(
+  "agent_run_event",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    ts: text("ts").notNull().default(now),
+    stage: text("stage"),
+    agent: text("agent").notNull(),
+    kind: text("kind").notNull(),
+    payload: text("payload").notNull().default("{}"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.runId, t.seq] }),
+  ],
+);
+export const agentRunEvent = agentRunEvents;
+
+export const agentRunIntents = sqliteTable(
+  "agent_run_intent",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    payload: text("payload").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now),
+    claimedAt: text("claimed_at"),
+  },
+  (t) => [
+    index("agent_run_intent_queue_idx").on(t.claimedAt, t.createdAt),
+  ],
+);
+export const agentRunIntent = agentRunIntents;
+
+export const agentWorkspaceLocks = sqliteTable(
+  "agent_workspace_lock",
+  {
+    lockKey: text("lock_key").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().default(now),
+  },
+);
+export const agentWorkspaceLock = agentWorkspaceLocks;
+
+export type AgentProjectPolicyRow = typeof agentProjectPolicies.$inferSelect;
+export type AgentRunRow = typeof agentRuns.$inferSelect;
+export type AgentRunEventRow = typeof agentRunEvents.$inferSelect;
+export type AgentRunIntentRow = typeof agentRunIntents.$inferSelect;
+export type AgentWorkspaceLockRow = typeof agentWorkspaceLocks.$inferSelect;
