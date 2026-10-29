@@ -378,9 +378,9 @@ agent_workspace_lock   lock_key PK (realpath of the working copy), run_id
 
 | Project kind | Strategy |
 | --- | --- |
-| Git repository | `git worktree add <runstore>/wt/<runId> -b agent/<runId> <base>` from the current `HEAD`. Your checkout, index and uncommitted work are never touched. The result is a branch you can inspect, merge or delete. |
+| Git repository | `git worktree add <worktrees>/command-center/<shortId> -b agent/<shortId> <base>` from the current `HEAD`. Your checkout, index and uncommitted work are never touched. The result is a branch you can inspect, merge or delete. |
 | Git with uncommitted changes | The run starts from `HEAD`, **not** from your uncommitted edits, and the UI says so before you start. Snapshotting dirty state into the worktree is a later option. |
-| Not a Git repository | Copy into `<runstore>/snap/<runId>/base` (honouring exclusions and skipping `node_modules` and the like), then `git init` + commit there and work in a worktree of *that*. You get the same diff and review experience. Copying back to the original folder is a separate, approval-gated action that first makes a timestamped backup. |
+| Not a Git repository | Copy into `<worktrees>/command-center/snap/<shortId>/base` (honouring exclusions and skipping `node_modules` and the like), then `git init` + commit there and work in a worktree of *that*. You get the same diff and review experience. Copying back to the original folder is a separate, approval-gated action that first makes a timestamped backup. |
 
 #### Where things live: workspace roots and two kinds of run storage
 
@@ -392,7 +392,7 @@ both locations per-machine settings rather than fixed paths:
 | Setting | Holds | Windows PC | Default |
 | --- | --- | --- | --- |
 | **Workspace roots** (one or more) | The projects you can register | `H:\Ai Repo clones` | None. You add them in settings. |
-| **Worktree root** (`<worktrees>`) | One worktree or snapshot per run | `H:\Ai Repo worktrees\command-center` | `<userData>/agent-runs/wt` |
+| **Worktree root** (`<worktrees>`) | One worktree or snapshot per run | `H:\Ai Repo worktrees\command-center` | `<userData>/agent-worktrees` (a sibling of the run store, never inside it) |
 | **Run control storage** (`<runstore>`) | The database, event logs, per-run permission-grant files, and schema files | Stays in `%APPDATA%\Command Center` on `C:` | `<userData>/agent-runs` |
 
 Rules that follow from this:
@@ -424,7 +424,7 @@ not a later port. Several parts of the design behave differently on Windows:
 | **Stopping a run** | `detached: true` creates a process group; SIGTERM the group, then SIGKILL | No POSIX process groups or SIGTERM | Each platform gets its own stop routine: process groups on macOS; on Windows, `taskkill /PID <pid> /T` then `/T /F` after the grace period (a Job Object is a possible later upgrade). The cancellation test checks that **no grandchild process survives on either platform**. |
 | **Path containment** | APFS is usually case-insensitive | NTFS is case-insensitive; drive letters; `\\?\` and UNC prefixes; junctions | Compare `realpath.native` results after normalising case on both. Reject UNC and device paths as project roots. Treat junctions the same as symlinks. |
 | **Lock key** (`agent_workspace_lock`) | — | — | The normalised realpath, so `C:\Code\App` and `c:\code\app` are the same working copy |
-| **Git worktrees** | Fine | Long paths, and files held open by an editor or antivirus block removal | Keep run storage paths short (`<runstore>/wt/<shortId>`), set `core.longpaths=true` for the worktree, and retry removal with back-off. A worktree that still cannot be removed is reported, not ignored. |
+| **Git worktrees** | Fine | Long paths, and files held open by an editor or antivirus block removal | Keep worktree paths short (`<worktrees>/command-center/<shortId>`), set `core.longpaths=true` for the worktree, and retry removal with back-off. A worktree that still cannot be removed is reported, not ignored. |
 | **Diffs** | — | `core.autocrlf` can make every line appear changed | Compute diffs with `--ignore-cr-at-eol` for display and summaries, while the commit keeps what the agent wrote |
 | **Run storage** | `~/Library/Application Support/Command Center/agent-runs` | `%APPDATA%\Command Center\agent-runs` | Both come from `app.getPath("userData")`, as the database does today |
 | **Provider availability** | — | — | Probed **per machine**. A CLI that is installed and signed in on the Mac but not on Windows shows as unavailable there. Defaults are shared, but availability never is. |
