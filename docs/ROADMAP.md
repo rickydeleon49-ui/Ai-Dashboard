@@ -589,7 +589,7 @@ Pick a local project, choose an implementer (Claude Code or Antigravity), submit
 
 ### Build sequence
 
-Each release is one PR, opened from the latest `main` after the previous release merges, and is never merged by an agent. The step-by-step build lists (files, order, tests, manual acceptance per machine) are in the design note: §15 for AW.1 and §16 for AW.2–AW.6, with the gates between releases in §16.1.
+Each release ships as one or more PRs (batches of rounds), each opened from the latest `main`, and starts after the previous release merges. Claude merges each PR once its independent review is answered and CI is green on the exact head (owner, October 28, 2026). AW.1's rounds and PR batches: [`design/AW1-slices.md`](design/AW1-slices.md). The step-by-step build lists (files, order, tests, manual acceptance per machine) are in the design note: §15 for AW.1 and §16 for AW.2–AW.6, with the gates between releases in §16.1.
 
 | Release | Builds | Manual acceptance |
 |---|---|---|
