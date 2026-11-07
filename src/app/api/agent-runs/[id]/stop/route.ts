@@ -7,7 +7,7 @@ import { createIntent, getRun } from "@/core/agents/runs";
 
 export const dynamic = "force-dynamic";
 
-type RouteContext = { params: Promise<{ id: string }> | { id: string } };
+type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(request: NextRequest, context: RouteContext) {
   if (!isAgentRunsEnabled()) {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   ensureDatabaseReady();
 
-  const { id } = await Promise.resolve(context.params);
+  const { id } = await context.params;
   const run = await getRun(db, id);
 
   if (!run) {

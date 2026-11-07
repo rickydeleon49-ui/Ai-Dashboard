@@ -5,37 +5,11 @@ import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { isTerminalStatus } from "@/core/agents/types";
 import { readSince, type StoredAgentEvent } from "@/core/agents/events";
 import { getRun } from "@/core/agents/runs";
+import { resolveAfterSeq } from "@/core/agents/sse";
 
 export const dynamic = "force-dynamic";
 
-type RouteContext = { params: Promise<{ id: string }> | { id: string } };
-
-export function resolveAfterSeq(
-  lastEventIdHeader: string | null | undefined,
-  afterParam: string | null | undefined,
-): number {
-  if (lastEventIdHeader !== null && lastEventIdHeader !== undefined) {
-    const trimmed = lastEventIdHeader.trim();
-    if (/^\d+$/.test(trimmed)) {
-      const parsed = Number.parseInt(trimmed, 10);
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        return parsed;
-      }
-    }
-  }
-
-  if (afterParam !== null && afterParam !== undefined) {
-    const trimmed = afterParam.trim();
-    if (/^\d+$/.test(trimmed)) {
-      const parsed = Number.parseInt(trimmed, 10);
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        return parsed;
-      }
-    }
-  }
-
-  return 0;
-}
+type RouteContext = { params: Promise<{ id: string }> };
 
 function formatAgentEvent(event: StoredAgentEvent): string {
   return `id: ${event.seq}\nevent: agent-event\ndata: ${JSON.stringify(event)}\n\n`;
@@ -64,7 +38,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   ensureDatabaseReady();
 
-  const { id: runId } = await Promise.resolve(context.params);
+  const { id: runId } = await context.params;
   const initialRun = await getRun(db, runId);
   if (!initialRun) {
     return NextResponse.json({ error: "Agent run not found" }, { status: 404 });
