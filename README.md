@@ -9,6 +9,19 @@ the same codebase.
 
 Built to be extended for years, not to be a throwaway dashboard.
 
+## Download
+
+Get the latest installer from the
+[Releases page](https://github.com/rickydeleon49-ui/Ai-Dashboard/releases/latest):
+
+| Platform | File |
+| --- | --- |
+| Windows (x64) | `Command.Center-<version>-win-x64.exe` |
+| macOS (Apple silicon) | `Command.Center-<version>-mac-arm64.dmg` |
+| Linux (x86_64) | `Command.Center-<version>-linux-x86_64.AppImage` |
+
+Or build from source with the quick start below.
+
 ---
 
 ## Quick start — desktop
@@ -87,7 +100,7 @@ without touching your own edits.
 
 Phase 2 replaces the token with a full OAuth flow — the interface does not change.
 
-## What is here now (Phase 1)
+## What is here now
 
 - **Dashboard** — totals, active work, recently opened, favorites, activity feed,
   quick actions, status breakdown
@@ -104,6 +117,8 @@ Phase 2 replaces the token with a full OAuth flow — the interface does not cha
 - **Favorites**, **tags**, **notes**, **activity tracking**
 - **Local AI** — your own models through Ollama, project-aware, with streaming,
   cancellation and saved conversations
+- **Agent runs** (desktop app only) — start a coding agent on a project in its own
+  Git worktree, watch its output live, and review the result (see below)
 - **Command palette** — `⌘K` / `Ctrl+K` over projects, actions and pages
 - **Dark, light and system themes**, responsive from phone to wide desktop
 
@@ -169,6 +184,28 @@ for.
 Settings → **Local AI** has the connection diagnostics: status, API URL,
 installed models, what is currently in memory, a test button, and the last error.
 
+## Agent runs (desktop)
+
+The **Agents** page lets you give a coding agent a task on one of your projects
+and follow it from start to finish:
+
+- Each run gets its **own Git worktree and branch**, so your working copy is
+  never touched.
+- The run page shows a **timeline**, a **live terminal panel** with the agent's
+  output, the files it changed, check results, and a verdict. **Stop** ends a
+  run at any time.
+- **Settings → Agents** shows which agent CLIs were found on this machine and
+  where worktrees and run data are stored.
+
+Agents never commit, push or merge. You review the result and decide.
+
+Agent runs exist only in the desktop app. In the web and hosted versions the
+pages and API routes return 404.
+
+To see a full run without a real agent, run `npm run agents:demo`. It uses a
+fake agent, a throwaway Git project and a temporary database, and cleans up
+afterwards.
+
 ## Commands
 
 | Command | Does |
@@ -184,6 +221,7 @@ installed models, what is currently in memory, a test button, and the last error
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:seed` | Seed a starter library (skips if data exists) |
 | `npm run db:reset` | Delete the database, migrate and reseed |
+| `npm run agents:demo` | One full agent run with a fake agent, in a temp folder |
 
 Migrations also run automatically on first request, so a fresh clone or a fresh
 Railway volume works without a manual step.
