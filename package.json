@@ -28,7 +28,7 @@
     "desktop:icon": "node desktop/make-icon.mjs",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "tsx --conditions=react-server --test tests/unit/*.test.ts",
-    "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts tests/e2e/fresh-start-readiness.test.ts tests/e2e/calendar.test.ts tests/e2e/timeline.test.ts tests/e2e/templates.test.ts tests/e2e/knowledge-markdown.test.ts",
+    "test:e2e": "npm run build && tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/routes.test.ts tests/e2e/flows.test.ts tests/e2e/fresh-start-readiness.test.ts tests/e2e/calendar.test.ts tests/e2e/timeline.test.ts tests/e2e/templates.test.ts tests/e2e/knowledge-markdown.test.ts tests/e2e/agents-runs.test.ts",
     "test:desktop": "tsx --conditions=react-server --test --test-concurrency=1 tests/e2e/desktop.test.ts",
     "test:unit:pg": "tsx --conditions=react-server --test tests/unit-pg/*.test.ts",
     "test:unit:pg:auth": "node tests/helpers/run-pg-auth.mjs",
