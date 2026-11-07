@@ -8,6 +8,12 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { EVENT_AGENTS, isTerminalStatus } from "@/core/agents/types";
 import {
+  groupComments,
+  newFileLineNumbers,
+  type RunComment,
+} from "./comments-logic";
+import { RunComments } from "./run-comments";
+import {
   acceptEvent,
   deriveChecks,
   deriveDiff,
@@ -47,7 +53,17 @@ const PATCH_LINE_CLASS: Record<PatchLineKind, string> = {
 };
 
 /** One file's patch in a collapsible block; the lines render only once opened (patches can be large). */
-function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffFileView | undefined }) {
+function PatchBlock({
+  file,
+  summary,
+  commentsByLine,
+  onSelectLine,
+}: {
+  file: DiffPatchFileView;
+  summary: DiffFileView | undefined;
+  commentsByLine?: Map<number | "file", RunComment[]>;
+  onSelectLine?: (draft: { file: string; line: number | null }) => void;
+}) {
   const [open, setOpen] = React.useState(false);
   const name = file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path;
   let note = "";
@@ -57,6 +73,13 @@ function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffF
     else if (file.truncated) note = "Truncated — patch text left out (size limit)";
     else note = "No patch text.";
   }
+
+  const lines = React.useMemo(() => (open && file.patch !== "" ? patchLines(file.patch) : []), [open, file.patch]);
+  const lineNumbers = React.useMemo(
+    () => (open && lines.length > 0 ? newFileLineNumbers(lines.map((l) => l.text)) : []),
+    [open, lines],
+  );
+
   return (
     <details
       className="rounded-md border border-line bg-[var(--bg-subtle)]"
@@ -71,11 +94,33 @@ function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffF
           <p className="px-2 pb-2 text-[12px] text-muted">{note}</p>
         ) : (
           <pre className="max-h-96 overflow-auto whitespace-pre px-2 pb-2 font-mono text-[12px]">
-            {patchLines(file.patch).map((l, i) => (
-              <span key={i} className={`block ${PATCH_LINE_CLASS[l.kind]}`}>
-                {l.text === "" ? " " : l.text}
-              </span>
-            ))}
+            {lines.map((l, i) => {
+              const lineNum = lineNumbers[i] ?? null;
+              const count = lineNum !== null ? commentsByLine?.get(lineNum)?.length ?? 0 : 0;
+              const isClickable = lineNum !== null && Boolean(onSelectLine);
+              return (
+                <span
+                  key={i}
+                  className={`block ${PATCH_LINE_CLASS[l.kind]} ${
+                    isClickable ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""
+                  }`}
+                  onClick={isClickable ? () => onSelectLine?.({ file: file.path, line: lineNum }) : undefined}
+                >
+                  <span className="inline-block w-10 select-none pr-2 text-right text-faint">
+                    {lineNum !== null ? lineNum : ""}
+                  </span>
+                  <span>{l.text === "" ? " " : l.text}</span>
+                  {count > 0 ? (
+                    <span
+                      className="ml-2 inline-flex items-center rounded bg-[var(--accent-soft)] px-1 text-[10px] font-semibold text-[var(--accent)] select-none"
+                      title={`${count} comment${count === 1 ? "" : "s"}`}
+                    >
+                      {count}
+                    </span>
+                  ) : null}
+                </span>
+              );
+            })}
             {file.truncated ? <span className="block text-faint">… Truncated</span> : null}
           </pre>
         )
@@ -99,6 +144,8 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const [stopState, setStopState] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
   const [stopError, setStopError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const [draft, setDraft] = React.useState<{ file: string; line: number | null } | null>(null);
+  const [comments, setComments] = React.useState<RunComment[]>([]);
   const lastSeenRef = React.useRef(0);
   React.useEffect(() => {
     lastSeenRef.current = stream.lastSeen;
@@ -172,6 +219,12 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const checks = React.useMemo(() => deriveChecks(stream.events), [stream.events]);
   const diff = React.useMemo(() => deriveDiff(stream.events), [stream.events]);
   const diffPatch = React.useMemo(() => deriveDiffPatch(stream.events), [stream.events]);
+  const diffFiles = React.useMemo(() => {
+    if (diffPatch && diffPatch.files.length > 0) return diffPatch.files.map((f) => f.path);
+    if (diff && diff.files.length > 0) return diff.files.map((f) => f.path);
+    return [];
+  }, [diffPatch, diff]);
+  const groupedComments = React.useMemo(() => groupComments(comments), [comments]);
   const review = React.useMemo(() => deriveReview(stream.events), [stream.events]);
   const outcome = parseOutcome(outcomeRaw);
 
@@ -326,12 +379,28 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
             <div className="mt-3 space-y-2">
               {diffPatch.truncated ? <p className="text-[12px] text-faint">Truncated: some patch text is cut or left out.</p> : null}
               {diffPatch.files.map((f) => (
-                <PatchBlock key={`${f.oldPath ?? ""}>${f.path}`} file={f} summary={diff.files.find((s) => s.path === f.path)} />
+                <PatchBlock
+                  key={`${f.oldPath ?? ""}>${f.path}`}
+                  file={f}
+                  summary={diff.files.find((s) => s.path === f.path)}
+                  commentsByLine={groupedComments.byFile.get(f.path)}
+                  onSelectLine={(d) => setDraft(d)}
+                />
               ))}
             </div>
           ) : null}
         </CardBody>
       </Card>
+
+      {/* TODO: round switcher will be added in a later round (AW2-07b); pinned to round 0 for now */}
+      <RunComments
+        runId={runId}
+        round={0}
+        files={diffFiles}
+        draft={draft}
+        onDraftConsumed={() => setDraft(null)}
+        onCommentsChange={setComments}
+      />
 
       <Card>
         <CardHeader>
