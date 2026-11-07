@@ -47,7 +47,17 @@ export const runRolesSchema = z
     planner: roleConfigSchema.optional(),
     reviewer: roleConfigSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((roles, ctx) => {
+    if (roles.implementer.provider === "codex") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["implementer", "provider"],
+        message:
+          "Codex cannot be the implementer in this version (it runs read-only here). Use it as planner or reviewer.",
+      });
+    }
+  });
 
 export type RunRoles = z.infer<typeof runRolesSchema>;
 

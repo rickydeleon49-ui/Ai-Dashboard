@@ -430,11 +430,13 @@ describe("Agent Settings (Release AW.1, AW1-12)", () => {
 
       const probes = await getProviderProbes({
         claudeProbe: mockClaude,
+        codexProbe: async () => ({ installed: false, authenticated: "unknown" as const }),
         fakeProbe: mockFake,
       });
 
-      assert.equal(probes.length, 2);
-      const [claude, fake] = probes;
+      assert.equal(probes.length, 3);
+      const [claude, codex, fake] = probes;
+      assert.equal(codex?.id, "codex");
 
       assert.equal(claude?.installed, true);
       assert.equal(claude?.version, "2.1.312");

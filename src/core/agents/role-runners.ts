@@ -3,11 +3,12 @@
  *
  * The orchestrator builds the prompts and validates the answers; a RoleRunner
  * only transports one prompt to a provider and hands back the raw structured
- * output. A later round backs the same interface with the Codex adapter. There
+ * output. The Claude and Codex runners implement it (codex-runner.ts). There
  * is no fallback between providers: a role whose provider has no runner makes
  * the run fail up front.
  */
 import path from "node:path";
+import { createCodexRoleRunner } from "./codex-runner";
 import { claudeReadOnlyJson, type ReviewDeps } from "./review-claude";
 
 export interface RoleCallInput {
@@ -100,7 +101,7 @@ export function createFakeRoleRunner(script: FakeRoleScript = {}): RoleRunner & 
   };
 }
 
-/** Runners the app wires by default: Claude Code only until the Codex adapter lands. */
+/** Runners the app wires by default: Claude Code and Codex (planner/reviewer only). */
 export function defaultRoleRunners(deps: Omit<ReviewDeps, "grantDir"> = {}): RoleRunnerMap {
-  return { "claude-code": createClaudeRoleRunner(deps) };
+  return { "claude-code": createClaudeRoleRunner(deps), codex: createCodexRoleRunner() };
 }

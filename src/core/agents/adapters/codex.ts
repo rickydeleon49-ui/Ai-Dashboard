@@ -5,7 +5,7 @@
  * `-o` file validated against the Zod schemas (never stdout prose), and the
  * `--json` events are mapped to normalized run events.
  *
- * Not registered in the orchestrator or provider list yet: a later round wires it in.
+ * Wired into the orchestrator by codex-runner.ts and into the provider list by provider-probes.ts.
  */
 import { execFile } from "node:child_process";
 import fs from "node:fs";
@@ -20,24 +20,17 @@ import {
   type ReviewerOutput,
 } from "../schema";
 import { reviewerJsonSchema, writeSchemaFile } from "../schemas/export";
+import {
+  CODEX_DEFAULT_EFFORT,
+  CODEX_EFFORT_LEVELS,
+  type CodexEffort,
+} from "../codex-constants";
 import type { EventKind } from "../types";
 import type { ProbeResult } from "./types";
 
 export type CodexRole = "planner" | "reviewer";
 
-/** Codex's own reasoning-effort list (verified against the service, design §3.1). */
-export const CODEX_EFFORT_LEVELS = [
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
-export type CodexEffort = (typeof CODEX_EFFORT_LEVELS)[number];
-
-export const CODEX_DEFAULT_EFFORT: CodexEffort = "medium";
+export { CODEX_EFFORT_LEVELS, CODEX_DEFAULT_EFFORT, type CodexEffort };
 
 const MODEL_REGEX = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 

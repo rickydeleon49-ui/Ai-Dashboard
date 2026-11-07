@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select, Textarea, Input } from "@/components/ui/field";
-import { EFFORT_LEVELS } from "@/core/agents/types";
 import { buildModelOptions, resolveProviderModels } from "./model-options";
 import { describeReviewIndependence } from "./role-independence";
 import { buildRunRequest } from "./build-run-request";
+import { defaultReviewRoles, effortLevelsFor, implementerProviders } from "./role-defaults";
 
 export interface ProviderOption {
   id: string;
@@ -18,6 +18,11 @@ export interface ProviderOption {
   usable: boolean;
   /** Configured models for this provider (AW1-17). */
   models?: string[];
+  /** Probe facts used for role defaults (AW2-04b). */
+  installed?: boolean;
+  authenticated?: boolean | "unknown";
+  /** False for providers that cannot implement (Codex is read-only in AW.2). */
+  canImplement?: boolean;
 }
 
 export interface ProjectOption {
@@ -35,7 +40,9 @@ export function RunForm({
   checkSuggestions: string[];
 }) {
   const router = useRouter();
-  const firstUsable = providers.find((p) => p.usable)?.id ?? providers[0]?.id ?? "";
+  const implementerChoices = implementerProviders(providers);
+  const firstUsable = implementerChoices.find((p) => p.usable)?.id ?? implementerChoices[0]?.id ?? "";
+  const reviewDefaults = React.useMemo(() => defaultReviewRoles(providers), [providers]);
   const [projectId, setProjectId] = React.useState(projects[0]?.id ?? "");
   const [task, setTask] = React.useState("");
 
@@ -43,13 +50,13 @@ export function RunForm({
   const [implementerModel, setImplementerModel] = React.useState("");
   const [implementerEffort, setImplementerEffort] = React.useState("");
 
-  const [planner, setPlanner] = React.useState("");
-  const [plannerModel, setPlannerModel] = React.useState("");
-  const [plannerEffort, setPlannerEffort] = React.useState("");
+  const [planner, setPlanner] = React.useState(reviewDefaults.planner.provider);
+  const [plannerModel, setPlannerModel] = React.useState(reviewDefaults.planner.model);
+  const [plannerEffort, setPlannerEffort] = React.useState(reviewDefaults.planner.effort);
 
-  const [reviewer, setReviewer] = React.useState("");
-  const [reviewerModel, setReviewerModel] = React.useState("");
-  const [reviewerEffort, setReviewerEffort] = React.useState("");
+  const [reviewer, setReviewer] = React.useState(reviewDefaults.reviewer.provider);
+  const [reviewerModel, setReviewerModel] = React.useState(reviewDefaults.reviewer.model);
+  const [reviewerEffort, setReviewerEffort] = React.useState(reviewDefaults.reviewer.effort);
 
   const [checks, setChecks] = React.useState(checkSuggestions.join(", "));
   const [busy, setBusy] = React.useState(false);
@@ -135,11 +142,14 @@ export function RunForm({
     }
   }
 
-  const providerOptions = providers.map((p) => (
-    <option key={p.id} value={p.id}>
-      {p.label} ({p.note})
-    </option>
-  ));
+  const optionsFor = (list: ProviderOption[]) =>
+    list.map((p) => (
+      <option key={p.id} value={p.id}>
+        {p.label} ({p.note})
+      </option>
+    ));
+  const providerOptions = optionsFor(providers);
+  const implementerOptions = optionsFor(implementerChoices);
 
   return (
     <Card>
@@ -169,7 +179,7 @@ export function RunForm({
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Implementer">
               <Select value={implementer} onChange={handleImplementerChange} required>
-                {providerOptions}
+                {implementerOptions}
               </Select>
             </Field>
             <Field label="Model" hint="optional">
@@ -192,7 +202,7 @@ export function RunForm({
             <Field label="Effort" hint="optional">
               <Select value={implementerEffort} onChange={(e) => setImplementerEffort(e.target.value)}>
                 <option value="">Provider default</option>
-                {EFFORT_LEVELS.map((l) => (
+                {effortLevelsFor(implementer).map((l) => (
                   <option key={l} value={l}>
                     {l}
                   </option>
@@ -236,7 +246,7 @@ export function RunForm({
                 disabled={!planner}
               >
                 <option value="">Provider default</option>
-                {EFFORT_LEVELS.map((l) => (
+                {effortLevelsFor(planner).map((l) => (
                   <option key={l} value={l}>
                     {l}
                   </option>
@@ -281,7 +291,7 @@ export function RunForm({
                 disabled={!reviewer}
               >
                 <option value="">Provider default</option>
-                {EFFORT_LEVELS.map((l) => (
+                {effortLevelsFor(reviewer).map((l) => (
                   <option key={l} value={l}>
                     {l}
                   </option>

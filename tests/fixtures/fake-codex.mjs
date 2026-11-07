@@ -10,7 +10,7 @@
  *   - Refuses denylisted flags with exit code 3.
  *   - Unknown flags/commands exit with code 2.
  *   - Scenarios via FAKE_CODEX_SCENARIO (default "plan-valid"):
- *       plan-valid, review-approve, review-request-changes,
+ *       plan-valid, plan-scoped (scope = fake-output.txt), review-approve, review-request-changes,
  *       plan-malformed, review-malformed, review-missing,
  *       bad-effort, hang.
  *   - Writes only to the `-o` file; never touches the `-C` directory.
@@ -72,6 +72,28 @@ function checkRefusedFlags(args) {
       process.exit(3);
     }
   }
+}
+
+/**
+ * FAKE_CODEX_SCENARIO_SEQUENCE (comma-separated) + FAKE_CODEX_STATE_FILE: each
+ * `exec` call takes the next scenario, the last one repeats. Without both,
+ * FAKE_CODEX_SCENARIO (default "plan-valid") is used.
+ */
+function pickScenario() {
+  const seq = process.env.FAKE_CODEX_SCENARIO_SEQUENCE;
+  const stateFile = process.env.FAKE_CODEX_STATE_FILE;
+  if (seq && stateFile) {
+    const list = seq.split(",").map((s) => s.trim()).filter(Boolean);
+    let n = 0;
+    try {
+      n = Number.parseInt(fs.readFileSync(stateFile, "utf8"), 10) || 0;
+    } catch {
+      n = 0;
+    }
+    fs.writeFileSync(stateFile, String(n + 1));
+    if (list.length > 0) return list[Math.min(n, list.length - 1)];
+  }
+  return process.env.FAKE_CODEX_SCENARIO || "plan-valid";
 }
 
 function main() {
@@ -256,7 +278,7 @@ function main() {
   void ignoreUserConfig;
   void stdinPrompt;
 
-  const scenario = process.env.FAKE_CODEX_SCENARIO || "plan-valid";
+  const scenario = pickScenario();
 
   // 7. Effort check (applied in every scenario, not only bad-effort)
   const VALID_EFFORTS = new Set([
@@ -321,6 +343,18 @@ function main() {
           "Unit tests pass",
         ],
         checks: ["typecheck", "lint", "test:unit"],
+      },
+      null,
+      2,
+    );
+  } else if (scenario === "plan-scoped") {
+    // Scope matches the file the fake implementer agent writes (fake-output.txt).
+    resultText = JSON.stringify(
+      {
+        task: "do the thing",
+        scope_paths: ["fake-output.txt"],
+        acceptance: ["fake-output.txt exists"],
+        checks: ["lint"],
       },
       null,
       2,
