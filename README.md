@@ -206,6 +206,52 @@ To see a full run without a real agent, run `npm run agents:demo`. It uses a
 fake agent, a throwaway Git project and a temporary database, and cleans up
 afterwards.
 
+### Codex as planner and reviewer
+
+Install the Codex CLI and sign in once in your terminal:
+
+```bash
+npm install -g @openai/codex
+codex login
+```
+
+Check your connection with `codex login status`. The **Agents** page runs
+`codex --version` and `codex login status` to show whether Codex is installed
+and signed in. The app never reads `~/.codex`.
+
+When running as a planner or reviewer, the app runs Codex in a read-only sandbox
+in the run's worktree (`-s read-only -C <worktree>`), ignores your user config
+(`--ignore-user-config`), and checks the structured output file against a schema
+instead of parsing stdout prose. The app never grants full access:
+`--dangerously-bypass-approvals-and-sandbox`, `-s danger-full-access`,
+`--dangerously-bypass-hook-trust`, `--approve-for-me`, and `--ignore-rules` are
+refused. Valid reasoning effort values are `none`, `minimal`, `low`, `medium`,
+`high`, `xhigh`, and `max` (default `medium`). Codex cannot edit files in these
+roles, and it cannot be the implementer.
+
+Models offered: `gpt-6.1-sol` (default) and `gpt-6-luna`. When Codex is
+installed and signed in, the run form defaults the planner and reviewer to
+Codex `gpt-6.1-sol` with `medium` effort.
+
+### Role settings
+
+Each run has a planner, implementer, and reviewer, each with provider, model,
+and reasoning effort.
+
+The reviewer label reflects how independent the review is:
+- **Different provider** — a different provider reviews the implementer's work.
+- **Same provider, separate session** — same company's model in a fresh
+  session: a second look, but not fully independent.
+- **No independent review** — no reviewer is assigned.
+
+With a planner or reviewer set, a run goes plan → implement → checks → review,
+then up to 3 correction rounds. A blocking or major actionable finding, a failed
+required check, a change outside the plan scope or a comment you leave on the
+current round starts the next round. The run succeeds only when the reviewer
+approves, every required check passes and all changes are inside the plan
+scope; after round 3 it fails and lists what is still open. The run page has a
+round switcher, the plan, and findings grouped as blocking, major and minor.
+
 ## Commands
 
 | Command | Does |
