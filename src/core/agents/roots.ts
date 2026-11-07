@@ -160,6 +160,62 @@ export function checkRootAvailable(
     : { ok: false, reason: "root unavailable" };
 }
 
+export interface RootStatus {
+  path: string;
+  available: boolean;
+  drive: string;
+  fileSystem?: string;
+  warning?: string;
+}
+
+/**
+ * Inspect drive and filesystem status for a workspace or worktree root (design §5 and §9).
+ * Checks whether the drive/directory is available, identifies the drive root,
+ * and warns if filesystem is not NTFS on Windows (or APFS on macOS).
+ */
+export function inspectRootStatus(
+  rootPath: string,
+  deps: {
+    platform?: NodeJS.Platform;
+    checkAvailable?: typeof checkRootAvailable;
+    getFsType?: (p: string) => string | undefined;
+  } = {},
+): RootStatus {
+  const platform = deps.platform ?? process.platform;
+  const check = deps.checkAvailable ?? checkRootAvailable;
+  const pp = pathFor(platform);
+  const rootDir = pp.parse(rootPath).root || rootPath;
+  const avail = check(rootPath);
+
+  if (!avail.ok) {
+    return {
+      path: rootPath,
+      available: false,
+      drive: rootDir,
+      warning: "Root directory or drive is unavailable. Agent runs will refuse to start.",
+    };
+  }
+
+  // Only report a filesystem type a real probe supplied; never guess one.
+  const fsType = deps.getFsType?.(rootPath);
+
+  const warning = !fsType
+    ? undefined
+    : platform === "win32" && fsType !== "NTFS"
+      ? `Warning: Filesystem is ${fsType}, but NTFS is recommended for permissions and worktrees`
+      : platform === "darwin" && fsType !== "APFS"
+        ? `Warning: Filesystem is ${fsType}, but APFS is recommended`
+        : undefined;
+
+  return {
+    path: rootPath,
+    available: true,
+    drive: rootDir,
+    fileSystem: fsType,
+    warning,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
 /* ------------------------------------------------------------------ */

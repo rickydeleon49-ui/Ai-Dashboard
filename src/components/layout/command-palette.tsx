@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CornerDownLeft, Search } from "lucide-react";
-import { NAVIGATION } from "@/config/navigation";
+import { NAVIGATION, isNavItemVisible } from "@/config/navigation";
 import { QUICK_ACTIONS } from "@/config/quick-actions";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +28,15 @@ interface Command {
  * The project list is passed in from the server layout — small enough to filter
  * client-side, which keeps the palette instant.
  */
-export function CommandPalette({ projects }: { projects: PaletteProject[] }) {
+export function CommandPalette({
+  projects,
+  accountsMode = false,
+  agentRunsEnabled = false,
+}: {
+  projects: PaletteProject[];
+  accountsMode?: boolean;
+  agentRunsEnabled?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -38,13 +46,15 @@ export function CommandPalette({ projects }: { projects: PaletteProject[] }) {
 
   const commands = useMemo<Command[]>(() => {
     const nav: Command[] = NAVIGATION.flatMap((group) =>
-      group.items.map((item) => ({
-        id: `nav:${item.href}`,
-        label: item.label,
-        hint: group.label,
-        group: "Navigate",
-        href: item.href,
-      })),
+      group.items
+        .filter((item) => isNavItemVisible(item, { accountsMode, agentRunsEnabled }))
+        .map((item) => ({
+          id: `nav:${item.href}`,
+          label: item.label,
+          hint: group.label,
+          group: "Navigate",
+          href: item.href,
+        })),
     );
 
     const actions: Command[] = QUICK_ACTIONS.map((action) => ({
@@ -64,7 +74,7 @@ export function CommandPalette({ projects }: { projects: PaletteProject[] }) {
     }));
 
     return [...actions, ...projectCommands, ...nav];
-  }, [projects]);
+  }, [projects, accountsMode, agentRunsEnabled]);
 
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase();

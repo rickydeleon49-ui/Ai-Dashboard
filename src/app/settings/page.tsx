@@ -1,7 +1,9 @@
-import { Boxes, Cpu, Database, Download, Github, LogIn, Palette, Users } from "lucide-react";
+import Link from "next/link";
+import { Bot, Boxes, Cpu, Database, Download, Github, LogIn, Palette, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { buttonClasses } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { GitHubTokenForm } from "@/components/settings/github-token-form";
 import { GitHubConnect } from "@/components/settings/github-connect";
@@ -12,6 +14,7 @@ import { projectRepository } from "@/db/repositories";
 import { resolveDatabasePath, resolveUploadsDir } from "@/db/path";
 import { LocalAiSettings } from "@/components/settings/local-ai-settings";
 import { WorkspaceManager } from "@/components/settings/workspace-manager";
+import { isAgentRunsEnabled } from "@/core/agents/availability";
 import {
   CURRENT_WORKSPACE_COOKIE,
   resolveCurrentWorkspace,
@@ -95,6 +98,7 @@ async function shouldShowClaimOwnership(): Promise<boolean> {
 
 export default async function SettingsPage() {
   const accountsMode = isAccountsMode();
+  const agentRunsEnabled = isAgentRunsEnabled();
   const workspaceId = await resolveWorkspaceIdForPage();
   if (!workspaceId) {
     // Practically unreachable: proxy.ts already requires a session in
@@ -317,6 +321,30 @@ export default async function SettingsPage() {
             </CardBody>
           </Card>
         )}
+
+        {agentRunsEnabled ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <Bot className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+                Agent Workflow
+              </CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              <p className="text-[12px] leading-relaxed text-muted">
+                Configure workspace roots, isolated worktree roots, and inspect CLI provider readiness for autonomous agent runs.
+              </p>
+              <div>
+                <Link
+                  href="/settings/agents"
+                  className={buttonClasses("secondary", "sm")}
+                >
+                  Configure Agent Settings
+                </Link>
+              </div>
+            </CardBody>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>

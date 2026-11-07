@@ -2,17 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { APP_ICON, APP_NAME, NAVIGATION } from "@/config/navigation";
+import {
+  APP_ICON,
+  APP_NAME,
+  NAVIGATION,
+  isNavItemVisible,
+} from "@/config/navigation";
 import type { ProjectStats } from "@/core/projects/types";
 import { cn } from "@/lib/utils";
-
-const ACCOUNTS_ALLOWED_PREFIXES = ["/", "/projects", "/my-work", "/calendar", "/templates", "/favorites", "/settings"];
-
-function isItemAllowedInAccounts(href: string): boolean {
-  return ACCOUNTS_ALLOWED_PREFIXES.some(
-    (p) => href === p || (p !== "/" && href.startsWith(`${p}/`)),
-  );
-}
 
 /**
  * Primary navigation, rendered from `NAVIGATION`.
@@ -20,14 +17,17 @@ function isItemAllowedInAccounts(href: string): boolean {
  * Counts are passed down from the server layout so the sidebar stays a pure
  * presentational component with no data fetching of its own.
  * In accounts mode, hide counts or controls for domains that have not yet been ported.
+ * Agent features are desktop-only and visible only when agentRunsEnabled is true.
  */
 export function SidebarNav({
   stats,
   accountsMode = false,
+  agentRunsEnabled = false,
   onNavigate,
 }: {
   stats: ProjectStats;
   accountsMode?: boolean;
+  agentRunsEnabled?: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -35,9 +35,9 @@ export function SidebarNav({
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
       {NAVIGATION.map((group) => {
-        const items = accountsMode
-          ? group.items.filter((item) => isItemAllowedInAccounts(item.href))
-          : group.items;
+        const items = group.items.filter((item) =>
+          isNavItemVisible(item, { accountsMode, agentRunsEnabled }),
+        );
         if (items.length === 0) return null;
 
         return (
