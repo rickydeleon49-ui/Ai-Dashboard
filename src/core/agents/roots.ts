@@ -166,6 +166,15 @@ export interface RootStatus {
   drive: string;
   fileSystem?: string;
   warning?: string;
+  note?: string;
+}
+
+export interface InspectRootDeps {
+  platform?: NodeJS.Platform;
+  checkAvailable?: typeof checkRootAvailable;
+  getFsType?: (p: string) => string | undefined;
+  createdOnDemand?: boolean;
+  driveExists?: (p: string) => boolean;
 }
 
 /**
@@ -175,11 +184,7 @@ export interface RootStatus {
  */
 export function inspectRootStatus(
   rootPath: string,
-  deps: {
-    platform?: NodeJS.Platform;
-    checkAvailable?: typeof checkRootAvailable;
-    getFsType?: (p: string) => string | undefined;
-  } = {},
+  deps: InspectRootDeps = {},
 ): RootStatus {
   const platform = deps.platform ?? process.platform;
   const check = deps.checkAvailable ?? checkRootAvailable;
@@ -188,6 +193,25 @@ export function inspectRootStatus(
   const avail = check(rootPath);
 
   if (!avail.ok) {
+    const driveCheck =
+      deps.driveExists ??
+      ((p: string) => {
+        try {
+          return fs.existsSync(p);
+        } catch {
+          return false;
+        }
+      });
+
+    if (deps.createdOnDemand && driveCheck(rootDir)) {
+      return {
+        path: rootPath,
+        available: true,
+        drive: rootDir,
+        note: "Created on the first run.",
+      };
+    }
+
     return {
       path: rootPath,
       available: false,

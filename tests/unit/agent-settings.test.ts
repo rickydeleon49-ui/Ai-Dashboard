@@ -136,8 +136,8 @@ describe("Agent Settings (Release AW.1, AW1-12)", () => {
         storage: { workspaceRoots: string[]; worktreeRoot: string; runStore: string };
         statuses: {
           workspaceRoots: unknown[];
-          worktreeRoot: { available: boolean; drive: string };
-          runStore: { available: boolean; drive: string };
+          worktreeRoot: { available: boolean; drive: string; note?: string; warning?: string };
+          runStore: { available: boolean; drive: string; note?: string; warning?: string };
         };
         providers: Array<{ id: string; name: string; installed: boolean; models: string[] }>;
       };
@@ -151,6 +151,12 @@ describe("Agent Settings (Release AW.1, AW1-12)", () => {
       assert.ok(Array.isArray(data.statuses.workspaceRoots));
       assert.ok(data.statuses.worktreeRoot);
       assert.ok(data.statuses.runStore);
+      assert.equal(data.statuses.worktreeRoot.available, true);
+      assert.equal(data.statuses.worktreeRoot.note, "Created on the first run.");
+      assert.equal(data.statuses.worktreeRoot.warning, undefined);
+      assert.equal(data.statuses.runStore.available, true);
+      assert.equal(data.statuses.runStore.note, "Created on the first run.");
+      assert.equal(data.statuses.runStore.warning, undefined);
 
       assert.ok(Array.isArray(data.providers), "expected providers array");
       const claude = data.providers.find((p) => p.id === "claude-code");
@@ -390,6 +396,18 @@ describe("Agent Settings (Release AW.1, AW1-12)", () => {
       });
       assert.equal(status.available, true);
       assert.equal(status.fileSystem, "NTFS");
+      assert.equal(status.warning, undefined);
+    });
+
+    it("reports available: true and note when missing folder has existing drive and createdOnDemand is true", () => {
+      const status = inspectRootStatus("C:\\MissingWorktrees", {
+        platform: "win32",
+        createdOnDemand: true,
+        checkAvailable: () => ({ ok: false, reason: "root unavailable" }),
+        driveExists: () => true,
+      });
+      assert.equal(status.available, true);
+      assert.equal(status.note, "Created on the first run.");
       assert.equal(status.warning, undefined);
     });
   });

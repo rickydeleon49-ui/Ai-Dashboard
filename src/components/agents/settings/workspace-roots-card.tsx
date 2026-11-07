@@ -48,7 +48,7 @@ export function WorkspaceRootsCard({
       </CardHeader>
       <CardBody className="space-y-4">
         <p className="text-[12.5px] leading-relaxed text-muted">
-          Designated folders where projects live on this machine (e.g. <code className="font-mono text-fg">H:\Ai Repo clones</code>). Registering a project outside every workspace root is strictly refused to protect system folders.
+          Designated folders where projects live on this machine (e.g. <code className="font-mono text-fg">H:\Ai Repo clones</code>). Agent runs only start for projects inside a workspace root, which keeps agents away from system folders.
         </p>
 
         {/* Existing roots list */}

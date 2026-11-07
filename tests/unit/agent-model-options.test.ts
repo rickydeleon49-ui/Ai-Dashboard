@@ -90,14 +90,14 @@ describe("buildModelOptions", () => {
 
 describe("resolveProviderModels", () => {
   const providers = [
-    { id: "claude-code", models: ["claude-3-7-sonnet-20250219"] },
+    { id: "claude-code", models: ["claude-opus-5-5"] },
     { id: "fake", models: ["default", "success"] },
     { id: "custom" },
   ];
 
   it("returns models for the matching provider", () => {
     assert.deepEqual(resolveProviderModels("claude-code", providers), [
-      "claude-3-7-sonnet-20250219",
+      "claude-opus-5-5",
     ]);
     assert.deepEqual(resolveProviderModels("fake", providers), [
       "default",

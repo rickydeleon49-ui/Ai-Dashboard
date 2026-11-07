@@ -21,8 +21,12 @@ export async function GET(request: NextRequest) {
 
   const storage = await getAgentStorageSettings();
   const rootsStatus = storage.workspaceRoots.map((r) => inspectRootStatus(r));
-  const worktreeStatus = inspectRootStatus(storage.worktreeRoot);
-  const runStoreStatus = inspectRootStatus(storage.runStore);
+  const worktreeStatus = inspectRootStatus(storage.worktreeRoot, {
+    createdOnDemand: true,
+  });
+  const runStoreStatus = inspectRootStatus(storage.runStore, {
+    createdOnDemand: true,
+  });
   const providers = await getProviderProbes();
 
   return NextResponse.json({
@@ -104,8 +108,12 @@ export async function PATCH(request: NextRequest) {
 
   const storage = await getAgentStorageSettings();
   const rootsStatus = storage.workspaceRoots.map((r) => inspectRootStatus(r));
-  const worktreeStatus = inspectRootStatus(storage.worktreeRoot);
-  const runStoreStatus = inspectRootStatus(storage.runStore);
+  const worktreeStatus = inspectRootStatus(storage.worktreeRoot, {
+    createdOnDemand: true,
+  });
+  const runStoreStatus = inspectRootStatus(storage.runStore, {
+    createdOnDemand: true,
+  });
   const providers = await getProviderProbes();
 
   return NextResponse.json({
