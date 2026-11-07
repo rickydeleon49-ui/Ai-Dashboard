@@ -80,17 +80,46 @@ export function Field({
   children: React.ReactNode;
   className?: string;
 }) {
+  const uid = React.useId();
+  const labelId = `${uid}-label`;
+  const noteId = `${uid}-note`;
+  const note = error || help;
+  const only = React.Children.count(children) === 1 && React.isValidElement(children) && children.type !== React.Fragment
+    ? (children as React.ReactElement<{ id?: string; "aria-describedby"?: string }>)
+    : null;
+  const controlId = only ? (only.props.id ?? `${uid}-control`) : undefined;
+  const control = only
+    ? React.cloneElement(only, {
+        id: controlId,
+        ...(note
+          ? { "aria-describedby": [only.props["aria-describedby"], noteId].filter(Boolean).join(" ") }
+          : {}),
+      })
+    : (
+        <div role="group" aria-labelledby={labelId}>
+          {children}
+        </div>
+      );
+  const labelClass = "text-[12px] font-medium text-muted";
   return (
     <div className={cn("space-y-1.5", className)}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[12px] font-medium text-muted">{label}</span>
+        {only ? (
+          <label htmlFor={controlId} className={labelClass}>
+            {label}
+          </label>
+        ) : (
+          <span id={labelId} className={labelClass}>
+            {label}
+          </span>
+        )}
         {hint ? <span className="text-[11px] text-faint">{hint}</span> : null}
       </div>
-      {children}
+      {control}
       {error ? (
-        <p className="text-[11px] text-red-400">{error}</p>
+        <p id={noteId} className="text-[11px] text-red-400">{error}</p>
       ) : help ? (
-        <p className="text-[11px] text-faint">{help}</p>
+        <p id={noteId} className="text-[11px] text-faint">{help}</p>
       ) : null}
     </div>
   );

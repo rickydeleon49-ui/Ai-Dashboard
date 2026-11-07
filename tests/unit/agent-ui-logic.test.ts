@@ -133,11 +133,60 @@ describe("derived views", () => {
       ev(2, "system", "stage_finished", {}, "inspect"),
       ev(3, "system", "status_changed", { status: "implementing" }, "implement"),
     ];
-    const t = Object.fromEntries(deriveTimeline(events).map((x) => [x.stage, x.state]));
+    const t = Object.fromEntries(deriveTimeline(events, false).map((x) => [x.stage, x.state]));
     assert.equal(t.inspect, "done");
-    assert.equal(t.plan, "done");
+    assert.equal(t.plan, "skipped");
     assert.equal(t.implement, "running");
     assert.equal(t.checks, "pending");
+  });
+
+  it("marks unused stages skipped once the run is terminal", () => {
+    const stages = ["inspect", "implement", "checks", "diff", "review", "final"];
+    const events = stages.map((st, i) => ev(i + 1, "system", "stage_started", {}, st));
+    const t = Object.fromEntries(deriveTimeline(events, true).map((x) => [x.stage, x.state]));
+    assert.equal(t.plan, "skipped");
+    assert.equal(t.correct, "skipped");
+    assert.equal(t.inspect, "done");
+    assert.equal(t.review, "done");
+    assert.equal(t.final, "done");
+  });
+
+  it("keeps a running run's later stages pending", () => {
+    const events = [ev(1, "system", "stage_started", {}, "inspect"), ev(2, "system", "stage_started", {}, "implement")];
+    const t = Object.fromEntries(deriveTimeline(events, false).map((x) => [x.stage, x.state]));
+    assert.equal(t.implement, "running");
+    assert.equal(t.final, "pending");
+    assert.equal(t.review, "pending");
+  });
+
+  it("failed run stopped at implement: later stages skipped, final done", () => {
+    const events = [ev(1, "system", "stage_started", {}, "inspect"), ev(2, "system", "stage_started", {}, "implement")];
+    const t = Object.fromEntries(deriveTimeline(events, true).map((x) => [x.stage, x.state]));
+    assert.equal(t.implement, "done");
+    assert.equal(t.checks, "skipped");
+    assert.equal(t.review, "skipped");
+    assert.equal(t.final, "done");
+  });
+
+  it("prints the implementer's final message once", () => {
+    const events = [
+      ev(1, "implementer", "output", { text: "All done." }),
+      ev(2, "implementer", "output", { final: true, subtype: "success", text: "All done." }),
+    ];
+    const lines = eventsToPlainText(events).split(String.fromCharCode(10));
+    assert.equal(lines.filter((l) => l.includes("All done.")).length, 1);
+    assert.equal(eventsToTerminalText(events).split("All done.").length - 1, 1);
+  });
+
+  it("still prints a differing or first-and-only final text", () => {
+    const differing = [
+      ev(1, "implementer", "output", { text: "Working." }),
+      ev(2, "implementer", "output", { final: true, text: "Summary." }),
+    ];
+    const out = eventsToPlainText(differing);
+    assert.ok(out.includes("Working.") && out.includes("Summary."));
+    const only = [ev(1, "implementer", "output", { final: true, text: "Summary." })];
+    assert.ok(eventsToPlainText(only).includes("Summary."));
   });
 
   it("derives status, checks and diff", () => {
