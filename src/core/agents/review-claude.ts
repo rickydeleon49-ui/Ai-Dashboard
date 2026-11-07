@@ -96,10 +96,10 @@ export function buildReviewPrompt(input: ReviewInput): string {
   ].join("\n");
 }
 
-function parseVerdictObject(text: string): unknown | undefined {
+function parseKeyedObject(text: string, key: string): unknown | undefined {
   try {
     const value: unknown = JSON.parse(text);
-    if (value && typeof value === "object" && !Array.isArray(value) && "verdict" in value) return value;
+    if (value && typeof value === "object" && !Array.isArray(value) && key in value) return value;
   } catch {
     // Not JSON.
   }
@@ -134,18 +134,18 @@ function balancedEnd(text: string, start: number): number {
  * top-level object that parses AND has a verdict key (so inline braces or
  * unrelated JSON in the prose are skipped).
  */
-export function extractJsonObject(text: string): unknown {
+export function extractJsonObject(text: string, key = "verdict"): unknown {
   for (const match of text.matchAll(/```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi)) {
-    const found = parseVerdictObject((match[1] ?? "").trim());
+    const found = parseKeyedObject((match[1] ?? "").trim(), key);
     if (found !== undefined) return found;
   }
   for (let i = text.indexOf("{"); i !== -1; i = text.indexOf("{", i + 1)) {
     const end = balancedEnd(text, i);
     if (end === -1) continue;
-    const found = parseVerdictObject(text.slice(i, end + 1));
+    const found = parseKeyedObject(text.slice(i, end + 1), key);
     if (found !== undefined) return found;
   }
-  throw new Error("no JSON object with a verdict in the reviewer reply");
+  throw new Error(`no JSON object with a "${key}" key in the agent reply`);
 }
 
 function makeDefaultRunCli(timeoutMs: number): ClaudeCliRunner {
@@ -189,10 +189,17 @@ function makeDefaultRunCli(timeoutMs: number): ClaudeCliRunner {
   };
 }
 
-export async function reviewWithClaude(
-  input: ReviewInput,
+/**
+ * One read-only `claude -p` call with a ready-made prompt; returns the first JSON
+ * object in the reply that has `key`. Used by the AW.2 planner and reviewer roles.
+ * Never throws: a failure comes back as { error }.
+ */
+export async function claudeReadOnlyJson(
+  prompt: string,
+  workspacePath: string,
   signal: AbortSignal,
-  deps: ReviewDeps = {},
+  deps: ReviewDeps & { model?: string; effort?: string },
+  key: string,
 ): Promise<unknown> {
   try {
     if (!deps.grantDir) throw new Error("no review grant directory configured");
@@ -220,13 +227,15 @@ export async function reviewWithClaude(
         "--settings",
         grantFile,
         "--add-dir",
-        input.workspacePath,
+        workspacePath,
         "--no-session-persistence",
         "--strict-mcp-config",
+        ...(deps.model ? ["--model", deps.model] : []),
+        ...(deps.effort ? ["--effort", deps.effort] : []),
       ],
-      cwd: input.workspacePath,
+      cwd: workspacePath,
       env: buildClaudeEnv(deps.baseEnv ?? process.env),
-      stdin: buildReviewPrompt(input),
+      stdin: prompt,
     };
     const run = deps.runCli ?? makeDefaultRunCli(deps.timeoutMs ?? 10 * 60 * 1000);
     const stdout = await run(call, signal);
@@ -239,8 +248,16 @@ export async function reviewWithClaude(
     }
     const result = (envelope as { result?: unknown } | null)?.result;
     if (typeof result !== "string") throw new Error("the claude CLI envelope has no result text");
-    return extractJsonObject(result);
+    return extractJsonObject(result, key);
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+export async function reviewWithClaude(
+  input: ReviewInput,
+  signal: AbortSignal,
+  deps: ReviewDeps = {},
+): Promise<unknown> {
+  return claudeReadOnlyJson(buildReviewPrompt(input), input.workspacePath, signal, deps, "verdict");
 }
