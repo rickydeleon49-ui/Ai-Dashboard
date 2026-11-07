@@ -19,6 +19,7 @@ export function AppShell({
   paletteProjects,
   unreadNotifications,
   accountsMode = false,
+  agentRunsEnabled = false,
   inboxWorkspaceId = null,
   children,
 }: {
@@ -26,6 +27,7 @@ export function AppShell({
   paletteProjects: PaletteProject[];
   unreadNotifications: number;
   accountsMode?: boolean;
+  agentRunsEnabled?: boolean;
   /** Accounts mode: the active workspace whose collaboration inbox the header shows. */
   inboxWorkspaceId?: string | null;
   children: React.ReactNode;
@@ -37,7 +39,11 @@ export function AppShell({
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--sidebar-width)] flex-col border-r border-line bg-[var(--bg-elevated)] lg:flex">
         <SidebarBrand />
-        <SidebarNav stats={stats} accountsMode={accountsMode} />
+        <SidebarNav
+          stats={stats}
+          accountsMode={accountsMode}
+          agentRunsEnabled={agentRunsEnabled}
+        />
         <div className="border-t border-line px-3 py-3">
           <ThemeToggle />
         </div>
@@ -69,6 +75,7 @@ export function AppShell({
             <SidebarNav
               stats={stats}
               accountsMode={accountsMode}
+              agentRunsEnabled={agentRunsEnabled}
               onNavigate={() => setDrawerOpen(false)}
             />
             <div className="border-t border-line px-3 py-3">
@@ -90,7 +97,11 @@ export function AppShell({
           </button>
 
           <div className="flex min-w-0 flex-1 justify-start">
-            <CommandPalette projects={paletteProjects} />
+            <CommandPalette
+              projects={paletteProjects}
+              accountsMode={accountsMode}
+              agentRunsEnabled={agentRunsEnabled}
+            />
           </div>
 
           {accountsMode ? (

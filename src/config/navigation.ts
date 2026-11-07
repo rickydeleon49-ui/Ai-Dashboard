@@ -71,6 +71,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "AI",
     items: [
+      { label: "Agents", href: "/agents", icon: Bot, phase: 1 },
       { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
       { label: "Local AI", href: "/ai/chat", icon: Cpu, phase: 1 },
       { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
@@ -91,6 +92,45 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
 ];
+
+export const ACCOUNTS_ALLOWED_PREFIXES = [
+  "/",
+  "/projects",
+  "/my-work",
+  "/calendar",
+  "/templates",
+  "/favorites",
+  "/settings",
+];
+
+export function isItemAllowedInAccounts(href: string): boolean {
+  return ACCOUNTS_ALLOWED_PREFIXES.some(
+    (p) => href === p || (p !== "/" && href.startsWith(`${p}/`)),
+  );
+}
+
+export function isNavItemVisible(
+  item: NavItem,
+  options: { accountsMode?: boolean; agentRunsEnabled?: boolean } = {},
+): boolean {
+  if (options.accountsMode && !isItemAllowedInAccounts(item.href)) {
+    return false;
+  }
+  if (item.href === "/agents" || item.href.startsWith("/agents/")) {
+    // Desktop-only; the server layout computes the flag and passes it down. Hidden unless told otherwise.
+    return options.agentRunsEnabled === true;
+  }
+  return true;
+}
+
+export function getVisibleNavigation(
+  options: { accountsMode?: boolean; agentRunsEnabled?: boolean } = {},
+): NavGroup[] {
+  return NAVIGATION.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => isNavItemVisible(item, options)),
+  })).filter((group) => group.items.length > 0);
+}
 
 export const APP_ICON: Icon = Boxes;
 export const APP_NAME = "Command Center";
