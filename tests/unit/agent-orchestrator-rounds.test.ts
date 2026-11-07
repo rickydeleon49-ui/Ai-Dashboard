@@ -307,13 +307,23 @@ describe("runAgentRun rounds (AW2-04)", () => {
     assert.equal(env.calls.spawns.length, 1);
   });
 
-  it("approve with a path outside the plan scope fails", T, async () => {
+  it("an out-of-scope path starts a correction round; reverting it succeeds", T, async () => {
+    let diffs = 0;
+    const env = makeEnv({
+      diff: () => (diffs++ === 0 ? diffOf(file("fake-output.txt"), file("src/other.ts")) : diffOf(file("fake-output.txt"))),
+    });
+    const out = await run(env);
+    assert.equal(out.status, "succeeded");
+    assert.equal(env.calls.spawns.length, 2);
+  });
+
+  it("a path that stays outside the plan scope fails after the last round", T, async () => {
     const env = makeEnv({ diff: () => diffOf(file("fake-output.txt"), file("src/other.ts")) });
     const out = await run(env);
     assert.equal(out.status, "failed");
     assert.deepEqual(out.facts.outOfScope, ["src/other.ts"]);
     assert.match(out.missing.join("|"), /outside the plan scope: src\/other\.ts/);
-    assert.equal(env.calls.spawns.length, 1);
+    assert.equal(env.calls.spawns.length, 4);
   });
 
   it("approve with an empty diff fails and the reviewer is not asked", T, async () => {

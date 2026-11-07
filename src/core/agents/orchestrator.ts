@@ -700,7 +700,9 @@ export async function runAgentRun(
       const triggers = review.findings.filter(triggersCorrection);
       const comments = await listComments(db, runId, round);
       const outOfScope = facts.outOfScope ?? [];
-      const needsCorrection = triggers.length > 0 || failedChecks.length > 0 || comments.length > 0;
+      // An out-of-scope change is fixable (revert it), so it starts a round too.
+      const needsCorrection =
+        triggers.length > 0 || failedChecks.length > 0 || comments.length > 0 || outOfScope.length > 0;
 
       if (needsCorrection && round < MAX_ROUNDS) {
         round += 1;
