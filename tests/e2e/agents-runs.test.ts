@@ -16,7 +16,14 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import Database from "better-sqlite3";
 import type { Page } from "playwright";
-import { baseURL, e2eDatabasePath, newPage, pageErrors, start, stop } from "./helpers";
+import {
+  baseURL,
+  e2eDatabasePath,
+  newPage,
+  pageErrors,
+  start,
+  stop,
+} from "./helpers";
 
 let seedPage: Page;
 let projectId = "";
@@ -26,18 +33,40 @@ const LEGACY_ID = "run_e2e_legacy";
 const MULTI_TASK = "Add a retry wrapper to the sync client";
 const LEGACY_TASK = "Fix the legacy date parser";
 
-type Seed = { agent: string; kind: string; stage: string | null; payload: unknown };
+type Seed = {
+  agent: string;
+  kind: string;
+  stage: string | null;
+  payload: unknown;
+};
 
-function seedRun(db: Database.Database, id: string, task: string, events: Seed[]): void {
-  const request = { projectId, task, checks: [], roles: { implementer: { provider: "claude-code" } } };
+function seedRun(
+  db: Database.Database,
+  id: string,
+  task: string,
+  events: Seed[],
+): void {
+  const request = {
+    projectId,
+    task,
+    checks: [],
+    roles: { implementer: { provider: "claude-code" } },
+  };
   db.prepare(
     `INSERT INTO agent_run (id, project_id, status, stage, request, outcome, ended_at)
      VALUES (?, ?, 'succeeded', 'final', ?, ?, datetime('now'))`,
-  ).run(id, projectId, JSON.stringify(request), JSON.stringify({ status: "succeeded" }));
+  ).run(
+    id,
+    projectId,
+    JSON.stringify(request),
+    JSON.stringify({ status: "succeeded" }),
+  );
   const insert = db.prepare(
     "INSERT INTO agent_run_event (run_id, seq, stage, agent, kind, payload) VALUES (?, ?, ?, ?, ?, ?)",
   );
-  events.forEach((e, i) => insert.run(id, i + 1, e.stage, e.agent, e.kind, JSON.stringify(e.payload)));
+  events.forEach((e, i) =>
+    insert.run(id, i + 1, e.stage, e.agent, e.kind, JSON.stringify(e.payload)),
+  );
 }
 
 const diffEvent = (path: string, round?: number): Seed => ({
@@ -45,7 +74,17 @@ const diffEvent = (path: string, round?: number): Seed => ({
   kind: "diff_summary",
   stage: "diff",
   payload: {
-    files: [{ path, status: "modified", additions: 3, deletions: 1, binary: false, outOfScope: false, excluded: false }],
+    files: [
+      {
+        path,
+        status: "modified",
+        additions: 3,
+        deletions: 1,
+        binary: false,
+        outOfScope: false,
+        excluded: false,
+      },
+    ],
     totals: { files: 1, additions: 3, deletions: 1 },
     ...(round === undefined ? {} : { round }),
   },
@@ -69,14 +108,22 @@ before(async () => {
   await start();
   seedPage = await newPage();
   const res = await seedPage.request.post(`${baseURL}/api/projects`, {
-    data: { source: "manual", type: "software", status: "active", name: "Agent e2e project" },
+    data: {
+      source: "manual",
+      type: "software",
+      status: "active",
+      name: "Agent e2e project",
+    },
   });
   assert.equal(res.status(), 201, await res.text());
   projectId = ((await res.json()) as { project: { id: string } }).project.id;
 
   const db = new Database(e2eDatabasePath());
   try {
-    db.prepare("UPDATE projects SET local_path = ? WHERE id = ?").run(process.cwd(), projectId);
+    db.prepare("UPDATE projects SET local_path = ? WHERE id = ?").run(
+      process.cwd(),
+      projectId,
+    );
     seedRun(db, MULTI_ID, MULTI_TASK, [
       {
         agent: "planner",
@@ -103,8 +150,20 @@ before(async () => {
           verdict: "request_changes",
           summary: "One blocking issue",
           findings: [
-            { severity: "P1", path: "src/sync/client.ts", line: 10, message: "Retry loop never backs off", actionable: true },
-            { severity: "P3", path: "src/sync/client.ts", line: 40, message: "Rename the helper", actionable: false },
+            {
+              severity: "P1",
+              path: "src/sync/client.ts",
+              line: 10,
+              message: "Retry loop never backs off",
+              actionable: true,
+            },
+            {
+              severity: "P3",
+              path: "src/sync/client.ts",
+              line: 40,
+              message: "Rename the helper",
+              actionable: false,
+            },
           ],
           round: 0,
         },
@@ -115,7 +174,12 @@ before(async () => {
         agent: "reviewer",
         kind: "review",
         stage: "review",
-        payload: { verdict: "approve", summary: "Looks good", findings: [], round: 1 },
+        payload: {
+          verdict: "approve",
+          summary: "Looks good",
+          findings: [],
+          round: 1,
+        },
       },
     ]);
     seedRun(db, LEGACY_ID, LEGACY_TASK, [
@@ -128,7 +192,15 @@ before(async () => {
         payload: {
           verdict: "request_changes",
           summary: "s",
-          findings: [{ severity: "P2", path: "src/legacy/date.ts", line: 3, message: "Handle empty input", actionable: true }],
+          findings: [
+            {
+              severity: "P2",
+              path: "src/legacy/date.ts",
+              line: 3,
+              message: "Handle empty input",
+              actionable: true,
+            },
+          ],
         },
       },
     ]);
@@ -148,7 +220,11 @@ describe("agent pages (real browser)", () => {
     const round1 = p.getByRole("button", { name: "Round 1", exact: true });
     await round1.waitFor();
     await initial.waitFor();
-    assert.equal(await round1.getAttribute("aria-pressed"), "true", "defaults to the latest round");
+    assert.equal(
+      await round1.getAttribute("aria-pressed"),
+      "true",
+      "defaults to the latest round",
+    );
     assert.equal(await initial.getAttribute("aria-pressed"), "false");
 
     // Plan card.
@@ -159,20 +235,44 @@ describe("agent pages (real browser)", () => {
     // Round 1: approve, add form present.
     await p.getByText("No findings.").waitFor();
     await p.getByLabel("Comment", { exact: true }).waitFor();
-    assert.equal(await p.getByText("Comments are picked up for the latest round only").count(), 0);
+    assert.equal(
+      await p
+        .getByText("Comments are picked up for the latest round only")
+        .count(),
+      0,
+    );
 
     // Initial: grouped findings, read-only comments.
     await initial.click();
     assert.equal(await initial.getAttribute("aria-pressed"), "true");
-    const blocking = p.getByRole("heading", { level: 3 }).filter({ hasText: "blocking" });
-    const minor = p.getByRole("heading", { level: 3 }).filter({ hasText: "minor" });
+    const blocking = p
+      .getByRole("heading", { level: 3 })
+      .filter({ hasText: "blocking" });
+    const minor = p
+      .getByRole("heading", { level: 3 })
+      .filter({ hasText: "minor" });
     await blocking.waitFor();
     assert.match((await blocking.textContent()) ?? "", /blocking\s*1/i);
     assert.match((await minor.textContent()) ?? "", /minor\s*1/i);
-    await p.getByRole("listitem").filter({ hasText: "Retry loop never backs off" }).waitFor();
-    assert.equal(await p.getByText("actionable", { exact: true }).count(), 1, "only the P1 is actionable");
-    await p.getByText("Comments are picked up for the latest round only. Switch to Round 1 to add one.").waitFor();
-    assert.equal(await p.getByLabel("Comment", { exact: true }).count(), 0, "no add form on an older round");
+    await p
+      .getByRole("listitem")
+      .filter({ hasText: "Retry loop never backs off" })
+      .waitFor();
+    assert.equal(
+      await p.getByText("actionable", { exact: true }).count(),
+      1,
+      "only the P1 is actionable",
+    );
+    await p
+      .getByText(
+        "Comments are picked up for the latest round only. Switch to Round 1 to add one.",
+      )
+      .waitFor();
+    assert.equal(
+      await p.getByLabel("Comment", { exact: true }).count(),
+      0,
+      "no add form on an older round",
+    );
 
     // Back to Round 1: form returns.
     await round1.click();
@@ -183,13 +283,24 @@ describe("agent pages (real browser)", () => {
 
   it("legacy run: no round switcher; diff and review render", async () => {
     const p = await newPage();
-    await p.goto(`/agents/runs/${LEGACY_ID}`, { waitUntil: "domcontentloaded" });
-    await p.getByRole("listitem").filter({ hasText: "Handle empty input" }).waitFor();
+    await p.goto(`/agents/runs/${LEGACY_ID}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await p
+      .getByRole("listitem")
+      .filter({ hasText: "Handle empty input" })
+      .waitFor();
     await p.getByText("src/legacy/date.ts").first().waitFor();
     assert.equal(await p.getByRole("group", { name: "Round" }).count(), 0);
-    assert.equal(await p.getByRole("button", { name: "Initial", exact: true }).count(), 0);
+    assert.equal(
+      await p.getByRole("button", { name: "Initial", exact: true }).count(),
+      0,
+    );
     assert.equal(await p.getByRole("heading", { name: "Plan" }).count(), 0);
-    await p.getByRole("heading", { level: 3 }).filter({ hasText: "major" }).waitFor();
+    await p
+      .getByRole("heading", { level: 3 })
+      .filter({ hasText: "major" })
+      .waitFor();
     assert.deepEqual(pageErrors(p), []);
     await p.context().close();
   });
@@ -199,7 +310,10 @@ describe("agent pages (real browser)", () => {
     await p.goto("/agents", { waitUntil: "domcontentloaded" });
     await p.getByRole("heading", { name: "Agents" }).waitFor();
     // Not asserting installed or signed in: that depends on the machine.
-    await p.getByRole("option", { name: /Codex/ }).first().waitFor({ state: "attached" });
+    await p
+      .getByRole("option", { name: /Codex/ })
+      .first()
+      .waitFor({ state: "attached" });
     await p.getByRole("link", { name: MULTI_TASK }).waitFor();
     await p.getByRole("link", { name: LEGACY_TASK }).waitFor();
     assert.deepEqual(pageErrors(p), []);
@@ -209,15 +323,21 @@ describe("agent pages (real browser)", () => {
   it("run form: the implementer select does not offer Codex", async () => {
     const p = await newPage();
     await p.goto("/agents", { waitUntil: "domcontentloaded" });
-    // Field labels are plain spans (not <label for>), so find the select next to the text.
-    const implementer = p.locator(
-      "xpath=//span[normalize-space()='Implementer']/parent::div/following-sibling::select",
-    );
+    const implementer = p.getByRole("combobox", {
+      name: "Implementer",
+      exact: true,
+    });
     await implementer.waitFor();
     const labels = await implementer.locator("option").allTextContents();
     assert.ok(labels.length > 0, "implementer select has options");
-    assert.ok(labels.some((l) => /Claude/i.test(l)), `offers Claude: ${labels.join(" | ")}`);
-    assert.ok(!labels.some((l) => /Codex/i.test(l)), `must not offer Codex: ${labels.join(" | ")}`);
+    assert.ok(
+      labels.some((l) => /Claude/i.test(l)),
+      `offers Claude: ${labels.join(" | ")}`,
+    );
+    assert.ok(
+      !labels.some((l) => /Codex/i.test(l)),
+      `must not offer Codex: ${labels.join(" | ")}`,
+    );
     await p.context().close();
   });
 });
