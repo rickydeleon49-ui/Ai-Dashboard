@@ -205,6 +205,29 @@ function stripControls(s: string): string {
  * inject sequences; only our own colour codes wrap each line.
  */
 export function eventTerminalLines(event: UiEvent): string[] {
+  return terminalLinesOf(event);
+}
+
+/**
+ * The Claude Code adapter emits the implementer's last message as an assistant
+ * text and again in the final result event. Drop the repeated text from the
+ * final event (stored events are untouched); keep it when it differs.
+ */
+function dedupeFinalOutput(events: UiEvent[]): UiEvent[] {
+  const lastText = new Map<string, string>();
+  return events.map((e) => {
+    if (e.kind !== "output") return e;
+    const p = obj(e.payload);
+    const text = typeof e.payload === "string" ? e.payload : str(p.text);
+    if (p.final === true && text && lastText.get(e.agent) === text.trim()) {
+      return { ...e, payload: { ...p, text: "" } };
+    }
+    if (p.final !== true && text) lastText.set(e.agent, text.trim());
+    return e;
+  });
+}
+
+function terminalLinesOf(event: UiEvent): string[] {
   const colour = colourFor(event);
   return eventPlainLines(event).map((line) => {
     const clean = stripControls(line);
@@ -214,24 +237,31 @@ export function eventTerminalLines(event: UiEvent): string[] {
 
 /** Terminal text for a list of events, CRLF-terminated (xterm needs \r\n). */
 export function eventsToTerminalText(events: UiEvent[]): string {
-  return events
-    .flatMap(eventTerminalLines)
+  return dedupeFinalOutput(events)
+    .flatMap(terminalLinesOf)
     .map((l) => `${l}\r\n`)
     .join("");
 }
 
 /** Plain text for the accessible log / copy button, bounded to the last lines. */
 export function eventsToPlainText(events: UiEvent[], maxLines = MAX_FALLBACK_LINES): string {
-  const lines = events.flatMap(eventPlainLines).map(stripControls);
+  const lines = dedupeFinalOutput(events).flatMap(eventPlainLines).map(stripControls);
   const kept = lines.length > maxLines ? lines.slice(lines.length - maxLines) : lines;
   return kept.join("\n");
 }
 
 /* ------------------------- derived views ------------------------- */
 
-export type StageState = "pending" | "running" | "done";
+export type StageState = "pending" | "running" | "done" | "skipped";
 
-export function deriveTimeline(events: UiEvent[]): Array<{ stage: string; state: StageState }> {
+/**
+ * Stage chips. `terminal` = the run has a terminal status: `final` is then done,
+ * and any other stage without events of its own was skipped.
+ */
+export function deriveTimeline(
+  events: UiEvent[],
+  terminal: boolean,
+): Array<{ stage: string; state: StageState }> {
   const started = new Set<string>();
   const finished = new Set<string>();
   for (const e of events) {
@@ -239,15 +269,22 @@ export function deriveTimeline(events: UiEvent[]): Array<{ stage: string; state:
     if (e.kind === "stage_finished") finished.add(e.stage);
     else started.add(e.stage);
   }
-  // Any stage before a later started stage has been passed.
+  const hasEvents = (s: string) => started.has(s) || finished.has(s);
   let lastStarted = -1;
   RUN_STAGES.forEach((s, i) => {
-    if (started.has(s) || finished.has(s)) lastStarted = i;
+    if (hasEvents(s)) lastStarted = i;
   });
   return RUN_STAGES.map((stage, i) => {
-    if (finished.has(stage) || i < lastStarted) return { stage, state: "done" as const };
-    if (started.has(stage)) return { stage, state: "running" as const };
-    return { stage, state: "pending" as const };
+    if (terminal) {
+      if (stage === "final") return { stage, state: "done" as const };
+      return { stage, state: hasEvents(stage) ? ("done" as const) : ("skipped" as const) };
+    }
+    if (finished.has(stage)) return { stage, state: "done" as const };
+    if (started.has(stage)) {
+      return { stage, state: i < lastStarted ? ("done" as const) : ("running" as const) };
+    }
+    // No events of its own: passed over if a later stage already started.
+    return { stage, state: i < lastStarted ? ("skipped" as const) : ("pending" as const) };
   });
 }
 

@@ -168,7 +168,7 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
 
   const visible = React.useMemo(() => filterByAgent(stream.events, filter), [stream.events, filter]);
   const plain = React.useMemo(() => eventsToPlainText(visible), [visible]);
-  const timeline = React.useMemo(() => deriveTimeline(stream.events), [stream.events]);
+  const timeline = React.useMemo(() => deriveTimeline(stream.events, terminal), [stream.events, terminal]);
   const checks = React.useMemo(() => deriveChecks(stream.events), [stream.events]);
   const diff = React.useMemo(() => deriveDiff(stream.events), [stream.events]);
   const diffPatch = React.useMemo(() => deriveDiffPatch(stream.events), [stream.events]);
