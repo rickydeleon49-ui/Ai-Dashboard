@@ -109,6 +109,7 @@ describe("agent types and constants", () => {
       "tool_result",
       "check_result",
       "diff_summary",
+      "diff_patch",
       "review",
       "status_changed",
       "error",

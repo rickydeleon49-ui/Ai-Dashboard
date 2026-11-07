@@ -41,7 +41,7 @@ import {
 } from "@/core/agents/roots";
 import { runPolicyCheck } from "@/core/agents/run-check";
 import { TERMINAL_STATUSES } from "@/core/agents/types";
-import { commitStage, createRunWorktree, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
+import { commitStage, createRunWorktree, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
 
 export const POLL_INTERVAL_MS = 500;
 export const SHUTDOWN_WAIT_MS = 15_000;
@@ -403,6 +403,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
         create: createRunWorktree,
         commit: commitStage,
         diff: diffSummary,
+        patch: diffPatch,
         pathFor: worktreePathFor,
         shortId: shortRunId,
       },

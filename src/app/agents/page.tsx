@@ -15,19 +15,39 @@ import { listRuns } from "@/core/agents/runs";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
 import { fakeAdapter } from "@/core/agents/adapters/fake";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
+import { CLAUDE_CODE_MODELS, FAKE_AGENT_MODELS } from "@/core/agents/provider-probes";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agents" };
 
+function getAdapterModels(adapterId: string): string[] | undefined {
+  if (adapterId === claudeAdapter.id) return CLAUDE_CODE_MODELS;
+  if (adapterId === fakeAdapter.id) return FAKE_AGENT_MODELS;
+  return undefined;
+}
+
 async function describeProvider(adapter: AgentAdapter): Promise<ProviderOption> {
+  const models = getAdapterModels(adapter.id);
   try {
     const probe = await adapter.probe();
     const note = !probe.installed
       ? "not installed"
       : `installed${probe.version ? ` ${probe.version}` : ""}${probe.authenticated === false ? ", not signed in" : ""}`;
-    return { id: adapter.id, label: adapter.displayName, note, usable: probe.installed && probe.authenticated !== false };
+    return {
+      id: adapter.id,
+      label: adapter.displayName,
+      note,
+      usable: probe.installed && probe.authenticated !== false,
+      models,
+    };
   } catch {
-    return { id: adapter.id, label: adapter.displayName, note: "probe failed", usable: false };
+    return {
+      id: adapter.id,
+      label: adapter.displayName,
+      note: "probe failed",
+      usable: false,
+      models,
+    };
   }
 }
 

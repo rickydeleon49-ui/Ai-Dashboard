@@ -11,6 +11,7 @@ import {
   acceptEvent,
   deriveChecks,
   deriveDiff,
+  deriveDiffPatch,
   deriveReview,
   deriveStatus,
   deriveTimeline,
@@ -21,8 +22,12 @@ import {
   filterByAgent,
   parseEventData,
   parseOutcome,
+  patchLines,
   verdictFacts,
   type AgentFilter,
+  type DiffFileView,
+  type DiffPatchFileView,
+  type PatchLineKind,
   type StreamState,
 } from "./logic";
 
@@ -32,6 +37,52 @@ const TerminalView = dynamic(() => import("./terminal-view"), {
 });
 
 const RECONNECT_MS = 2000;
+
+const PATCH_LINE_CLASS: Record<PatchLineKind, string> = {
+  add: "text-green-400",
+  del: "text-red-400",
+  hunk: "text-muted",
+  meta: "text-faint",
+  ctx: "text-fg",
+};
+
+/** One file's patch in a collapsible block; the lines render only once opened (patches can be large). */
+function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffFileView | undefined }) {
+  const [open, setOpen] = React.useState(false);
+  const name = file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path;
+  let note = "";
+  if (file.patch === "") {
+    if (summary?.binary) note = "Binary file";
+    else if (summary?.excluded) note = "Excluded file — content hidden";
+    else if (file.truncated) note = "Truncated — patch text left out (size limit)";
+    else note = "No patch text.";
+  }
+  return (
+    <details
+      className="rounded-md border border-line bg-[var(--bg-subtle)]"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer break-all px-2 py-1 text-[12px] text-fg">
+        {name}
+        {file.truncated && file.patch !== "" ? <span className="ml-2 text-faint">Truncated</span> : null}
+      </summary>
+      {open ? (
+        note ? (
+          <p className="px-2 pb-2 text-[12px] text-muted">{note}</p>
+        ) : (
+          <pre className="max-h-96 overflow-auto whitespace-pre px-2 pb-2 font-mono text-[12px]">
+            {patchLines(file.patch).map((l, i) => (
+              <span key={i} className={`block ${PATCH_LINE_CLASS[l.kind]}`}>
+                {l.text === "" ? " " : l.text}
+              </span>
+            ))}
+            {file.truncated ? <span className="block text-faint">… Truncated</span> : null}
+          </pre>
+        )
+      ) : null}
+    </details>
+  );
+}
 
 export interface RunLiveProps {
   runId: string;
@@ -120,6 +171,7 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const timeline = React.useMemo(() => deriveTimeline(stream.events), [stream.events]);
   const checks = React.useMemo(() => deriveChecks(stream.events), [stream.events]);
   const diff = React.useMemo(() => deriveDiff(stream.events), [stream.events]);
+  const diffPatch = React.useMemo(() => deriveDiffPatch(stream.events), [stream.events]);
   const review = React.useMemo(() => deriveReview(stream.events), [stream.events]);
   const outcome = parseOutcome(outcomeRaw);
 
@@ -270,6 +322,14 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
           ) : (
             <p className="text-[13px] text-muted">No diff yet.</p>
           )}
+          {diff && diffPatch && diffPatch.files.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {diffPatch.truncated ? <p className="text-[12px] text-faint">Truncated: some patch text is cut or left out.</p> : null}
+              {diffPatch.files.map((f) => (
+                <PatchBlock key={`${f.oldPath ?? ""}>${f.path}`} file={f} summary={diff.files.find((s) => s.path === f.path)} />
+              ))}
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 

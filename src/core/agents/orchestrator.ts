@@ -24,7 +24,7 @@ import type { AgentExit, AgentProcessHandle, SpawnAgentOptions } from "./process
 import { acquireWorkspaceLock, releaseLocksForRun, type PathDeps } from "./roots";
 import { reviewerOutputSchema, runRequestSchema, type ReviewerOutput, type RunRequest } from "./schema";
 import type { EventAgent, EventKind, RunStage, RunStatus } from "./types";
-import type { CreateRunWorktreeResult, DiffSummaryResult } from "./workspace";
+import type { CreateRunWorktreeResult, DiffPatchResult, DiffSummaryResult } from "./workspace";
 
 /** A check from the project policy: a name the run request refers to, and the argv the runner executes. */
 export interface PolicyCheck {
@@ -64,6 +64,8 @@ export interface OrchestratorDeps {
     create: (opts: { repoPath: string; worktreeRoot: string; runId: string }) => Promise<CreateRunWorktreeResult>;
     commit: (worktreePath: string, stage: string, runShortId: string) => Promise<string | null>;
     diff: (worktreePath: string, baseSha: string, opts: { excludedPaths: string[] }) => Promise<DiffSummaryResult>;
+    /** Patch text for display only; a failure here never fails the run. */
+    patch: (worktreePath: string, baseSha: string, opts: { excludedPaths: string[] }) => Promise<DiffPatchResult>;
     pathFor: (worktreeRoot: string, runId: string) => string;
     shortId: (runId: string) => string;
   };
@@ -345,6 +347,21 @@ export async function runAgentRun(
     facts.diffFiles = diff.files.length;
     facts.excludedTouched = diff.files.filter((f) => f.excluded).map((f) => f.path);
     await record(db, runId, "diff", "system", "diff_summary", diff);
+    // Patch text is display-only: any failure is swallowed and diff_summary stays the source of truth.
+    let patchResult: DiffPatchResult | null = null;
+    try {
+      patchResult = await deps.workspace.patch(ws.path, ws.baseSha, { excludedPaths: policy.excludedPaths });
+    } catch {
+      patchResult = null;
+    }
+    throwIfStopped(signal);
+    if (patchResult) {
+      try {
+        await record(db, runId, "diff", "system", "diff_patch", patchResult);
+      } catch {
+        // not recorded: the run goes on
+      }
+    }
 
     // review: only when there is something to review.
     if (facts.diffFiles > 0) {

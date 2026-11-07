@@ -85,6 +85,8 @@ interface Opts {
   /** Runs inside the stubs, before they return. */
   onReview?: (env: Env) => void;
   onDiff?: (env: Env) => void;
+  /** Replaces the patch dep (default: a one-file DiffPatchResult). */
+  patch?: OrchestratorDeps["workspace"]["patch"];
   onSpawn?: (env: Env, handle: AgentProcessHandle) => void;
   stopGraceMs?: number;
   /** Records the lock count each time the orchestrator issues a db.update. */
@@ -156,6 +158,7 @@ function makeEnv(opts: Opts = {}): Env {
         opts.onDiff?.(envRef!);
         return opts.diff ?? diffOf(file("fake-output.txt"));
       },
+      patch: opts.patch ?? (async () => ({ files: [{ path: "fake-output.txt", patch: "diff --git a/fake-output.txt b/fake-output.txt\n+hi\n", truncated: false }], truncated: false })),
       pathFor: (_root, r) => wtPath(r),
       shortId: (r) => r.slice(-6),
     },
@@ -465,6 +468,37 @@ describe("stop races (AW1-08 review fixes)", () => {
     const changes = evs.filter((e) => e.kind === "status_changed");
     assert.equal(changes.filter((e) => (e.payload as { status?: string }).status === "stopped").length, 1);
     assert.ok(changes.every((e) => typeof (e.payload as { status?: unknown }).status === "string"));
+  });
+});
+
+describe("diff_patch event", () => {
+  it("records a diff_patch event after diff_summary", { timeout: 30_000 }, async () => {
+    const env = makeEnv();
+    const outcome = await run(env);
+    assert.equal(outcome.status, "succeeded");
+    const evs = await events(env);
+    const kinds = evs.map((e) => e.kind);
+    const iSummary = kinds.indexOf("diff_summary");
+    const iPatch = kinds.indexOf("diff_patch");
+    assert.ok(iSummary >= 0 && iPatch === iSummary + 1, "diff_patch follows diff_summary");
+    const payload = evs[iPatch]!.payload as { files: Array<{ path: string; patch: string }>; truncated: boolean };
+    assert.equal(payload.files[0]!.path, "fake-output.txt");
+    assert.equal(payload.truncated, false);
+  });
+
+  it("a throwing patch dep does not fail the run and records no diff_patch", { timeout: 30_000 }, async () => {
+    const env = makeEnv({
+      patch: async () => {
+        throw new Error("git exploded");
+      },
+    });
+    const outcome = await run(env);
+    assert.equal(outcome.status, "succeeded");
+    assert.deepEqual(outcome.missing, []);
+    const evs = await events(env);
+    assert.ok(evs.some((e) => e.kind === "diff_summary"));
+    assert.equal(evs.some((e) => e.kind === "diff_patch"), false);
+    assertTerminal(env, outcome);
   });
 });
 
