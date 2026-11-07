@@ -14,6 +14,7 @@ import nodePath from "node:path";
 import { promisify } from "node:util";
 import { normalizeForCompare } from "./roots";
 import { resolveExecutable } from "./resolve-executable";
+import { redactText } from "./redact";
 import { RUN_STAGES } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -643,6 +644,165 @@ export async function diffSummary(
   };
 
   return { files, totals };
+}
+
+/* ------------------------------------------------------------------ */
+/* diffPatch                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Per-file cap on stored patch text (UTF-8 bytes). */
+export const DIFF_PATCH_FILE_CAP_BYTES = 64 * 1024;
+/** Cap on all stored patch text for one run (UTF-8 bytes). */
+export const DIFF_PATCH_TOTAL_CAP_BYTES = 512 * 1024;
+
+export interface DiffPatchFile {
+  path: string;
+  oldPath?: string;
+  /** Redacted unified diff text for this file; "" for binary, excluded or over-total-cap files. */
+  patch: string;
+  truncated: boolean;
+}
+
+export interface DiffPatchResult {
+  files: DiffPatchFile[];
+  truncated: boolean;
+}
+
+export interface DiffPatchOptions {
+  excludedPaths?: string[];
+  /** Override DIFF_PATCH_FILE_CAP_BYTES (tests). */
+  maxFileBytes?: number;
+  /** Override DIFF_PATCH_TOTAL_CAP_BYTES (tests). */
+  maxTotalBytes?: number;
+}
+
+function unquoteGitPath(p: string): string {
+  if (p.length >= 2 && p.startsWith('"') && p.endsWith('"')) {
+    return p.slice(1, -1).replace(/\\(["\\])/g, "$1");
+  }
+  return p;
+}
+
+/** Cuts text to at most maxBytes UTF-8 bytes, preferring a line boundary. */
+function cutToBytes(text: string, maxBytes: number): string {
+  const buf = Buffer.from(text, "utf8");
+  if (buf.length <= maxBytes) return text;
+  let cut = buf.subarray(0, Math.max(0, maxBytes)).toString("utf8");
+  // A multi-byte character cut in half decodes to U+FFFD at the end: drop it.
+  if (cut.endsWith("\uFFFD")) cut = cut.slice(0, -1);
+  const nl = cut.lastIndexOf("\n");
+  return nl > 0 ? cut.slice(0, nl + 1) : cut;
+}
+
+/** Path(s) a `diff --git` block is about, from its rename lines or its header. */
+function parsePatchBlockPaths(block: string): { path: string; oldPath?: string } | null {
+  const lines = block.split("\n");
+  const header = lines[0] ?? "";
+  let renameFrom: string | undefined;
+  let renameTo: string | undefined;
+  let minus: string | undefined;
+  let plus: string | undefined;
+  for (let i = 1; i < lines.length; i++) {
+    const l = (lines[i] ?? "").replace(/\r$/, "");
+    if (l.startsWith("@@")) break;
+    if (l.startsWith("rename from ")) renameFrom = unquoteGitPath(l.slice(12));
+    else if (l.startsWith("rename to ")) renameTo = unquoteGitPath(l.slice(10));
+    // git appends a TAB after a ---/+++ path that contains a space.
+    else if (l.startsWith("--- ")) minus = unquoteGitPath(l.slice(4).replace(/\t$/, ""));
+    else if (l.startsWith("+++ ")) plus = unquoteGitPath(l.slice(4).replace(/\t$/, ""));
+  }
+  if (renameFrom !== undefined && renameTo !== undefined) {
+    return { path: renameTo, oldPath: renameFrom };
+  }
+  if (plus && plus !== "/dev/null" && plus.startsWith("b/")) return { path: plus.slice(2) };
+  if (minus && minus !== "/dev/null" && minus.startsWith("a/")) return { path: minus.slice(2) };
+  // Binary or mode-only: "diff --git a/P b/P" with an identical path on both sides.
+  const rest = header.replace(/\r$/, "").slice("diff --git ".length);
+  const n = (rest.length - 5) / 2;
+  if (Number.isInteger(n) && n > 0 && rest.startsWith("a/") && rest.slice(2, 2 + n) === rest.slice(5 + n)) {
+    return { path: unquoteGitPath(rest.slice(2, 2 + n)) };
+  }
+  return null;
+}
+
+/**
+ * Patch text per changed file between baseSha and HEAD, from ONE
+ * `git diff` call. Every patch is redacted before it is returned, and capped
+ * per file and in total. Binary files and excluded files carry no patch text.
+ */
+export async function diffPatch(
+  worktreePath: string,
+  baseSha: string,
+  options: DiffPatchOptions = {},
+): Promise<DiffPatchResult> {
+  const {
+    excludedPaths = [],
+    maxFileBytes = DIFF_PATCH_FILE_CAP_BYTES,
+    maxTotalBytes = DIFF_PATCH_TOTAL_CAP_BYTES,
+  } = options;
+  assertSafeBaseSha(baseSha);
+
+  const res = await execGit(
+    [
+      "-c",
+      "core.quotepath=off",
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "-M",
+      "--ignore-cr-at-eol",
+      `${baseSha}...HEAD`,
+    ],
+    { cwd: worktreePath },
+  );
+
+  const blocks = res.stdout.split(/^(?=diff --git )/m).filter((b) => b.startsWith("diff --git "));
+  const files: DiffPatchFile[] = [];
+  let used = 0;
+  let totalCapHit = false;
+
+  for (const block of blocks) {
+    const paths = parsePatchBlockPaths(block);
+    if (!paths) continue;
+    const entry = (patch: string, truncated: boolean): DiffPatchFile => ({
+      path: paths.path,
+      ...(paths.oldPath ? { oldPath: paths.oldPath } : {}),
+      patch,
+      truncated,
+    });
+
+    if (isFileExcluded(paths.path, paths.oldPath, excludedPaths)) {
+      files.push(entry("", false));
+      continue;
+    }
+    if (/^Binary files .* differ\r?$/m.test(block) || /^GIT binary patch\r?$/m.test(block)) {
+      files.push(entry("", false));
+      continue;
+    }
+    if (totalCapHit) {
+      files.push(entry("", true));
+      continue;
+    }
+
+    // Redact first, then cut: a secret cut in half could slip under the redaction rules.
+    let patch = redactText(block);
+    let truncated = false;
+    if (Buffer.byteLength(patch, "utf8") > maxFileBytes) {
+      patch = cutToBytes(patch, maxFileBytes);
+      truncated = true;
+    }
+    const remaining = maxTotalBytes - used;
+    if (Buffer.byteLength(patch, "utf8") > remaining) {
+      patch = cutToBytes(patch, remaining);
+      truncated = true;
+      totalCapHit = true;
+    }
+    used += Buffer.byteLength(patch, "utf8");
+    if (used >= maxTotalBytes) totalCapHit = true;
+    files.push(entry(patch, truncated));
+  }
+
+  return { files, truncated: files.some((f) => f.truncated) };
 }
 
 /* ------------------------------------------------------------------ */

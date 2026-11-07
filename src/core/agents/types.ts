@@ -96,6 +96,8 @@ export const EVENT_KINDS = [
   "check_result",
   /** Summary of working tree changes (files touched, insertions, deletions). */
   "diff_summary",
+  /** Redacted, size-capped patch text per changed file (display only; diff_summary decides). */
+  "diff_patch",
   /** Structured review evaluation containing verdict and findings. */
   "review",
   /** High-level run status change transition (e.g. implementing to checking). */

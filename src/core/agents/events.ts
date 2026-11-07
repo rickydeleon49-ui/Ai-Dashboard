@@ -21,6 +21,13 @@ export type AgentDatabase = BaseSQLiteDatabase<"sync", unknown, typeof schema>;
 /** Maximum allowable event payload size in UTF-8 bytes (16 KB) per §8. */
 export const MAX_EVENT_PAYLOAD_BYTES = 16 * 1024;
 
+/**
+ * Larger limit for diff_patch events, which carry patch text (workspace.ts caps it
+ * at 512 KB; JSON escaping adds some overhead). Over this, the event degrades to
+ * the usual truncated preview and the UI shows the file list only.
+ */
+export const MAX_DIFF_PATCH_PAYLOAD_BYTES = 1024 * 1024;
+
 /** Maximum preview character length for truncated payloads. */
 export const MAX_PREVIEW_CHARS = 2000;
 
@@ -79,7 +86,8 @@ export async function appendEvent(
   const originalBytes = Buffer.byteLength(encoded, "utf8");
 
   let storedJson: string;
-  if (originalBytes > MAX_EVENT_PAYLOAD_BYTES) {
+  const maxBytes = input.kind === "diff_patch" ? MAX_DIFF_PATCH_PAYLOAD_BYTES : MAX_EVENT_PAYLOAD_BYTES;
+  if (originalBytes > maxBytes) {
     const previewText = typeof redacted === "string" ? redacted : encoded;
     const preview = previewText.slice(0, MAX_PREVIEW_CHARS);
     const replacement: TruncatedPayload = {

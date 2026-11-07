@@ -324,6 +324,80 @@ export function deriveDiff(events: UiEvent[]): DiffView | null {
   return null;
 }
 
+export interface DiffPatchFileView {
+  path: string;
+  oldPath?: string;
+  patch: string;
+  truncated: boolean;
+}
+
+export interface DiffPatchView {
+  files: DiffPatchFileView[];
+  truncated: boolean;
+}
+
+/** The latest diff_patch event, or null (older runs, or an oversized/invalid payload). */
+export function deriveDiffPatch(events: UiEvent[]): DiffPatchView | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (!e) continue;
+    if (e.kind !== "diff_patch") continue;
+    const p = obj(e.payload);
+    if (!Array.isArray(p.files)) return null;
+    const files: DiffPatchFileView[] = [];
+    for (const f of p.files) {
+      const fo = obj(f);
+      if (typeof fo.path !== "string" || fo.path === "" || typeof fo.patch !== "string") continue;
+      files.push({
+        path: fo.path,
+        oldPath: typeof fo.oldPath === "string" ? fo.oldPath : undefined,
+        patch: fo.patch,
+        truncated: fo.truncated === true,
+      });
+    }
+    return { files, truncated: p.truncated === true || files.some((f) => f.truncated) };
+  }
+  return null;
+}
+
+export type PatchLineKind = "add" | "del" | "hunk" | "meta" | "ctx";
+
+/** Classifies one line of a unified diff for colouring. */
+export function classifyPatchLine(line: string): PatchLineKind {
+  if (line.startsWith("@@")) return "hunk";
+  if (
+    line.startsWith("diff --git ") ||
+    line.startsWith("index ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("+++ ") ||
+    line.startsWith("new file mode") ||
+    line.startsWith("deleted file mode") ||
+    line.startsWith("old mode") ||
+    line.startsWith("new mode") ||
+    line.startsWith("similarity index") ||
+    line.startsWith("dissimilarity index") ||
+    line.startsWith("rename from ") ||
+    line.startsWith("rename to ") ||
+    line.startsWith("copy from ") ||
+    line.startsWith("copy to ") ||
+    line.startsWith("Binary files ") ||
+    line.startsWith("\\ No newline")
+  ) {
+    return "meta";
+  }
+  if (line.startsWith("+")) return "add";
+  if (line.startsWith("-")) return "del";
+  return "ctx";
+}
+
+/** Splits patch text into classified lines (a trailing newline adds no empty line). */
+export function patchLines(patch: string): Array<{ kind: PatchLineKind; text: string }> {
+  if (patch === "") return [];
+  const lines = patch.replace(/\r\n/g, "\n").split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines.map((text) => ({ kind: classifyPatchLine(text), text }));
+}
+
 const STATUS_MARK: Record<string, string> = { added: "A", deleted: "D", modified: "M", renamed: "R" };
 
 /** Plain-text diff overview for the `<pre>` block (the runner records a summary, not patch text). */
