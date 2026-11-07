@@ -51,25 +51,28 @@ triage. The builder is chosen by risk, not size:
 | AW1-08 | 9 | `orchestrator.ts`: the §7 stage machine with a single-pass review; final status only from facts the runner observed | Claude | L | 05, 07 | C |
 | AW1-09 | 10 | `runner/index.ts` + `npm run runner`: claims intents, runs the orchestrator, epoch-based recovery at startup, worktree recovery report (report only) | Sonnet | M | 08 | C |
 | AW1-10 | 11 | `desktop/main.js`: fork the runner beside the server, pass the run-storage path, stop it on quit. **Gates: `desktop`** | Antigravity | S | 09 | C |
-| AW1-11 | 12 | `src/app/api/agent-runs/**`: start/stop intents, run read, SSE events with `Last-Event-ID` replay; 404 when disabled | Antigravity | M | 03 | D |
-| AW1-12 | 13 (part) | Settings: provider probes, workspace roots, worktree root; navigation entry (desktop only) | Antigravity | M | 01, 04, 07 | D |
-| AW1-13 | 13 (rest) | Run form, history, run detail (timeline, events, checks, verdict, Stop, diff view). **Gates: `full`** | Antigravity | L | 11, 12 | D |
-| AW1-14 | 15, 16 | `scripts/agents-demo.ts` + `npm run agents:demo` (synthetic project, temp DB, fake agent); README and design-note results | Antigravity (script), Haiku (docs) | S | all | E |
+| AW1-11 | 12 | `src/app/api/agent-runs/**`: start/stop intents, run read, SSE events with `Last-Event-ID` replay; 404 when disabled | Antigravity | M | 03 | D (merged, PR #47) |
+| AW1-12 | 13 (part) | Settings: provider probes, workspace roots, worktree root; navigation entry (desktop only) | Antigravity | M | 01, 04, 07 | D (merged, PR #47) |
+| AW1-13 | 13 (rest) | Run form, history, run detail (timeline, events, checks, verdict, Stop, diff view). **Gates: `full`** | Antigravity | L | 11, 12 | D (merged, PR #47) |
+| AW1-14 | 15, 16 | `scripts/agents-demo.ts` + `npm run agents:demo` (synthetic project, temp DB, fake agent); README and design-note results | Antigravity (script), Haiku (docs) | S | all | D (merged, PR #47) |
+| AW1-15 | 6, 13 (part) | Redacted patch text (`diff_patch` event, per-file and total size caps) recorded by runner; run page shows patch per file | Sonnet | M | 13 | E |
+| AW1-16 | 16 (part) | Record batch D merge and terminal decision in docs (docs only) | Antigravity | S | 14 | E |
 
 **Parallel starts:** AW1-01, AW1-02 and AW1-06 share no files and can run at
 once. AW1-11 can start as soon as AW1-03 merges, alongside batch C.
 
 **PR batches** (to save CI minutes): **A** foundation (01–03), **B** workspace
-and process (04–06), **C** agents and runner (07–10), **D** API and UI (11–13),
-**E** demo and docs (14). Each batch merges before the next one starts. A
-slice with no unmerged dependencies may be built early from the latest
-`main` (as AW1-06 is, alongside batch A); it still ships in its own batch.
+and process (04–06), **C** agents and runner (07–10), **D** API, UI and demo (11–14,
+merged in PR #47), **E** patch text and docs (15–16). Each batch merges before
+the next one starts. A slice with no unmerged dependencies may be built early
+from the latest `main` (as AW1-06 is, alongside batch A); it still ships in its
+own batch.
 
 ## Open items
 
-- **`diff2html`** (§10A) is a new dependency. `CLAUDE.md` needs the owner's
-  agreement before it is added. Until then, AW1-13 shows the plain unified diff
-  from AW1-05 in a `<pre>` block.
+- **Patch text:** `diff2html` (§10A) is not added. Instead, AW1-15 has
+  the runner record redacted patch text (`diff_patch` event, per-file and total
+  size caps) and the run page shows it per file.
 - **§14 kickoff:** Claude Code `--help` is still to be captured on the Mac.
   The Windows PC has 2.1.312. AW1-07 records the flags it relies on from the
   Windows help output and probes them at run time, so this doesn't block it.
@@ -77,3 +80,9 @@ slice with no unmerged dependencies may be built early from the latest
   doesn't block them.
 - **Acceptance for AW.1** (§16.1) still needs one real Claude Code run on a
   scratch project on the Windows PC and one on the Mac, after batch E.
+
+## Terminal view decision (6 Nov 2026)
+
+Owner decision (6 Nov 2026) splits the terminal view into two parts:
+- (a) the read-only xterm.js live panel, done in AW1-13;
+- (b) an interactive shell (node-pty) as its own round AFTER release AW.1, not part of AW.1.

@@ -125,6 +125,16 @@ Completed and merged as PR #30, the hardening baseline for everything after it. 
   - Desktop external links continue through the existing Electron `setWindowOpenHandler` boundary; no new shell or IPC capability
   - Review corrections: the complexity guard also budgets closing brackets, setext underlines and list markers, summaries parse a bounded prefix (M1); legacy search indexing is bounded and resumable with an honest pending state (M2)
 
+#### Release v0.6.0 and Agent Workflow Batch D (Merged to main)
+
+- **Release v0.6.0 published** (Windows x64 `.exe`, macOS arm64 `.dmg`, Linux x86_64 `.AppImage`). README updated with downloads and an agent-runs section (PR #48).
+- **Batch D (AW1-11..AW1-14) merged in PR #47**:
+  - Agent-run API with SSE replay (`Last-Event-ID`)
+  - Settings → Agents page and desktop-only navigation entry
+  - Run pages with a read-only xterm.js live output panel (`@xterm/xterm` 6.0.0, `@xterm/addon-fit` 0.11.0)
+  - Synthetic demo script (`npm run agents:demo`)
+- **Next:** AW1-15 patch view (runner records redacted `diff_patch` event and run page shows it per file), then the interactive shell round (node-pty) after release AW.1.
+
 ## 4. Release sequence at a glance
 
 | Order | Release | Primary outcome | Depends on |
