@@ -105,6 +105,32 @@ if (await exists(path.join(root, "public"))) {
 }
 
 /*
+ * Server chunks that file tracing missed.
+ *
+ * Next traces each server entry to decide which files go into the standalone
+ * bundle. A chunk reached only through instrumentation.ts (the startup step
+ * that prepares the database) is not always listed, so the bundled server
+ * failed every request with MODULE_NOT_FOUND. Copying the full chunk folder,
+ * without overwriting traced files, closes that gap; the check below fails the
+ * build if any chunk is still missing.
+ */
+const serverChunks = path.join(root, ".next", "server", "chunks");
+const bundledChunks = path.join(standalone, ".next", "server", "chunks");
+if (await exists(serverChunks)) {
+  const before = new Set(await readdir(bundledChunks).catch(() => []));
+  await cp(serverChunks, bundledChunks, { recursive: true, force: false });
+  const all = await readdir(serverChunks);
+  const added = all.filter((f) => !before.has(f));
+  const after = new Set(await readdir(bundledChunks));
+  const missing = all.filter((f) => !after.has(f));
+  if (missing.length > 0) {
+    console.error(`Server chunks missing from the bundle: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+  console.log(`• server chunks complete (${added.length} added that tracing missed)`);
+}
+
+/*
  * Replace symlinks with real copies.
  *
  * Next emits the standalone bundle with a symlink per external server package
