@@ -125,6 +125,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Electron 44 downloads its binary on first require. Parallel desktop-*
+      # unit tests would each start that download and collide (os error 183),
+      # so fetch it once here before the tests run.
+      - name: Install the Electron binary once
+        run: node -e "console.log(require('electron'))"
+
       - name: Unit tests
         run: npm run test:unit
 
@@ -260,6 +266,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --fetch-retries 5 --fetch-retry-mintimeout 20000 --fetch-retry-maxtimeout 120000
+
+      # Electron 44 downloads its binary on first require. Parallel desktop-*
+      # unit tests would each start that download and collide (os error 183),
+      # so fetch it once here before the tests run.
+      - name: Install the Electron binary once
+        run: node -e "console.log(require('electron'))"
 
       - name: Unit tests
         run: npm run test:unit
