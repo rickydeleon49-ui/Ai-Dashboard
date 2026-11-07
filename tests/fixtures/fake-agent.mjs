@@ -34,7 +34,7 @@ if (scenario === "success") {
     type: "system",
     subtype: "init",
     session_id: "fake-session-success",
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-sonnet-5-5",
     tools: ["Read", "Edit", "Write", "Glob", "Grep"],
   });
 
@@ -113,7 +113,7 @@ if (scenario === "success") {
     type: "system",
     subtype: "init",
     session_id: "fake-session-hang",
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-sonnet-5-5",
     tools: [],
   });
 
@@ -124,7 +124,7 @@ if (scenario === "success") {
     type: "system",
     subtype: "init",
     session_id: "fake-session-noisy",
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-sonnet-5-5",
     tools: [],
   });
 
@@ -199,7 +199,7 @@ if (scenario === "success") {
     type: "system",
     subtype: "init",
     session_id: "fake-session-malformed",
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-sonnet-5-5",
     tools: [],
   });
 

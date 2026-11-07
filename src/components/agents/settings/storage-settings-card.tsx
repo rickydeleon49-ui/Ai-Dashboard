@@ -61,12 +61,12 @@ export function StorageSettingsCard({
                     <CheckCircle2 className="h-3 w-3" />
                     Available
                   </span>
-                ) : (
+                ) : !worktreeStatus.note ? (
                   <span className="flex items-center gap-1 text-red-500 font-medium">
                     <AlertTriangle className="h-3 w-3" />
                     Missing
                   </span>
-                )}
+                ) : null}
                 {worktreeStatus.drive ? (
                   <Badge className="text-[10px] py-0">
                     Drive: {worktreeStatus.drive}
@@ -105,6 +105,8 @@ export function StorageSettingsCard({
 
           {worktreeStatus?.warning ? (
             <p className="text-[11px] text-amber-500">{worktreeStatus.warning}</p>
+          ) : worktreeStatus?.note ? (
+            <p className="text-[11px] text-faint">{worktreeStatus.note}</p>
           ) : null}
 
           {savedSuccess ? (
@@ -146,6 +148,11 @@ export function StorageSettingsCard({
           <p className="text-[11.5px] text-faint leading-relaxed">
             Database, live event logs, and per-run permission grants live here on the system drive, kept isolated from code repositories.
           </p>
+          {runStoreStatus?.warning ? (
+            <p className="text-[11px] text-amber-500">{runStoreStatus.warning}</p>
+          ) : runStoreStatus?.note ? (
+            <p className="text-[11px] text-faint">{runStoreStatus.note}</p>
+          ) : null}
         </div>
       </CardBody>
     </Card>

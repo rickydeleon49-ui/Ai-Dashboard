@@ -15,6 +15,7 @@ import {
   acquireWorkspaceLock,
   checkRootAvailable,
   getAgentStorageSettings,
+  inspectRootStatus,
   normalizeForCompare,
   releaseLocksForRun,
   releaseWorkspaceLock,
@@ -518,5 +519,60 @@ describe("storage settings hardening (AW1-04 review)", () => {
     assert.equal((await setRunStore(w("D:", "runs"), o)).ok, true);
     const s = await getAgentStorageSettings(o);
     assert.equal(s.runStore, w("D:", "runs"));
+  });
+});
+
+describe("inspectRootStatus createdOnDemand (AW1-PA)", () => {
+  const missingFolder = "H:\\Worktrees\\agent-worktrees";
+  const unavailable = () => ({
+    ok: false as const,
+    reason: "root unavailable" as const,
+  });
+
+  it("missing folder + existing drive with the option → available, note set, no warning", () => {
+    const status = inspectRootStatus(missingFolder, {
+      platform: "win32",
+      createdOnDemand: true,
+      checkAvailable: unavailable,
+      driveExists: (d) => d === "H:\\",
+    });
+    assert.equal(status.available, true);
+    assert.equal(status.note, "Created on the first run.");
+    assert.equal(status.warning, undefined);
+    assert.equal(status.drive, "H:\\");
+    assert.equal(status.path, missingFolder);
+  });
+
+  it("missing drive with the option → unavailable with the warning", () => {
+    const status = inspectRootStatus(missingFolder, {
+      platform: "win32",
+      createdOnDemand: true,
+      checkAvailable: unavailable,
+      driveExists: () => false,
+    });
+    assert.equal(status.available, false);
+    assert.equal(status.note, undefined);
+    assert.equal(
+      status.warning,
+      "Root directory or drive is unavailable. Agent runs will refuse to start.",
+    );
+    assert.equal(status.drive, "H:\\");
+    assert.equal(status.path, missingFolder);
+  });
+
+  it("without the option → unchanged behaviour", () => {
+    const status = inspectRootStatus(missingFolder, {
+      platform: "win32",
+      checkAvailable: unavailable,
+      driveExists: () => true,
+    });
+    assert.equal(status.available, false);
+    assert.equal(status.note, undefined);
+    assert.equal(
+      status.warning,
+      "Root directory or drive is unavailable. Agent runs will refuse to start.",
+    );
+    assert.equal(status.drive, "H:\\");
+    assert.equal(status.path, missingFolder);
   });
 });

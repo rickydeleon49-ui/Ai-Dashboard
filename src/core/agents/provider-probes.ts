@@ -27,10 +27,10 @@ export interface ProviderProbeDeps {
 }
 
 export const CLAUDE_CODE_MODELS = [
-  "claude-3-7-sonnet-20250219",
-  "claude-3-5-sonnet-20241022",
-  "claude-3-5-haiku-20241022",
   "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+  "claude-fable-5-1",
 ];
 
 export const FAKE_AGENT_MODELS = [
