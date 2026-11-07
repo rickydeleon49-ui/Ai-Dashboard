@@ -344,6 +344,189 @@ async function recoverFromServerCrash() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Agent Runner
+// ---------------------------------------------------------------------------
+
+let runnerProcess = null;
+let runnerEnv = null;
+let runnerRestartAttempts = 0;
+const MAX_RUNNER_RESTART_ATTEMPTS = 3;
+let runnerShutdownInProgress = false;
+let runnerShutdownDone = false;
+let runnerShutdownPromise = null;
+
+function resolveTsxCli() {
+  const pkg = require.resolve("tsx/package.json");
+  return path.join(path.dirname(pkg), "dist", "cli.mjs");
+}
+
+/**
+ * Starts the agent runner as a child process.
+ *
+ * In a packaged or bundled build, forks the bundled standalone runner.js.
+ * In development (desktop:dev), forks tsx to run runner/index.ts directly.
+ */
+async function startRunner(env) {
+  runnerEnv = env;
+  const childEnv = {
+    ...process.env,
+    ...env,
+    NODE_ENV: isDev ? (process.env.NODE_ENV || "development") : "production",
+    ELECTRON_RUN_AS_NODE: "1",
+    DASHBOARD_LOCAL: "1",
+    DESKTOP_INTERNAL_SECRET: desktopSecret,
+  };
+
+  let runnerEntry;
+  if (!isDev) {
+    const root = serverRoot();
+    runnerEntry = path.join(root, "runner.js");
+    if (!fs.existsSync(runnerEntry)) {
+      throw new Error(
+        `Bundled runner not found at ${runnerEntry}. Run \`npm run desktop:build\` first.`,
+      );
+    }
+
+    runnerProcess = fork(runnerEntry, [], {
+      cwd: root,
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+  } else {
+    const projectRoot = app.getAppPath();
+    const tsxCli = resolveTsxCli();
+    runnerEntry = path.join(projectRoot, "runner", "index.ts");
+
+    runnerProcess = fork(tsxCli, ["--conditions=react-server", "runner/index.ts"], {
+      cwd: projectRoot,
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+  }
+
+  // Lets the desktop test verify the runner entry path and logs.
+  if (isTestEnv && !app.isPackaged) {
+    if (!app.desktopPathsForTesting) {
+      app.desktopPathsForTesting = {};
+    }
+    app.desktopPathsForTesting.runner = runnerEntry;
+    app.runnerLogsForTesting = app.runnerLogsForTesting || [];
+    app.runnerPidForTesting = runnerProcess ? runnerProcess.pid : null;
+  }
+
+  runnerProcess.stdout?.on("data", (d) => {
+    const line = String(d).trimEnd();
+    console.log(`[runner] ${line}`);
+    if (isTestEnv && !app.isPackaged && Array.isArray(app.runnerLogsForTesting)) {
+      app.runnerLogsForTesting.push(line);
+    }
+  });
+
+  runnerProcess.stderr?.on("data", (d) => {
+    const line = String(d).trimEnd();
+    console.error(`[runner] ${line}`);
+  });
+
+  runnerProcess.on("exit", (code, signal) => {
+    if (quitting) return;
+    console.error(`[runner] runner exited unexpectedly (code=${code} signal=${signal})`);
+    void recoverFromRunnerCrash();
+  });
+}
+
+/**
+ * Restarts the runner after an unexpected exit, bounded by MAX_RUNNER_RESTART_ATTEMPTS.
+ *
+ * Leaves the app running after the limit without showing a modal dialog:
+ * the dashboard remains fully usable, it just cannot run agents.
+ */
+async function recoverFromRunnerCrash() {
+  runnerProcess = null;
+
+  if (runnerRestartAttempts >= MAX_RUNNER_RESTART_ATTEMPTS) {
+    console.error(
+      `[runner] agent runner exited repeatedly and reached the restart limit (${MAX_RUNNER_RESTART_ATTEMPTS}); leaving the dashboard running without runner service`,
+    );
+    return;
+  }
+
+  runnerRestartAttempts += 1;
+  console.log(`[runner] attempting to restart runner (attempt ${runnerRestartAttempts}/${MAX_RUNNER_RESTART_ATTEMPTS})`);
+
+  try {
+    await startRunner(runnerEnv ?? {});
+    setTimeout(() => {
+      runnerRestartAttempts = 0;
+    }, 60_000);
+  } catch (error) {
+    console.error(`[runner] failed to restart runner: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Stops the agent runner cleanly.
+ *
+ * Sends a { type: "shutdown" } IPC message, waits up to 15 s for the process
+ * to exit cleanly, and forcefully kills it if the timeout expires.
+ */
+function stopRunner() {
+  if (!runnerProcess || runnerShutdownDone) return Promise.resolve();
+  if (runnerShutdownInProgress) return runnerShutdownPromise;
+
+  runnerShutdownInProgress = true;
+  const proc = runnerProcess;
+  runnerProcess = null;
+
+  runnerShutdownPromise = new Promise((resolve) => {
+    let timer = null;
+    let finished = false;
+
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      if (timer) clearTimeout(timer);
+      runnerShutdownDone = true;
+      resolve();
+    };
+
+    timer = setTimeout(() => {
+      if (!proc.killed) {
+        try {
+          proc.kill();
+        } catch {}
+      }
+      cleanup();
+    }, 15_000);
+
+    proc.once("exit", () => {
+      cleanup();
+    });
+
+    if (proc.connected) {
+      try {
+        proc.send({ type: "shutdown" });
+      } catch {
+        if (!proc.killed) {
+          try {
+            proc.kill();
+          } catch {}
+        }
+        cleanup();
+      }
+    } else {
+      if (!proc.killed) {
+        try {
+          proc.kill();
+        } catch {}
+      }
+      cleanup();
+    }
+  });
+
+  return runnerShutdownPromise;
+}
+
 function stopServer() {
   if (serverProcess && !serverProcess.killed) {
     serverProcess.kill();
@@ -880,6 +1063,12 @@ if (app) {
 
     app.whenReady().then(async () => {
       const paths = resolveUserPaths();
+      const encryptionKey = resolveEncryptionKey();
+      const childEnv = {
+        DATABASE_PATH: paths.DATABASE_PATH,
+        UPLOADS_DIR: paths.UPLOADS_DIR,
+        ...(encryptionKey ? { SETTINGS_ENCRYPTION_KEY: encryptionKey } : {}),
+      };
 
       try {
         if (isDev) {
@@ -887,13 +1076,9 @@ if (app) {
           baseUrl = process.env.DESKTOP_DEV_URL ?? "http://localhost:3000";
           await waitForServer(baseUrl, 60_000);
         } else {
-          const encryptionKey = resolveEncryptionKey();
-          baseUrl = await startServer({
-            DATABASE_PATH: paths.DATABASE_PATH,
-            UPLOADS_DIR: paths.UPLOADS_DIR,
-            ...(encryptionKey ? { SETTINGS_ENCRYPTION_KEY: encryptionKey } : {}),
-          });
+          baseUrl = await startServer(childEnv);
         }
+        await startRunner(childEnv);
       } catch (error) {
         dialog.showErrorBox(
           "Command Center could not start",
@@ -925,17 +1110,36 @@ if (app) {
       if (process.platform !== "darwin") app.quit();
     });
 
-    app.on("before-quit", () => {
+    app.on("before-quit", (event) => {
       quitting = true;
       stopServer();
+      stopRunner();
       // Only ever stops an instance this application started. An Ollama that was
       // already running when Command Center opened is left alone.
       ollama?.stopIfOwned();
+      if (runnerShutdownInProgress && !runnerShutdownDone) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.destroy();
+          mainWindow = null;
+        }
+        event.preventDefault();
+        void runnerShutdownPromise?.finally(() => {
+          app.quit();
+        });
+      }
     });
-    app.on("will-quit", () => {
+
+    app.on("will-quit", (event) => {
       quitting = true;
       stopServer();
+      stopRunner();
       ollama?.stopIfOwned();
+      if (runnerShutdownInProgress && !runnerShutdownDone) {
+        event.preventDefault();
+        void runnerShutdownPromise?.finally(() => {
+          app.quit();
+        });
+      }
     });
   }
 }
@@ -945,6 +1149,9 @@ if (typeof module !== "undefined" && module.exports) {
     validateInternalUrlForTesting: validateAndResolveInternalUrl,
     resolveTestUserDataOverride,
     recoverFromServerCrash,
+    recoverFromRunnerCrash,
+    startRunner,
+    stopRunner,
     ...(isTestEnv
       ? {
           internalFetch,

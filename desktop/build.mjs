@@ -10,6 +10,7 @@ import { cp, mkdtemp, readdir, readlink, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { build } from "esbuild";
 
 const require_ = createRequire(import.meta.url);
 const root = process.cwd();
@@ -65,7 +66,7 @@ const buildDataDir = await mkdtemp(path.join(tmpdir(), "command-center-build-"))
 console.log("• building Next.js (standalone output)");
 // Run the binary through the current Node executable: no shell, so there is no
 // argument-quoting difference between Windows and everything else.
-const build = spawnSync(process.execPath, [resolveNextBin(), "build", "--webpack"], {
+const nextBuild = spawnSync(process.execPath, [resolveNextBin(), "build", "--webpack"], {
   stdio: "inherit",
   env: {
     ...process.env,
@@ -77,9 +78,9 @@ const build = spawnSync(process.execPath, [resolveNextBin(), "build", "--webpack
 
 await rm(buildDataDir, { recursive: true, force: true });
 
-if (build.status !== 0) {
+if (nextBuild.status !== 0) {
   console.error("Next build failed.");
-  process.exit(build.status ?? 1);
+  process.exit(nextBuild.status ?? 1);
 }
 
 if (!(await exists(path.join(standalone, "server.js")))) {
@@ -162,5 +163,47 @@ if (await exists(strayData)) {
   await rm(strayData, { recursive: true, force: true });
   console.log("• removed stray build database from bundle");
 }
+
+/*
+ * Bundle the agent runner process.
+ *
+ * The runner owns every agent child process and runs outside the Next.js server.
+ * Bundling with esbuild produces a standalone runner.js in the standalone
+ * folder. Native addons (better-sqlite3) are externalized so they resolve from
+ * standalone/node_modules.
+ */
+console.log("• bundling agent runner");
+const runnerOutput = path.join(standalone, "runner.js");
+try {
+  await build({
+    entryPoints: [path.join(root, "runner", "index.ts")],
+    outfile: runnerOutput,
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node22",
+    conditions: ["react-server"],
+    tsconfig: path.join(root, "tsconfig.json"),
+    external: ["better-sqlite3"],
+    sourcemap: false,
+    legalComments: "none",
+  });
+} catch (error) {
+  console.error("Agent runner bundling failed:", error);
+  process.exit(1);
+}
+
+if (!(await exists(runnerOutput))) {
+  console.error("Runner bundling failed: runner.js was not produced.");
+  process.exit(1);
+}
+console.log("• bundled runner.js");
+
+const sqliteAddon = path.join(standalone, "node_modules", "better-sqlite3");
+if (!(await exists(sqliteAddon))) {
+  console.error("Standalone bundle is missing node_modules/better-sqlite3 required by the runner.");
+  process.exit(1);
+}
+console.log("• verified node_modules/better-sqlite3 is present for runner");
 
 console.log("Standalone bundle ready for packaging.");
