@@ -31,6 +31,7 @@ import {
 } from "@/core/agents/orchestrator";
 import { spawnAgentProcess, stopAgentProcess } from "@/core/agents/process";
 import { reviewWithClaude } from "@/core/agents/review-claude";
+import { defaultRoleRunners } from "@/core/agents/role-runners";
 import {
   checkRootAvailable,
   getAgentStorageSettings,
@@ -414,6 +415,8 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       signal: controller.signal,
       stopGraceMs,
       pathDeps: overrides.pathDeps,
+      // AW.2 planner/reviewer roles (Claude Code, Codex); a role whose provider has no runner fails the run up front.
+      roleRunners: defaultRoleRunners(),
       ...overrides.orchestrator,
     };
     // The grant folder's parent must exist for the orchestrator's safe cleanup.
