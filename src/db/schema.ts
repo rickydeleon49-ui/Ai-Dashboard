@@ -803,8 +803,28 @@ export const agentWorkspaceLocks = sqliteTable(
 );
 export const agentWorkspaceLock = agentWorkspaceLocks;
 
+export const agentRunComments = sqliteTable(
+  "agent_run_comment",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    round: integer("round").notNull(),
+    file: text("file"),
+    line: integer("line"),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [
+    index("agent_run_comment_run_round_idx").on(t.runId, t.round, t.createdAt),
+  ],
+);
+export const agentRunComment = agentRunComments;
+
 export type AgentProjectPolicyRow = typeof agentProjectPolicies.$inferSelect;
 export type AgentRunRow = typeof agentRuns.$inferSelect;
 export type AgentRunEventRow = typeof agentRunEvents.$inferSelect;
 export type AgentRunIntentRow = typeof agentRunIntents.$inferSelect;
 export type AgentWorkspaceLockRow = typeof agentWorkspaceLocks.$inferSelect;
+export type AgentRunCommentRow = typeof agentRunComments.$inferSelect;
