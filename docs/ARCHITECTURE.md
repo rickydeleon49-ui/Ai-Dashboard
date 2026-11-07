@@ -400,6 +400,49 @@ The general rule: **do not import values out of `"use client"` modules from
 server components.** Put shared constants and strings in a plain module that
 both can import.
 
+## 7d. Agent runs (desktop only)
+
+Executing CLI agents against local project trees amounts to arbitrary command execution
+if reachable over a network, so agent workflows stay strictly desktop-only.
+
+**Availability guard.** `isAgentRunsEnabled` checks that `DASHBOARD_LOCAL=1`,
+a non-empty `DESKTOP_INTERNAL_SECRET` is present, `AUTH_MODE` is not `accounts`,
+`DASHBOARD_PASSWORD` is unset, and no `DATABASE_URL` is configured (SQLite only).
+When any condition fails, every agent page (`/agents`, `/settings/agents`) and API
+route under `/api/agent-runs/` immediately returns 404.
+
+**Process layout.** The Electron main process forks a dedicated runner process
+(`runner/index.ts` in development, bundled `runner.js` in production) beside the Next.js
+server. The Next.js server never spawns agents, compilers, or git. Initiating or
+stopping a run simply inserts a `start` or `stop` intent into the `agent_run_intent`
+table. The runner polls for unclaimed intents, locks the workspace, manages child
+process lifecycles, and cleanly exits on Electron shutdown via IPC within 15 seconds.
+
+**Run stages and workspace isolation.** The orchestrator advances through six stages in
+order: `inspect` → `implement` → `checks` → `diff` → `review` → `final`. Each run is
+isolated in its own Git worktree created at base SHA on an `agent/<shortId>` branch
+inside the worktree root. Repo hooks are neutralized with an empty hooks directory.
+The runner snapshots changes after each stage with an internal `agent(<shortId>): <stage>`
+commit (`--no-verify`). Agents themselves never commit, push, or merge; terminal status
+(`succeeded` vs `failed`) is decided purely by runner-observed facts (exit code 0, no
+excluded files touched, required checks passed, and a schema-valid reviewer approval).
+
+**Events and redaction.** Run activity appends to `agent_run_event` in a SQLite
+transaction that assigns gapless per-run sequence numbers. The UI streams them via SSE
+(`GET /api/agent-runs/:id/events`) supporting resumption with `Last-Event-ID` or `?after=`.
+Payloads are passed through a regex-based redactor (`redactValue`) before writing to disk
+to scrub API tokens, authorization headers, and private keys. Payloads are capped at 16 KB
+(1 MiB for `diff_patch`, the redacted patch text, itself capped at 64 KB per file and
+512 KB per run); larger payloads are truncated with a preview.
+
+**Storage locations.** Configured in Settings → Agents and persisted in the settings table:
+- *Workspace roots* (`agent.workspace_roots`): allowlisted directories containing target
+  repositories; runs refuse paths outside these boundaries.
+- *Worktree root* (`agent.worktree_root`): holds the isolated worktrees per run, defaulting
+  to `<userData>/agent-worktrees`.
+- *Run store* (`agent.run_store`): stores ephemeral per-run permissions and grant configs
+  (`<runStore>/runs/<runId>`) cleaned up on completion, defaulting to `<userData>/agent-runs`.
+
 ## 8. State and URLs
 
 Filter state lives in the **URL**, not React state. A filtered library view is
