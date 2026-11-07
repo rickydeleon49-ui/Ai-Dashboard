@@ -5,6 +5,7 @@ import { themeScript } from "@/components/layout/theme-script";
 import { LOCAL_WORKSPACE_ID, projectRepository } from "@/db/repositories";
 import { APP_NAME } from "@/config/navigation";
 import { isAccountsMode } from "@/lib/auth-mode";
+import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import type { ProjectStats } from "@/core/projects/types";
 import type { PaletteProject } from "@/components/layout/command-palette";
@@ -52,6 +53,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const accountsMode = isAccountsMode();
+  const agentRunsEnabled = isAgentRunsEnabled();
 
   let stats: ProjectStats = EMPTY_STATS;
   let paletteProjects: PaletteProject[] = [];
@@ -103,6 +105,7 @@ export default async function RootLayout({
           paletteProjects={paletteProjects}
           unreadNotifications={unreadNotifications}
           accountsMode={accountsMode}
+          agentRunsEnabled={agentRunsEnabled}
           inboxWorkspaceId={inboxWorkspaceId}
         >
           {children}
