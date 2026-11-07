@@ -94,7 +94,7 @@ if (scenario === "success") {
     total_cost_usd: 0.001,
   });
 
-  process.exit(0);
+  process.exitCode = 0; // not process.exit(): lets piped stdout drain (Linux pipes are async)
 } else if (scenario === "fail") {
   emit({
     type: "result",
@@ -107,7 +107,7 @@ if (scenario === "success") {
     total_cost_usd: 0,
   });
 
-  process.exit(1);
+  process.exitCode = 1; // not process.exit(): lets piped stdout drain (Linux pipes are async)
 } else if (scenario === "hang") {
   emit({
     type: "system",
@@ -148,7 +148,7 @@ if (scenario === "success") {
     total_cost_usd: 0.005,
   });
 
-  process.exit(0);
+  process.exitCode = 0; // not process.exit(): lets piped stdout drain (Linux pipes are async)
 } else if (scenario === "edit-excluded") {
   const secretsDir = path.join(process.cwd(), "secrets");
   fs.mkdirSync(secretsDir, { recursive: true });
@@ -193,7 +193,7 @@ if (scenario === "success") {
     total_cost_usd: 0,
   });
 
-  process.exit(0);
+  process.exitCode = 0; // not process.exit(): lets piped stdout drain (Linux pipes are async)
 } else if (scenario === "malformed") {
   emit({
     type: "system",
@@ -224,8 +224,8 @@ if (scenario === "success") {
     total_cost_usd: 0.001,
   });
 
-  process.exit(0);
+  process.exitCode = 0; // not process.exit(): lets piped stdout drain (Linux pipes are async)
 } else {
   process.stderr.write(`Unknown scenario: ${scenario}\n`);
-  process.exit(1);
+  process.exitCode = 1; // not process.exit(): lets piped stdout drain (Linux pipes are async)
 }

@@ -547,12 +547,18 @@ export function createRunner(overrides: RunnerOverrides): Runner {
         log("info", "shutting down: stopping the active run", { runId: current.runId });
         current.controller.abort();
         let finished = false;
+        let timer2: ReturnType<typeof setTimeout> | undefined;
         await Promise.race([
           current.done.then(() => {
             finished = true;
           }),
-          new Promise<void>((resolve) => setTimeout(resolve, waitMs).unref()),
+          new Promise<void>((resolve) => {
+            // Deliberately ref'd: shutdown awaits this, and an unref'd timer lets the
+            // event loop empty (stranding the promise) when nothing else is live.
+            timer2 = setTimeout(resolve, waitMs);
+          }),
         ]);
+        if (timer2) clearTimeout(timer2);
         if (!finished) {
           const row = db.select().from(agentRuns).where(eq(agentRuns.id, current.runId)).get();
           if (row && !(TERMINAL_STATUSES as readonly string[]).includes(row.status)) {

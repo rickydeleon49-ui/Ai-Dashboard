@@ -17,6 +17,13 @@ import type {
   NormalizedEvent,
 } from "../../src/core/agents/adapters/types";
 
+// CI has no claude binary: never depend on a real install.
+function buildWithFakeClaude(req: InvocationRequest) {
+  return buildClaudeInvocation(req, {
+    executableFile: path.join(os.tmpdir(), "fake-claude-bin", "claude"),
+  });
+}
+
 test("claude-code adapter: argv contains the required flags in order and prompt is never in argv", () => {
   const tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "claude-adapter-test-"),
@@ -38,7 +45,7 @@ test("claude-code adapter: argv contains the required flags in order and prompt 
       resumeSessionId: "123e4567-e89b-12d3-a456-426614174000",
     };
 
-    const inv = claudeAdapter.buildInvocation(req);
+    const inv = buildWithFakeClaude(req);
 
     const expectedOrder = [
       "-p",
@@ -102,7 +109,7 @@ test("claude-code adapter: no bypass flag can be produced, even when model or ef
 
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...baseReq,
           model: "--dangerously-skip-permissions",
         }),
@@ -111,7 +118,7 @@ test("claude-code adapter: no bypass flag can be produced, even when model or ef
 
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...baseReq,
           effort: "--dangerously-skip-permissions",
         }),
@@ -120,7 +127,7 @@ test("claude-code adapter: no bypass flag can be produced, even when model or ef
 
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...baseReq,
           model: "--allow-dangerously-skip-permissions",
         }),
@@ -129,7 +136,7 @@ test("claude-code adapter: no bypass flag can be produced, even when model or ef
 
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...baseReq,
           model: "--permission-mode bypassPermissions",
         }),
@@ -138,7 +145,7 @@ test("claude-code adapter: no bypass flag can be produced, even when model or ef
 
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...baseReq,
           model: "claude-3-5 --dangerously-skip-permissions",
         }),
@@ -202,7 +209,7 @@ test("claude-code adapter: grant file written in grantDir with allow/deny lists,
       grantDir,
     };
 
-    claudeAdapter.buildInvocation(req);
+    buildWithFakeClaude(req);
 
     const grantPath = path.join(grantDir, "claude-settings.json");
     assert.ok(fs.existsSync(grantPath));
@@ -252,7 +259,7 @@ test("claude-code adapter: grant file written in grantDir with allow/deny lists,
     for (const cmd of badCommands) {
       assert.throws(
         () =>
-          claudeAdapter.buildInvocation({
+          buildWithFakeClaude({
             ...req,
             checkCommands: [cmd],
           }),
@@ -283,13 +290,13 @@ test("claude-code adapter: grantDir inside workspace is refused", () => {
     };
 
     assert.throws(
-      () => claudeAdapter.buildInvocation(req),
+      () => buildWithFakeClaude(req),
       /grantDir cannot be inside workspacePath/,
     );
 
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...req,
           grantDir: workspacePath,
         }),
@@ -383,7 +390,7 @@ test("claude-code adapter: --resume is only added for a valid UUID", () => {
 
     // Valid UUID format
     const validUuid = "9f8b4c2e-1a3d-4e5f-8a9b-0c1d2e3f4a5b";
-    const invValid = claudeAdapter.buildInvocation({
+    const invValid = buildWithFakeClaude({
       ...baseReq,
       resumeSessionId: validUuid,
     });
@@ -400,7 +407,7 @@ test("claude-code adapter: --resume is only added for a valid UUID", () => {
       "",
     ];
     for (const invalid of invalidSessionIds) {
-      const invInvalid = claudeAdapter.buildInvocation({
+      const invInvalid = buildWithFakeClaude({
         ...baseReq,
         resumeSessionId: invalid,
       });
@@ -665,13 +672,13 @@ test("claude-code adapter: grantDir resolving inside workspace via junction/syml
 
     // Existing link pointing into the workspace
     assert.throws(
-      () => claudeAdapter.buildInvocation({ ...req, grantDir: link }),
+      () => buildWithFakeClaude({ ...req, grantDir: link }),
       /grantDir cannot be inside workspacePath/,
     );
     // Non-existent child of the link: nearest existing ancestor resolves inside
     assert.throws(
       () =>
-        claudeAdapter.buildInvocation({
+        buildWithFakeClaude({
           ...req,
           grantDir: path.join(link, "not", "yet"),
         }),
