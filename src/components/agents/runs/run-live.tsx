@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { EVENT_AGENTS, isTerminalStatus } from "@/core/agents/types";
+import type { SeverityClass } from "@/core/agents/severity";
 import {
   groupComments,
   newFileLineNumbers,
@@ -14,11 +15,19 @@ import {
 } from "./comments-logic";
 import { RunComments } from "./run-comments";
 import {
+  availableRounds,
+  checksForRound,
+  derivePlan,
+  diffForRound,
+  diffPatchForRound,
+  findingsBySeverity,
+  reviewForRound,
+  roundLabel,
+  selectedRound,
+  SEVERITY_ORDER,
+} from "./rounds-logic";
+import {
   acceptEvent,
-  deriveChecks,
-  deriveDiff,
-  deriveDiffPatch,
-  deriveReview,
   deriveStatus,
   deriveTimeline,
   diffToText,
@@ -43,6 +52,12 @@ const TerminalView = dynamic(() => import("./terminal-view"), {
 });
 
 const RECONNECT_MS = 2000;
+
+const SEVERITY_BADGE: Record<SeverityClass, string> = {
+  blocking: "text-red-400",
+  major: "text-yellow-400",
+  minor: "text-muted",
+};
 
 const PATCH_LINE_CLASS: Record<PatchLineKind, string> = {
   add: "text-green-400",
@@ -146,6 +161,7 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const [copied, setCopied] = React.useState(false);
   const [draft, setDraft] = React.useState<{ file: string; line: number | null } | null>(null);
   const [comments, setComments] = React.useState<RunComment[]>([]);
+  const [pickedRound, setPickedRound] = React.useState<number | null>(null);
   const lastSeenRef = React.useRef(0);
   React.useEffect(() => {
     lastSeenRef.current = stream.lastSeen;
@@ -216,16 +232,22 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const visible = React.useMemo(() => filterByAgent(stream.events, filter), [stream.events, filter]);
   const plain = React.useMemo(() => eventsToPlainText(visible), [visible]);
   const timeline = React.useMemo(() => deriveTimeline(stream.events, terminal), [stream.events, terminal]);
-  const checks = React.useMemo(() => deriveChecks(stream.events), [stream.events]);
-  const diff = React.useMemo(() => deriveDiff(stream.events), [stream.events]);
-  const diffPatch = React.useMemo(() => deriveDiffPatch(stream.events), [stream.events]);
+  const rounds = React.useMemo(() => availableRounds(stream.events), [stream.events]);
+  const latestRound = rounds[rounds.length - 1] ?? 0;
+  // Follows new rounds until the user picks one by hand.
+  const round = selectedRound(rounds, pickedRound);
+  const plan = React.useMemo(() => derivePlan(stream.events), [stream.events]);
+  const checks = React.useMemo(() => checksForRound(stream.events, round), [stream.events, round]);
+  const diff = React.useMemo(() => diffForRound(stream.events, round), [stream.events, round]);
+  const diffPatch = React.useMemo(() => diffPatchForRound(stream.events, round), [stream.events, round]);
   const diffFiles = React.useMemo(() => {
     if (diffPatch && diffPatch.files.length > 0) return diffPatch.files.map((f) => f.path);
     if (diff && diff.files.length > 0) return diff.files.map((f) => f.path);
     return [];
   }, [diffPatch, diff]);
   const groupedComments = React.useMemo(() => groupComments(comments), [comments]);
-  const review = React.useMemo(() => deriveReview(stream.events), [stream.events]);
+  const review = React.useMemo(() => reviewForRound(stream.events, round), [stream.events, round]);
+  const findings = React.useMemo(() => (review ? findingsBySeverity(review) : null), [review]);
   const outcome = parseOutcome(outcomeRaw);
 
   async function stop() {
@@ -358,6 +380,58 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
         </CardBody>
       </Card>
 
+      {plan ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Plan</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-2 text-[13px]">
+            <p className="whitespace-pre-wrap text-fg">{plan.task}</p>
+            {plan.scopePaths.length > 0 ? (
+              <div>
+                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">Scope</h3>
+                <ul className="list-disc pl-5 font-mono text-[12px]">
+                  {plan.scopePaths.map((p) => (
+                    <li key={p} className="break-all">
+                      {p}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {plan.acceptance.length > 0 ? (
+              <div>
+                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">Acceptance</h3>
+                <ul className="list-disc pl-5">
+                  {plan.acceptance.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {plan.checks.length > 0 ? (
+              <p className="text-[12px] text-muted">Advisory checks: {plan.checks.join(", ")}</p>
+            ) : null}
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {rounds.length > 1 ? (
+        <div role="group" aria-label="Round" className="flex flex-wrap items-center gap-2">
+          {rounds.map((r) => (
+            <Button
+              key={r}
+              size="sm"
+              variant={r === round ? "primary" : undefined}
+              aria-pressed={r === round}
+              onClick={() => setPickedRound(r)}
+            >
+              {roundLabel(r)}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Changed files</CardTitle>
@@ -392,10 +466,14 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
         </CardBody>
       </Card>
 
-      {/* TODO: round switcher will be added in a later round (AW2-07b); pinned to round 0 for now */}
       <RunComments
         runId={runId}
-        round={0}
+        round={round}
+        readOnlyNote={
+          round < latestRound
+            ? `Comments are picked up for the latest round only. Switch to ${roundLabel(latestRound)} to add one.`
+            : undefined
+        }
         files={diffFiles}
         draft={draft}
         onDraftConsumed={() => setDraft(null)}
@@ -445,21 +523,36 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
             {review.findings.length === 0 ? (
               <p className="text-[13px] text-muted">No findings.</p>
             ) : (
-              <ul className="space-y-1 text-[13px]">
-                {review.findings.map((f, i) => (
-                  <li key={i}>
-                    <span className="font-medium">{f.severity}</span>
-                    {f.path ? (
-                      <span className="text-muted">
-                        {" "}
-                        {f.path}
-                        {f.line ? `:${f.line}` : ""}
-                      </span>
-                    ) : null}{" "}
-                    {f.message}
-                  </li>
-                ))}
-              </ul>
+              <div className="space-y-3 text-[13px]">
+                {SEVERITY_ORDER.map((cls) => {
+                  const list = findings?.groups[cls] ?? [];
+                  if (list.length === 0) return null;
+                  return (
+                    <div key={cls}>
+                      <h3 className="mb-1 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wider text-muted">
+                        <Badge className={SEVERITY_BADGE[cls]}>{cls}</Badge>
+                        <span>{list.length}</span>
+                      </h3>
+                      <ul className="space-y-1">
+                        {list.map((f, i) => (
+                          <li key={i}>
+                            <span className="font-medium">{f.severity}</span>
+                            {f.path ? (
+                              <span className="text-muted">
+                                {" "}
+                                {f.path}
+                                {f.line ? `:${f.line}` : ""}
+                              </span>
+                            ) : null}{" "}
+                            {f.message}
+                            {f.actionable ? <span className="ml-2 text-[11px] text-[var(--accent)]">actionable</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </CardBody>
         </Card>

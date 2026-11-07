@@ -25,6 +25,7 @@ import { eq, sql } from "drizzle-orm";
 import { agentRuns } from "@/db/schema";
 import type { AgentAdapter } from "./adapters/types";
 import { listComments } from "./comments";
+import { severityClass, type SeverityClass } from "./severity";
 import { appendEvent, type AgentDatabase } from "./events";
 import type { AgentExit, AgentProcessHandle, SpawnAgentOptions } from "./process";
 import { acquireWorkspaceLock, releaseLocksForRun, type PathDeps } from "./roots";
@@ -181,22 +182,7 @@ export function grantDirFor(runStore: string, runId: string): string {
   return nodePath.join(runStore, "runs", runId);
 }
 
-export type SeverityClass = "blocking" | "major" | "minor";
-
-/**
- * The one place that maps reviewer severities (P1/P2/P3 today) to the design's
- * classes (blocking/major/minor/nit). A severity rename touches only this.
- */
-export function severityClass(severity: ReviewerFinding["severity"]): SeverityClass {
-  switch (severity) {
-    case "P1":
-      return "blocking";
-    case "P2":
-      return "major";
-    default:
-      return "minor";
-  }
-}
+export { severityClass, type SeverityClass };
 
 /** A finding starts a correction round when it is actionable and blocking or major. */
 export function triggersCorrection(finding: ReviewerFinding): boolean {

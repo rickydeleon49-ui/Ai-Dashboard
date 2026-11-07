@@ -18,6 +18,8 @@ export interface RunCommentsProps {
   draft?: { file: string; line: number | null } | null;
   onDraftConsumed?: () => void;
   onCommentsChange?: (comments: RunComment[]) => void;
+  /** When set, the add form is replaced by this note (older rounds are read-only). */
+  readOnlyNote?: string;
 }
 
 async function fetchComments(runId: string, round: number): Promise<RunComment[]> {
@@ -39,6 +41,7 @@ export function RunComments({
   draft,
   onDraftConsumed,
   onCommentsChange,
+  readOnlyNote,
 }: RunCommentsProps) {
   const [comments, setComments] = React.useState<RunComment[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -291,6 +294,9 @@ export function RunComments({
           </div>
         ))}
 
+        {readOnlyNote ? (
+          <p className="border-t border-line pt-3 text-[12px] text-muted">{readOnlyNote}</p>
+        ) : (
         <form onSubmit={handleAddComment} className="space-y-3 border-t border-line pt-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="sm:col-span-2">
@@ -356,6 +362,7 @@ export function RunComments({
             </Button>
           </div>
         </form>
+        )}
       </CardBody>
     </Card>
   );
