@@ -8,7 +8,11 @@ import { Field, Select, Textarea, Input } from "@/components/ui/field";
 import { buildModelOptions, resolveProviderModels } from "./model-options";
 import { describeReviewIndependence } from "./role-independence";
 import { buildRunRequest } from "./build-run-request";
-import { defaultReviewRoles, effortLevelsFor, implementerProviders } from "./role-defaults";
+import {
+  defaultReviewRoles,
+  effortLevelsFor,
+  implementerProviders,
+} from "./role-defaults";
 
 export interface ProviderOption {
   id: string;
@@ -41,8 +45,14 @@ export function RunForm({
 }) {
   const router = useRouter();
   const implementerChoices = implementerProviders(providers);
-  const firstUsable = implementerChoices.find((p) => p.usable)?.id ?? implementerChoices[0]?.id ?? "";
-  const reviewDefaults = React.useMemo(() => defaultReviewRoles(providers), [providers]);
+  const firstUsable =
+    implementerChoices.find((p) => p.usable)?.id ??
+    implementerChoices[0]?.id ??
+    "";
+  const reviewDefaults = React.useMemo(
+    () => defaultReviewRoles(providers),
+    [providers],
+  );
   const [projectId, setProjectId] = React.useState(projects[0]?.id ?? "");
   const [task, setTask] = React.useState("");
 
@@ -51,21 +61,75 @@ export function RunForm({
   const [implementerEffort, setImplementerEffort] = React.useState("");
 
   const [planner, setPlanner] = React.useState(reviewDefaults.planner.provider);
-  const [plannerModel, setPlannerModel] = React.useState(reviewDefaults.planner.model);
-  const [plannerEffort, setPlannerEffort] = React.useState(reviewDefaults.planner.effort);
+  const [plannerModel, setPlannerModel] = React.useState(
+    reviewDefaults.planner.model,
+  );
+  const [plannerEffort, setPlannerEffort] = React.useState(
+    reviewDefaults.planner.effort,
+  );
 
-  const [reviewer, setReviewer] = React.useState(reviewDefaults.reviewer.provider);
-  const [reviewerModel, setReviewerModel] = React.useState(reviewDefaults.reviewer.model);
-  const [reviewerEffort, setReviewerEffort] = React.useState(reviewDefaults.reviewer.effort);
+  const [reviewer, setReviewer] = React.useState(
+    reviewDefaults.reviewer.provider,
+  );
+  const [reviewerModel, setReviewerModel] = React.useState(
+    reviewDefaults.reviewer.model,
+  );
+  const [reviewerEffort, setReviewerEffort] = React.useState(
+    reviewDefaults.reviewer.effort,
+  );
 
   const [checks, setChecks] = React.useState(checkSuggestions.join(", "));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const [inventory, setInventory] = React.useState<{
+    plugins: { name: string; hasHooks: boolean }[];
+    mcpServers: string[];
+  } | null>(null);
+  const [acknowledged, setAcknowledged] = React.useState(false);
+  // A failed load is not retried automatically (no fetch loop); the server
+  // still checks on submit and a 409 returns the current inventory.
+  const [inventoryFailed, setInventoryFailed] = React.useState(false);
+  // Bumped to fetch the inventory again (retry button, 409 without inventory).
+  const [inventoryReload, setInventoryReload] = React.useState(0);
+  const isAntigravityImplementer = implementer === "antigravity";
+
+  React.useEffect(() => {
+    if (!isAntigravityImplementer) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/agent-runs/antigravity-inventory");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as {
+          plugins?: { name: string; hasHooks: boolean }[];
+          mcpServers?: string[];
+        };
+        if (cancelled) return;
+        setInventory({
+          plugins: Array.isArray(data.plugins) ? data.plugins : [],
+          mcpServers: Array.isArray(data.mcpServers) ? data.mcpServers : [],
+        });
+        setInventoryFailed(false);
+      } catch {
+        if (!cancelled) setInventoryFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAntigravityImplementer, inventoryReload]);
+
+  const loadInventory = () => {
+    setInventoryFailed(false);
+    setInventoryReload((n) => n + 1);
+  };
+
   const handleImplementerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setImplementer(e.target.value);
     setImplementerModel("");
     setImplementerEffort("");
+    setAcknowledged(false);
   };
 
   const handlePlannerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -80,9 +144,15 @@ export function RunForm({
     setReviewerEffort("");
   };
 
-  const implementerModelOptions = buildModelOptions(resolveProviderModels(implementer, providers));
-  const plannerModelOptions = buildModelOptions(resolveProviderModels(planner, providers));
-  const reviewerModelOptions = buildModelOptions(resolveProviderModels(reviewer, providers));
+  const implementerModelOptions = buildModelOptions(
+    resolveProviderModels(implementer, providers),
+  );
+  const plannerModelOptions = buildModelOptions(
+    resolveProviderModels(planner, providers),
+  );
+  const reviewerModelOptions = buildModelOptions(
+    resolveProviderModels(reviewer, providers),
+  );
 
   const independence = describeReviewIndependence({
     implementer: { provider: implementer },
@@ -93,6 +163,7 @@ export function RunForm({
     e.preventDefault();
     setBusy(true);
     setError(null);
+    const isAntigravity = implementer === "antigravity";
     const body = buildRunRequest({
       projectId,
       task,
@@ -118,6 +189,13 @@ export function RunForm({
           : undefined,
       },
       checks,
+      antigravityAcknowledgement:
+        isAntigravity && acknowledged && inventory
+          ? {
+              plugins: inventory.plugins.map((p) => p.name),
+              mcpServers: inventory.mcpServers,
+            }
+          : undefined,
     });
     try {
       const res = await fetch("/api/agent-runs", {
@@ -129,9 +207,31 @@ export function RunForm({
         run?: { id: string };
         error?: string;
         issues?: Array<{ message: string }>;
+        inventory?: {
+          plugins: { name: string; hasHooks: boolean }[];
+          mcpServers: string[];
+        };
       };
       if (!res.ok || !data.run) {
-        setError(data.issues?.[0]?.message ?? data.error ?? `Could not start the run (${res.status})`);
+        if (res.status === 409 && data.inventory) {
+          setInventory({
+            plugins: Array.isArray(data.inventory.plugins)
+              ? data.inventory.plugins
+              : [],
+            mcpServers: Array.isArray(data.inventory.mcpServers)
+              ? data.inventory.mcpServers
+              : [],
+          });
+          setAcknowledged(false);
+        } else if (res.status === 409 && isAntigravity) {
+          loadInventory();
+          setAcknowledged(false);
+        }
+        setError(
+          data.issues?.[0]?.message ??
+            data.error ??
+            `Could not start the run (${res.status})`,
+        );
         setBusy(false);
         return;
       }
@@ -151,6 +251,21 @@ export function RunForm({
   const providerOptions = optionsFor(providers);
   const implementerOptions = optionsFor(implementerChoices);
 
+  const isAntigravity = implementer === "antigravity";
+  const hasInventoryItems = Boolean(
+    inventory &&
+    (inventory.plugins.length > 0 || inventory.mcpServers.length > 0),
+  );
+  const isAckRequired = isAntigravity && hasInventoryItems;
+  const isSubmitDisabled =
+    busy ||
+    !projectId ||
+    !implementer ||
+    !task.trim() ||
+    (isAntigravity &&
+      ((inventory === null && !inventoryFailed) ||
+        (isAckRequired && !acknowledged)));
+
   return (
     <Card>
       <CardHeader>
@@ -158,8 +273,15 @@ export function RunForm({
       </CardHeader>
       <CardBody>
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Project" help="Only projects with a local folder are listed.">
-            <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} required>
+          <Field
+            label="Project"
+            help="Only projects with a local folder are listed."
+          >
+            <Select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              required
+            >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -178,13 +300,20 @@ export function RunForm({
           </Field>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Implementer">
-              <Select value={implementer} onChange={handleImplementerChange} required>
+              <Select
+                value={implementer}
+                onChange={handleImplementerChange}
+                required
+              >
                 {implementerOptions}
               </Select>
             </Field>
             <Field label="Model" hint="optional">
               {implementerModelOptions.length > 0 ? (
-                <Select value={implementerModel} onChange={(e) => setImplementerModel(e.target.value)}>
+                <Select
+                  value={implementerModel}
+                  onChange={(e) => setImplementerModel(e.target.value)}
+                >
                   {implementerModelOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
@@ -200,7 +329,10 @@ export function RunForm({
               )}
             </Field>
             <Field label="Effort" hint="optional">
-              <Select value={implementerEffort} onChange={(e) => setImplementerEffort(e.target.value)}>
+              <Select
+                value={implementerEffort}
+                onChange={(e) => setImplementerEffort(e.target.value)}
+              >
                 <option value="">Provider default</option>
                 {effortLevelsFor(implementer).map((l) => (
                   <option key={l} value={l}>
@@ -210,6 +342,68 @@ export function RunForm({
               </Select>
             </Field>
           </div>
+          {isAntigravity ? (
+            <div className="rounded-md border border-line bg-[var(--bg-subtle)] p-3 space-y-2 text-[12px]">
+              <div className="font-semibold text-fg">
+                Antigravity loads these into the run
+              </div>
+              {inventory === null && inventoryFailed ? (
+                <p className="text-muted">
+                  Could not read the Antigravity plugins.{" "}
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={loadInventory}
+                  >
+                    Try again
+                  </button>
+                </p>
+              ) : inventory === null ? (
+                <p className="text-muted">Loading inventory...</p>
+              ) : !hasInventoryItems ? (
+                <p className="text-muted">No plugins or MCP servers found.</p>
+              ) : (
+                <>
+                  {inventory.plugins.length > 0 ? (
+                    <div>
+                      <div className="text-[11px] font-medium text-muted uppercase tracking-wider">
+                        Plugins
+                      </div>
+                      <ul className="mt-1 list-inside list-disc space-y-0.5 text-fg">
+                        {inventory.plugins.map((p) => (
+                          <li key={p.name}>
+                            {p.name}
+                            {p.hasHooks ? " (has hooks)" : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {inventory.mcpServers.length > 0 ? (
+                    <div>
+                      <div className="text-[11px] font-medium text-muted uppercase tracking-wider">
+                        MCP servers
+                      </div>
+                      <ul className="mt-1 list-inside list-disc space-y-0.5 text-fg">
+                        {inventory.mcpServers.map((s) => (
+                          <li key={s}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <label className="flex items-center gap-2 pt-1 font-normal text-fg cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={acknowledged}
+                      onChange={(e) => setAcknowledged(e.target.checked)}
+                      className="rounded border-line"
+                    />
+                    <span>I reviewed these plugins and MCP servers</span>
+                  </label>
+                </>
+              )}
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Planner" hint="optional">
               <Select value={planner} onChange={handlePlannerChange}>
@@ -299,15 +493,22 @@ export function RunForm({
               </Select>
             </Field>
           </div>
-          <Field label="Required checks" help="Names from the project policy, separated by commas or spaces.">
-            <Input value={checks} onChange={(e) => setChecks(e.target.value)} placeholder="lint, typecheck" />
+          <Field
+            label="Required checks"
+            help="Names from the project policy, separated by commas or spaces."
+          >
+            <Input
+              value={checks}
+              onChange={(e) => setChecks(e.target.value)}
+              placeholder="lint, typecheck"
+            />
           </Field>
           {error ? (
             <p role="alert" className="text-[12px] text-red-400">
               {error}
             </p>
           ) : null}
-          <Button type="submit" variant="primary" disabled={busy || !projectId || !implementer || !task.trim()}>
+          <Button type="submit" variant="primary" disabled={isSubmitDisabled}>
             {busy ? "Starting..." : "Start run"}
           </Button>
         </form>

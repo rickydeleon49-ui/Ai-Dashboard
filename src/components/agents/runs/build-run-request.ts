@@ -26,6 +26,10 @@ export interface BuildRunRequestInput {
     reviewer?: RoleInput | null;
   };
   checks?: string | readonly string[];
+  antigravityAcknowledgement?: {
+    plugins: string[] | readonly string[];
+    mcpServers: string[] | readonly string[];
+  };
 }
 
 export function isEffortLevel(value: unknown): value is EffortLevel {
@@ -35,7 +39,9 @@ export function isEffortLevel(value: unknown): value is EffortLevel {
   );
 }
 
-export function buildRoleConfig(input?: RoleInput | null): RoleConfig | undefined {
+export function buildRoleConfig(
+  input?: RoleInput | null,
+): RoleConfig | undefined {
   if (!input) return undefined;
   const provider = input.provider?.trim();
   if (!provider) return undefined;
@@ -70,7 +76,7 @@ export function buildRunRequest(input: BuildRunRequestInput): RunRequest {
   const planner = buildRoleConfig(input.roles.planner);
   const reviewer = buildRoleConfig(input.roles.reviewer);
 
-  return {
+  const request: RunRequest = {
     projectId: input.projectId,
     task: input.task,
     roles: {
@@ -80,4 +86,16 @@ export function buildRunRequest(input: BuildRunRequestInput): RunRequest {
     },
     checks: normalizeChecks(input.checks),
   };
+
+  if (
+    implementer.provider === "antigravity" &&
+    input.antigravityAcknowledgement
+  ) {
+    request.antigravityAcknowledgement = {
+      plugins: [...input.antigravityAcknowledgement.plugins],
+      mcpServers: [...input.antigravityAcknowledgement.mcpServers],
+    };
+  }
+
+  return request;
 }
