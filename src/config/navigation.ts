@@ -21,6 +21,7 @@ import {
   CalendarDays,
   Cpu,
   FileUp,
+  Gauge,
   Github,
   LayoutDashboard,
   LayoutTemplate,
@@ -72,6 +73,7 @@ export const NAVIGATION: NavGroup[] = [
     label: "AI",
     items: [
       { label: "Agents", href: "/agents", icon: Bot, phase: 1 },
+      { label: "Usage", href: "/usage", icon: Gauge, phase: 1 },
       { label: "AI Workspace", href: "/ai", icon: Sparkles, phase: 1 },
       { label: "Local AI", href: "/ai/chat", icon: Cpu, phase: 1 },
       { label: "Prompts", href: "/ai/prompts", icon: Bot, countKey: "prompts", phase: 1 },
@@ -116,7 +118,12 @@ export function isNavItemVisible(
   if (options.accountsMode && !isItemAllowedInAccounts(item.href)) {
     return false;
   }
-  if (item.href === "/agents" || item.href.startsWith("/agents/")) {
+  if (
+    item.href === "/agents" ||
+    item.href.startsWith("/agents/") ||
+    item.href === "/usage" ||
+    item.href.startsWith("/usage/")
+  ) {
     // Desktop-only; the server layout computes the flag and passes it down. Hidden unless told otherwise.
     return options.agentRunsEnabled === true;
   }

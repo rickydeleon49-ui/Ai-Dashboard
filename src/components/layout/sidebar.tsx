@@ -10,6 +10,7 @@ import {
 } from "@/config/navigation";
 import type { ProjectStats } from "@/core/projects/types";
 import { cn } from "@/lib/utils";
+import { SidebarUsageSummary } from "@/components/usage/sidebar-usage-summary";
 
 /**
  * Primary navigation, rendered from `NAVIGATION`.
@@ -76,6 +77,7 @@ export function SidebarNav({
                     <span className="truncate">{item.label}</span>
 
                     <span className="ml-auto flex items-center gap-1.5">
+                      {item.href === "/usage" ? <SidebarUsageSummary /> : null}
                       {item.phase > 1 ? (
                         <span
                           className="rounded bg-[var(--bg-subtle)] px-1 py-px text-[9px] font-medium uppercase tracking-wide text-faint"
