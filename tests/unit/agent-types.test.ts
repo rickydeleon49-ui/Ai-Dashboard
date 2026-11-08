@@ -117,6 +117,7 @@ describe("agent types and constants", () => {
       "plugin_read",
       "monitor_stop",
       "continuation",
+      "advisor",
     ]);
   });
 

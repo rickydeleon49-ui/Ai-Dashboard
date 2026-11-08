@@ -12,6 +12,7 @@ import {
   defaultReviewRoles,
   effortLevelsFor,
   implementerProviders,
+  reviewRoleProviders,
 } from "./role-defaults";
 
 export interface ProviderOption {
@@ -248,7 +249,7 @@ export function RunForm({
         {p.label} ({p.note})
       </option>
     ));
-  const providerOptions = optionsFor(providers);
+  const providerOptions = optionsFor(reviewRoleProviders(providers));
   const implementerOptions = optionsFor(implementerChoices);
 
   const isAntigravity = implementer === "antigravity";

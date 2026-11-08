@@ -112,6 +112,8 @@ export const EVENT_KINDS = [
   "monitor_stop",
   /** The runner resumed an Antigravity conversation after an exit without a result (AW3-04). */
   "continuation",
+  /** Advisory summary from the local LM Studio model; never changes the outcome (AW3-06b). */
+  "advisor",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];

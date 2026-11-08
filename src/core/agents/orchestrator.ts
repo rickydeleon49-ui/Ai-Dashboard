@@ -26,6 +26,7 @@ import { eq, sql } from "drizzle-orm";
 import { agentRuns } from "@/db/schema";
 import { AntigravityRunAccumulator, type AntigravityFailure } from "./adapters/antigravity";
 import type { AgentAdapter, NormalizedEvent } from "./adapters/types";
+import type { AdvisorFacts, AdvisorResult } from "./adapters/lmstudio";
 import { listComments } from "./comments";
 import { severityClass, type SeverityClass } from "./severity";
 import { appendEvent, type AgentDatabase } from "./events";
@@ -126,6 +127,14 @@ export interface OrchestratorDeps {
   pathDeps?: PathDeps;
   /** Antigravity tool monitor overrides (tests); the worktree and home default to the run's worktree and os.homedir(). */
   monitorOptions?: Partial<ToolMonitorOptions>;
+  /**
+   * AW3-06b: optional local LM Studio advisor. Called once after the final outcome
+   * (succeeded or failed, never stopped); its result is recorded as an advisor event
+   * and never changes the outcome.
+   */
+  advisor?: (facts: AdvisorFacts, signal: AbortSignal) => Promise<AdvisorResult>;
+  /** Longest the advisor may hold the run open (default 30 s). */
+  advisorTimeoutMs?: number;
 }
 
 export interface RunOutcome {
@@ -320,6 +329,10 @@ export async function runAgentRun(
   let roundsMode = false;
   /** Correction rounds started so far; the initial implement is round 0. */
   let round = 0;
+  /** Advisor inputs: changed paths and the latest review's findings (no file contents). */
+  let diffPaths: string[] = [];
+  let taskText = "";
+  let lastFindings: Array<{ severity: string; message: string }> = [];
 
   const record = (
     recStage: RunStage | null,
@@ -361,6 +374,52 @@ export async function runAgentRun(
     }
   };
 
+  /**
+   * AW3-06b: one bounded advisory call after the outcome is decided. Any throw, timeout or
+   * ok:false leaves the outcome untouched; the result is stored verbatim as an advisor event.
+   */
+  const runAdvisor = async (outcome: RunOutcome): Promise<void> => {
+    if (!deps.advisor || outcome.status === "stopped" || signal.aborted) return;
+    const timeoutMs = deps.advisorTimeoutMs ?? 30_000;
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const advisorFacts: AdvisorFacts = {
+        task: taskText,
+        status: outcome.status,
+        reviewVerdict: outcome.facts.reviewVerdict,
+        rounds: outcome.rounds?.corrections ?? 0,
+        filesChanged: diffPaths,
+        checks: outcome.facts.checks.map((c) => ({ name: c.name, passed: c.exitCode === 0 && !c.timedOut })),
+        findings: lastFindings.map((f) => ({ severity: f.severity, title: f.message.slice(0, 200) })),
+      };
+      const timeout = new Promise<AdvisorResult>((resolve) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          resolve({ ok: false, reason: "advisor timed out" });
+        }, timeoutMs);
+      });
+      const aborted = new Promise<AdvisorResult>((resolve) => {
+        controller.signal.addEventListener("abort", () => resolve({ ok: false, reason: "advisor aborted" }), {
+          once: true,
+        });
+      });
+      const result = await Promise.race([
+        Promise.resolve().then(() => deps.advisor!(advisorFacts, controller.signal)),
+        timeout,
+        aborted,
+      ]);
+      await appendEvent(db, { runId, stage: "final", agent: "advisor", kind: "advisor", payload: result });
+    } catch {
+      // The advisor never affects the run.
+    } finally {
+      if (timer) clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+
   const finish = async (outcome: RunOutcome): Promise<RunOutcome> => {
     cleanUp();
     if (roundsMode) outcome = { ...outcome, rounds: { corrections: round } };
@@ -371,6 +430,7 @@ export async function runAgentRun(
       })
       .where(eq(agentRuns.id, runId))
       .run();
+    await runAdvisor(outcome);
     await setStatus(db, runId, outcome.status, "final", roundExtra());
     return outcome;
   };
@@ -388,6 +448,7 @@ export async function runAgentRun(
     if (unknownChecks.length > 0) {
       throw new Error(`checks not in the project policy: ${unknownChecks.join(", ")}`);
     }
+    taskText = request.task;
     required = request.checks;
     const selected = policy.checks.filter((c) => required.includes(c.name));
 
@@ -681,6 +742,7 @@ export async function runAgentRun(
       const diffOpts = { excludedPaths: policy.excludedPaths, ...(scopePaths.length > 0 ? { scopePaths } : {}) };
       const diff = await deps.workspace.diff(ws.path, ws.baseSha, diffOpts);
       throwIfStopped(signal);
+      diffPaths = diff.files.map((f) => f.path);
       facts.diffFiles = diff.files.length;
       facts.excludedTouched = diff.files.filter((f) => f.excluded).map((f) => f.path);
       if (roundsMode) {
@@ -727,6 +789,7 @@ export async function runAgentRun(
         const parsed = reviewerOutputSchema.safeParse(raw);
         if (parsed.success) {
           facts.reviewVerdict = parsed.data.verdict;
+          lastFindings = parsed.data.findings;
           await record("review", "reviewer", "review", parsed.data);
         } else {
           await record("review", "reviewer", "error", {
@@ -810,6 +873,7 @@ export async function runAgentRun(
       }
       const review = parsed.data;
       facts.reviewVerdict = review.verdict;
+      lastFindings = review.findings;
       await record(stage, "reviewer", "review", review);
       await record(stage, "system", "stage_finished", { stage, verdict: review.verdict });
 

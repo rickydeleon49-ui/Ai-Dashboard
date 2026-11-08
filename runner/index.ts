@@ -20,6 +20,7 @@ import type { AgentRunIntentRow } from "@/db/schema";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
 import { antigravityAdapter } from "@/core/agents/adapters/antigravity";
+import { advisorFromEnv } from "@/core/agents/advisor";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { appendEvent, type AgentDatabase } from "@/core/agents/events";
 import {
@@ -444,6 +445,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       pathDeps: overrides.pathDeps,
       // AW.2 planner/reviewer roles (Claude Code, Codex); a role whose provider has no runner fails the run up front.
       roleRunners: defaultRoleRunners(),
+      advisor: advisorFromEnv(),
       ...overrides.orchestrator,
     };
     // The grant folder's parent must exist for the orchestrator's safe cleanup.
