@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { EVENT_AGENTS, isTerminalStatus } from "@/core/agents/types";
+import { commentRejectionReason } from "@/core/agents/comment-rules";
 import type { SeverityClass } from "@/core/agents/severity";
 import {
   groupComments,
@@ -149,9 +150,11 @@ export interface RunLiveProps {
   initialStatus: string;
   initialOutcome: unknown;
   requiredChecks: string[];
+  /** False for AW.1 runs (no planner or reviewer): comments are never read. */
+  hasReviewStage?: boolean;
 }
 
-export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }: RunLiveProps) {
+export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, hasReviewStage = true }: RunLiveProps) {
   const [stream, setStream] = React.useState<StreamState>(emptyStreamState);
   const [filter, setFilter] = React.useState<AgentFilter>("all");
   const [outcomeRaw, setOutcomeRaw] = React.useState<unknown>(initialOutcome);
@@ -470,9 +473,10 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
         runId={runId}
         round={round}
         readOnlyNote={
-          round < latestRound
+          commentRejectionReason({ status, hasReviewStage }) ??
+          (round < latestRound
             ? `Comments are picked up for the latest round only. Switch to ${roundLabel(latestRound)} to add one.`
-            : undefined
+            : undefined)
         }
         files={diffFiles}
         draft={draft}

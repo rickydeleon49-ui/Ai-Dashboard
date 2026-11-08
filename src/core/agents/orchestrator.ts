@@ -604,6 +604,8 @@ export async function runAgentRun(
     // ---- AW.2 flow: implement, then (checks, diff, review, decide, correct) until done. ----
     let prompt = buildImplementerPrompt(request.task, plan);
     let resumeId: string | undefined;
+    // Owner comments already sent to the agent in a correction round.
+    const consumedComments = new Set<string>();
     for (;;) {
       await runImplementer(round === 0 ? "implement" : "correct", prompt, resumeId);
       if (facts.implementerExitCode !== 0) {
@@ -688,15 +690,48 @@ export async function runAgentRun(
         }
       }
       const triggers = review.findings.filter(triggersCorrection);
-      const comments = await listComments(db, runId, round);
+      // Every comment not yet sent, from this round or an earlier one (a late one is not lost).
+      const unconsumedComments = async () =>
+        (await listComments(db, runId)).filter((c) => c.round <= round && !consumedComments.has(c.id));
+      const comments = await unconsumedComments();
       const outOfScope = facts.outOfScope ?? [];
       // An out-of-scope change is fixable (revert it), so it starts a round too.
       const needsCorrection =
         triggers.length > 0 || failedChecks.length > 0 || comments.length > 0 || outOfScope.length > 0;
 
-      if (needsCorrection && round < MAX_ROUNDS) {
+      // Starts a correction round: builds the prompt, marks the comments as sent, records the stage.
+      const beginCorrection = async (
+        findings: Array<{ severity: string; path?: string; line?: number; message: string; actionable: boolean }>,
+        failed: Array<CheckResult & { didNotRun?: boolean }>,
+        sentComments: typeof comments,
+      ): Promise<void> => {
         round += 1;
         resumeId = deps.implementer.supportsResume ? implementerSessionId : undefined;
+        for (const c of sentComments) consumedComments.add(c.id);
+        prompt = buildCorrectionPrompt({
+          task: reviewTask,
+          round,
+          findings,
+          failedChecks: failed.map((c) => ({
+            name: c.name,
+            output: c.output,
+            exitCode: c.exitCode,
+            timedOut: c.timedOut,
+          })),
+          // The owner's comments stay in their own block, labelled as the user's.
+          userComments: sentComments.map((c) => ({ file: c.file, line: c.line, body: c.body })),
+        });
+        await record("correct", "system", "stage_started", {
+          stage: "correct",
+          findings: findings.length,
+          failedChecks: failed.map((c) => c.name),
+          userComments: sentComments.length,
+          commentIds: sentComments.map((c) => c.id),
+          resumed: Boolean(resumeId),
+        });
+      };
+
+      if (needsCorrection && round < MAX_ROUNDS) {
         const findings: Array<{
           severity: string;
           path?: string;
@@ -718,26 +753,7 @@ export async function runAgentRun(
             actionable: true,
           });
         }
-        prompt = buildCorrectionPrompt({
-          task: reviewTask,
-          round,
-          findings,
-          failedChecks: failedChecks.map((c) => ({
-            name: c.name,
-            output: c.output,
-            exitCode: c.exitCode,
-            timedOut: c.timedOut,
-          })),
-          // The owner's comments stay in their own block, labelled as the user's.
-          userComments: comments.map((c) => ({ file: c.file, line: c.line, body: c.body })),
-        });
-        await record("correct", "system", "stage_started", {
-          stage: "correct",
-          findings: findings.length,
-          failedChecks: failedChecks.map((c) => c.name),
-          userComments: comments.length,
-          resumed: Boolean(resumeId),
-        });
+        await beginCorrection(findings, failedChecks, comments);
         continue;
       }
 
@@ -759,6 +775,21 @@ export async function runAgentRun(
       if (review.verdict !== "approve") missing.push("reviewer requested changes");
       if (outOfScope.length > 0) missing.push(`changed paths outside the plan scope: ${outOfScope.join(", ")}`);
       if (needsCorrection) missing.unshift(`still not done after ${MAX_ROUNDS} correction rounds`);
+
+      // Comments that arrived after the read above must not be dropped silently (review S3).
+      const late = comments.length > 0 ? [] : await unconsumedComments();
+      if (late.length > 0) {
+        if (missing.length === 0 && round < MAX_ROUNDS) {
+          // About to succeed with an unread comment: send it in a correction round instead.
+          await beginCorrection([], [], late);
+          continue;
+        }
+        missing.push(`${late.length} user comment(s) not sent to the agent`);
+        await record("review", "system", "warning", {
+          message: `${late.length} user comment(s) arrived too late and were not sent to the agent`,
+          commentsNotSent: late.map((c) => c.id),
+        });
+      }
       // A stop that arrived at any point up to here wins over the decision.
       throwIfStopped(signal);
       if (missing.length === 0) return await finish({ status: "succeeded", facts, missing: [] });

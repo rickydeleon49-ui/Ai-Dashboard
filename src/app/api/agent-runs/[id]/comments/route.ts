@@ -8,6 +8,7 @@ import {
   listComments,
   commentInputSchema,
 } from "@/core/agents/comments";
+import { commentRejectionReason, requestHasReviewStage } from "@/core/agents/comment-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   if (!run) {
     return NextResponse.json({ error: "Agent run not found" }, { status: 404 });
+  }
+
+  const rejection = commentRejectionReason({
+    status: run.status,
+    hasReviewStage: requestHasReviewStage(run.request),
+  });
+  if (rejection) {
+    return NextResponse.json({ error: rejection }, { status: 409 });
   }
 
   const contentLengthHeader = request.headers.get("content-length");

@@ -45,21 +45,27 @@ function seedRun(
   id: string,
   task: string,
   events: Seed[],
+  /** A run still in progress with a reviewer: it takes comments (the others have ended). */
+  live = false,
 ): void {
   const request = {
     projectId,
     task,
     checks: [],
-    roles: { implementer: { provider: "claude-code" } },
+    roles: live
+      ? { implementer: { provider: "claude-code" }, planner: { provider: "claude-code" }, reviewer: { provider: "claude-code" } }
+      : { implementer: { provider: "claude-code" } },
   };
   db.prepare(
     `INSERT INTO agent_run (id, project_id, status, stage, request, outcome, ended_at)
-     VALUES (?, ?, 'succeeded', 'final', ?, ?, datetime('now'))`,
+     VALUES (?, ?, ?, ?, ?, ?, ${live ? "NULL" : "datetime('now')"})`,
   ).run(
     id,
     projectId,
+    live ? "reviewing" : "succeeded",
+    live ? "review" : "final",
     JSON.stringify(request),
-    JSON.stringify({ status: "succeeded" }),
+    live ? null : JSON.stringify({ status: "succeeded" }),
   );
   const insert = db.prepare(
     "INSERT INTO agent_run_event (run_id, seq, stage, agent, kind, payload) VALUES (?, ?, ?, ?, ?, ?)",
@@ -181,7 +187,7 @@ before(async () => {
           round: 1,
         },
       },
-    ]);
+    ], true);
     seedRun(db, LEGACY_ID, LEGACY_TASK, [
       diffEvent("src/legacy/date.ts"),
       checkEvent(),
@@ -297,6 +303,9 @@ describe("agent pages (real browser)", () => {
       0,
     );
     assert.equal(await p.getByRole("heading", { name: "Plan" }).count(), 0);
+    // An ended AW.1 run takes no comments: a reason instead of the form (review S3).
+    await p.getByText("This run has ended, so a new comment would never reach the agent.").waitFor();
+    assert.equal(await p.getByLabel("Comment", { exact: true }).count(), 0);
     await p
       .getByRole("heading", { level: 3 })
       .filter({ hasText: "major" })

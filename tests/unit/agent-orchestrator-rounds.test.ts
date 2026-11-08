@@ -11,7 +11,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { eq } from "drizzle-orm";
 import { cleanup, migrate } from "../helpers/db";
-import { agentRuns, projects } from "../../src/db/schema";
+import { agentRunComments, agentRuns, projects } from "../../src/db/schema";
 import { readSince, type StoredAgentEvent } from "../../src/core/agents/events";
 import { fakeAdapter } from "../../src/core/agents/adapters/fake";
 import type { AgentAdapter } from "../../src/core/agents/adapters/types";
@@ -464,5 +464,66 @@ describe("the owner's task stays authoritative (review S1)", () => {
     const reviews = reviewCalls(env);
     assert.equal(reviews.length, 2);
     for (const r of reviews) assert.equal(taskSection(r.prompt), "do the thing", r.prompt);
+  });
+});
+
+describe("late owner comments are never dropped silently (review S3)", () => {
+  /** Adds a comment the moment the orchestrator makes its `injectOn`th read of the comments table. */
+  function injectLateComment(env: Env, injectOn: number): void {
+    const real = env.deps.db;
+    let reads = 0;
+    const wrapBuilder = (b: object) =>
+      new Proxy(b, {
+        get(t, k) {
+          if (k === "from") {
+            return (tbl: unknown) => {
+              if (tbl === agentRunComments && ++reads === injectOn) {
+                void addComment(real, env.runId, { round: 0, body: "late: also handle Y" });
+              }
+              return (t as { from: (x: unknown) => unknown }).from(tbl);
+            };
+          }
+          const v = Reflect.get(t, k);
+          return typeof v === "function" ? v.bind(t) : v;
+        },
+      });
+    env.deps = {
+      ...env.deps,
+      db: new Proxy(real, {
+        get(t, k) {
+          if (k === "select") return (...a: unknown[]) => wrapBuilder((t.select as (...x: unknown[]) => object)(...a));
+          const v = Reflect.get(t, k);
+          return typeof v === "function" ? v.bind(t) : v;
+        },
+      }) as typeof real,
+    };
+  }
+
+  it("a comment that arrives just before success starts a correction round with it", T, async () => {
+    const env = makeEnv({ script: { plan: { output: PLAN }, reviews: [{ output: APPROVE }, { output: APPROVE }] } });
+    injectLateComment(env, 2);
+    const out = await run(env);
+    assert.equal(out.status, "succeeded", JSON.stringify(out));
+    assert.deepEqual(out.rounds, { corrections: 1 });
+    assert.match(env.prompts[1] ?? "", /late: also handle Y/);
+    const correct = (await events(env)).find((e) => e.kind === "stage_started" && e.stage === "correct");
+    assert.equal((correct?.payload as { userComments?: number }).userComments, 1);
+  });
+
+  it("with no rounds left the run does not report plain success; the comment is recorded as not sent", T, async () => {
+    const env = makeEnv({
+      script: {
+        plan: { output: PLAN },
+        reviews: [{ output: BLOCKING }, { output: BLOCKING }, { output: BLOCKING }, { output: APPROVE }],
+      },
+    });
+    injectLateComment(env, 5);
+    const out = await run(env);
+    assert.equal(out.status, "failed", JSON.stringify(out));
+    assert.ok(out.missing.some((m) => /1 user comment\(s\) not sent to the agent/.test(m)), JSON.stringify(out.missing));
+    const warn = (await events(env)).find(
+      (e) => e.kind === "warning" && Array.isArray((e.payload as { commentsNotSent?: unknown }).commentsNotSent),
+    );
+    assert.ok(warn, "a warning event lists the comments not sent");
   });
 });

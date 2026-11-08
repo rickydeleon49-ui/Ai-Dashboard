@@ -52,11 +52,24 @@ async function createTestProject(id: string, name = "Test Project"): Promise<voi
   await db.insert(projects).values({ id, name, localPath: "H:/test/path" });
 }
 
-async function createTestRun(id: string, projectId: string): Promise<void> {
+async function createTestRun(
+  id: string,
+  projectId: string,
+  opts: { status?: string; reviewer?: boolean } = {},
+): Promise<void> {
   await db.insert(agentRuns).values({
     id,
     projectId,
-    status: "implementing",
+    status: (opts.status ?? "reviewing") as "reviewing",
+    request: JSON.stringify({
+      projectId,
+      task: "t",
+      checks: [],
+      roles: {
+        implementer: { provider: "claude-code" },
+        ...(opts.reviewer === false ? {} : { reviewer: { provider: "claude-code" } }),
+      },
+    }),
     workspacePath: `/worktrees/${id}`,
     baseRef: "main",
   });
@@ -154,6 +167,24 @@ describe("agent run inline comments API routes (AW2-06b)", () => {
       assert.equal(deleteRes.status, 404);
       const deleteData = await deleteRes.json();
       assert.equal(deleteData.error, "Agent run not found");
+    });
+
+    it("POST on a terminal run or a run with no reviewer stage -> 409 and nothing stored (review S3)", async () => {
+      await createTestProject("prj_409");
+      await createTestRun("run_409_done", "prj_409", { status: "succeeded" });
+      await createTestRun("run_409_aw1", "prj_409", { reviewer: false });
+      for (const [runId, pattern] of [
+        ["run_409_done", /has ended/],
+        ["run_409_aw1", /no planner or reviewer stage/],
+      ] as const) {
+        const res = await commentsRoute.POST(
+          jsonRequest(`http://localhost/api/agent-runs/${runId}/comments`, "POST", { round: 0, body: "hello" }),
+          { params: Promise.resolve({ id: runId }) },
+        );
+        assert.equal(res.status, 409);
+        assert.match(((await res.json()) as { error: string }).error, pattern);
+        assert.equal(db.select().from(agentRunComments).where(eq(agentRunComments.runId, runId)).all().length, 0);
+      }
     });
 
     it("POST valid -> 201 and GET lists it", async () => {
