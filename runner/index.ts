@@ -43,6 +43,7 @@ import {
 import { getPolicy, toRunPolicy } from "@/core/agents/policy";
 import { runPolicyCheck } from "@/core/agents/run-check";
 import { runRequestSchema } from "@/core/agents/schema";
+import { postRunOutcomeToTask } from "@/core/agents/task-link";
 import { TERMINAL_STATUSES } from "@/core/agents/types";
 import { commitStage, createRunWorktree, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
 
@@ -357,6 +358,11 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       .where(eq(agentRuns.id, runId))
       .run();
     await event(runId, "final", "status_changed", { status: "failed", stage: "final" });
+    try {
+      postRunOutcomeToTask(db, runId);
+    } catch {
+      // best-effort task note
+    }
     log("warn", "run failed before start", { runId, reason });
   }
 
@@ -488,6 +494,11 @@ export function createRunner(overrides: RunnerOverrides): Runner {
           releaseLocksForRun(db, intent.runId);
           await event(intent.runId, null, "warning", { message: "stopped by user before it started" });
           await event(intent.runId, "final", "status_changed", { status: "stopped", stage: "final" });
+          try {
+            postRunOutcomeToTask(db, intent.runId);
+          } catch {
+            // best-effort task note
+          }
           log("info", "stopped a queued run", { runId: intent.runId });
         }
         return;

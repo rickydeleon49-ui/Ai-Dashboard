@@ -56,6 +56,8 @@ export function RunForm({
   );
   const [projectId, setProjectId] = React.useState(projects[0]?.id ?? "");
   const [task, setTask] = React.useState("");
+  const [linkedTask, setLinkedTask] = React.useState<{ id: string; title: string } | null>(null);
+  const [nextTaskNote, setNextTaskNote] = React.useState<string | null>(null);
 
   const [implementer, setImplementer] = React.useState(firstUsable);
   const [implementerModel, setImplementerModel] = React.useState("");
@@ -160,6 +162,30 @@ export function RunForm({
     reviewer: reviewer ? { provider: reviewer } : undefined,
   });
 
+  async function pickNextTask() {
+    setNextTaskNote(null);
+    try {
+      const res = await fetch(`/api/agent-projects/${encodeURIComponent(projectId)}/next-task`);
+      const data = (await res.json()) as {
+        task?: { id: string; title: string } | null;
+        reason?: string | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        setNextTaskNote(data.error ?? "Could not look up the next task.");
+        return;
+      }
+      if (data.task) {
+        setLinkedTask(data.task);
+        if (!task.trim()) setTask(data.task.title);
+      } else {
+        setNextTaskNote(data.reason ?? "No task is ready.");
+      }
+    } catch {
+      setNextTaskNote("Could not look up the next task.");
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -168,6 +194,7 @@ export function RunForm({
     const body = buildRunRequest({
       projectId,
       task,
+      taskId: linkedTask?.id,
       roles: {
         implementer: {
           provider: implementer,
@@ -280,7 +307,11 @@ export function RunForm({
           >
             <Select
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
+              onChange={(e) => {
+                setProjectId(e.target.value);
+                setLinkedTask(null);
+                setNextTaskNote(null);
+              }}
               required
             >
               {projects.map((p) => (
@@ -298,6 +329,26 @@ export function RunForm({
               required
               placeholder="Describe the change the implementer should make."
             />
+          </Field>
+          <Field
+            label="Linked task"
+            help="Optional. The run posts its outcome to this task's activity; it never changes the task's status."
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="secondary" onClick={pickNextTask} disabled={!projectId}>
+                Next task
+              </Button>
+              {linkedTask ? (
+                <>
+                  <span className="text-sm text-fg">{linkedTask.title}</span>
+                  <Button type="button" variant="ghost" onClick={() => setLinkedTask(null)}>
+                    Clear
+                  </Button>
+                </>
+              ) : (
+                <span className="text-sm text-muted">{nextTaskNote ?? "None"}</span>
+              )}
+            </div>
           </Field>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Implementer">

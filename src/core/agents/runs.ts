@@ -35,6 +35,8 @@ export interface AgentRunRecord<TRequest = RunRequest, TOutcome = unknown> {
   correctionRound: number;
   outcome: TOutcome | null;
   runnerEpoch: string | null;
+  /** AW4-05: the task this run is tied to, or null. */
+  taskId: string | null;
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;
@@ -81,6 +83,7 @@ function parseRunRow(row: AgentRunRow): AgentRunRecord {
     correctionRound: row.correctionRound ?? 0,
     outcome: row.outcome ? safeParseJson(row.outcome, null) : null,
     runnerEpoch: row.runnerEpoch ?? null,
+    taskId: row.taskId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     endedAt: row.endedAt ?? null,
@@ -119,6 +122,7 @@ export async function createRun(
         projectId: request.projectId,
         status: "queued",
         request: requestJson,
+        taskId: request.taskId ?? null,
       })
       .returning()
       .get();

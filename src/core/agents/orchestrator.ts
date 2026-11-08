@@ -53,6 +53,7 @@ import {
   type RunRequest,
 } from "./schema";
 import type { EventAgent, EventKind, RunStage, RunStatus } from "./types";
+import { postRunOutcomeToTask } from "./task-link";
 import {
   isPathInScope,
   type CreateRunWorktreeResult,
@@ -188,6 +189,15 @@ interface ImplementerAttempt {
   /** Antigravity only: failures the accumulator saw (including the one added at exit). */
   failures: AntigravityFailure[];
   conversationId: string | undefined;
+}
+
+/** AW4-05: post the final outcome to the linked task; a failure here never changes the run. */
+function postOutcomeSafely(db: AgentDatabase, runId: string): void {
+  try {
+    postRunOutcomeToTask(db, runId);
+  } catch {
+    // The run is already final; the task note is best-effort.
+  }
 }
 
 async function record(
@@ -434,6 +444,7 @@ export async function runAgentRun(
       .run();
     await runAdvisor(outcome);
     await setStatus(db, runId, outcome.status, "final", roundExtra());
+    postOutcomeSafely(db, runId);
     return outcome;
   };
 

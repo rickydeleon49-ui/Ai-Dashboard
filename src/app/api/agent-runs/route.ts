@@ -8,6 +8,7 @@ import { runRequestSchema } from "@/core/agents/schema";
 import { createRun, listRuns } from "@/core/agents/runs";
 import { readAntigravityInventory } from "@/core/agents/adapters/antigravity-inventory";
 import { checkAntigravityAcknowledgement } from "@/core/agents/antigravity-ack";
+import { validateRunTask } from "@/core/agents/task-link";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,13 @@ export async function POST(request: NextRequest) {
       { error: "Project has no local folder" },
       { status: 409 },
     );
+  }
+
+  if (parsed.data.taskId) {
+    const taskCheck = validateRunTask(db, parsed.data.projectId, parsed.data.taskId);
+    if (!taskCheck.ok) {
+      return NextResponse.json({ error: taskCheck.error }, { status: 400 });
+    }
   }
 
   if (parsed.data.roles.implementer.provider === "antigravity") {

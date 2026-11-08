@@ -743,11 +743,14 @@ export const agentRuns = sqliteTable(
     correctionRound: integer("correction_round").notNull().default(0),
     outcome: text("outcome"),
     runnerEpoch: text("runner_epoch"),
+    /** AW4-05: the one task this run is tied to (null = none). A run never changes the task itself. */
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull().default(now),
     updatedAt: text("updated_at").notNull().default(now),
     endedAt: text("ended_at"),
   },
   (t) => [
+    index("agent_run_task_idx").on(t.taskId),
     index("agent_run_project_created_idx").on(t.projectId, t.createdAt),
     index("agent_run_status_idx").on(t.status),
   ],
