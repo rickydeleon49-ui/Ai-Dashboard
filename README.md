@@ -321,7 +321,7 @@ the affected files changed in your folder since the copy was made (if one did,
 nothing is written), makes a timestamped backup of every file it will overwrite
 or delete (with a `manifest.json`), copies only the changed files, then checks
 each file's hash. If a check fails, your files are restored from the backup.
-The approval screen for copying back arrives with run approvals.
+Copy back from the run's **Approvals** card (see Run approvals below).
 
 ### Runs linked to a task
 
@@ -334,6 +334,35 @@ link to the run, the check counts and the review verdict.
 
 A run never changes the task itself: status, priority and dates stay as you set
 them.
+
+### Run approvals
+
+After a run finishes (succeeded, failed or stopped), its page has an
+**Approvals** card. Nothing below happens without your approval.
+
+Each action has three steps: **Preview** shows exactly what will happen; then
+**Approve** or **Reject**; after approval the runner does it in the background,
+and the result (or the error) is shown and added to the run's event log.
+
+Actions:
+- **Merge into a branch**: merges the run branch into the branch you name. That
+  branch must be the one checked out in your project folder; the app never
+  switches your checkout. Refused if your checkout has uncommitted changes or
+  the preview found conflicts. The merge commit uses your own Git name.
+- **Push branch**: pushes the run branch to a remote (default `origin`). Never a
+  force push.
+- **Open draft pull request**: opens a draft pull request on GitHub with the
+  GitHub token from Settings. The body lists the run's checks, review and
+  changed files. The app never merges a pull request.
+- **Copy results back to your folder**: for projects without Git only; this is
+  the copy-back step described in "Projects without Git", with its backup and
+  checks.
+- **Delete worktree**: removes a run's worktree even when its branch has commits
+  that are not merged. The branch itself is kept.
+
+Before running an approved action the runner checks again: if the run branch or
+your branch moved since the preview, it stops and asks for a new preview. Each
+run has at most one open approval per action.
 
 ## Commands
 
