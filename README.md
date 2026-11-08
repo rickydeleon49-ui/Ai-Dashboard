@@ -364,6 +364,53 @@ Before running an approved action the runner checks again: if the run branch or
 your branch moved since the preview, it stops and asks for a new preview. Each
 run has at most one open approval per action.
 
+### Resuming a run
+
+A run that was interrupted, failed or stopped shows a **Resume** button next to
+Stop on its page.
+
+Resume starts again from the last stage that finished (plan, implement or
+checks), in the same worktree. It never continues a command halfway.
+
+When a session id was recorded for the implementer, the same session continues
+(Claude Code and Antigravity). Otherwise the stage starts fresh with its original
+instructions and a note that it is a resumed attempt.
+
+Resume is refused, with the reason shown in red, when: the worktree has a commit
+or file changes that the run did not make (up to 10 paths are listed); an
+approval for the run is still open; another run holds the project lock; the
+worktree no longer exists.
+
+The runner does the work in the background; the run's event log shows "resume
+requested" and where it resumed from.
+
+### Dismissing runs and cleaning up worktrees
+
+A finished run (succeeded, failed, stopped or interrupted) has a **Dismiss**
+button on its page. Dismissed runs are hidden from the runs list; **Show
+dismissed** brings them back, and **Restore** undoes a dismiss.
+
+A run cannot be dismissed while one of its approvals is open or a resume is
+queued.
+
+Settings > Agents has "Remove worktrees of dismissed runs after N days" (1 to
+365). It is off by default.
+
+When it is on, the runner checks once at start and then every 6 hours. It only
+removes worktrees of dismissed runs older than N days, and only inside its own
+`command-center` folder.
+
+It skips a worktree that has uncommitted or untracked changes, and a run whose
+branch has commits that no other branch or remote branch has. Skipped runs are
+left as they are.
+
+After removing a worktree it deletes the run branch only if it is fully merged.
+For projects without Git it also removes the run's temporary copy; your own
+folder and the copy-back backups are never touched.
+
+**Preview cleanup** in the same settings card lists what would be removed or
+skipped and why. Previewing never deletes anything.
+
 ## Commands
 
 | Command | Does |
