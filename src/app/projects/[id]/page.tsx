@@ -11,12 +11,14 @@ import {
   Lock,
   LogIn,
   Pencil,
+  ShieldCheck,
   Star as StarIcon,
   Unlock,
 } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
+import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { FavoriteButton } from "@/components/projects/favorite-button";
 import {
   ArchiveButton,
@@ -197,6 +199,16 @@ export default async function ProjectDetailPage({
           <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />
           Open in AI Workspace
         </Link>
+
+        {isAgentRunsEnabled() ? (
+          <Link
+            href={`/settings/agents/projects/${encodeURIComponent(project.id)}`}
+            className={buttonClasses("secondary", "md")}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Agent policy
+          </Link>
+        ) : null}
 
         {project.projectUrl ? (
           <OpenProjectButton projectId={project.id} href={project.projectUrl}>
