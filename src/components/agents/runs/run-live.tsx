@@ -15,6 +15,7 @@ import {
   type RunComment,
 } from "./comments-logic";
 import { RunComments } from "./run-comments";
+import { RunApprovals } from "./run-approvals";
 import {
   availableRounds,
   checksForRound,
@@ -483,6 +484,8 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
         onDraftConsumed={() => setDraft(null)}
         onCommentsChange={setComments}
       />
+
+      <RunApprovals runId={runId} finished={status === "succeeded" || status === "failed" || status === "stopped"} />
 
       <Card>
         <CardHeader>
