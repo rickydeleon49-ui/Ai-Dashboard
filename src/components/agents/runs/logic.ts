@@ -138,6 +138,8 @@ export function eventPlainLines(event: UiEvent): string[] {
       return [`== stage ${event.stage ?? str(p.stage)} finished`];
     case "status_changed":
       return [`-- status: ${str(p.status)}${p.stage ? ` (${str(p.stage)})` : ""}`];
+    case "continuation":
+      return [`== continuing Antigravity (${str(p.stage) || event.stage || ""}, attempt ${String(p.attempt ?? "")} of ${String(p.of ?? "")})`];
     case "tool_call":
       return [`${tag} tool: ${str(p.name) || "?"} ${oneLine(p.input, 160)}`];
     case "tool_result":
@@ -162,10 +164,28 @@ export function eventPlainLines(event: UiEvent): string[] {
       }
       return lines;
     }
+    case "advisor": {
+      if (p.ok === true) {
+        const head = `${tag} advisory only (${str(p.model)}):`;
+        const summary = str(p.summary);
+        return summary ? [head, ...splitLines(summary).map((l) => `  ${l}`)] : [head];
+      }
+      return [`${tag} unavailable: ${str(p.reason)}`];
+    }
     case "error":
       return [`${tag} ERROR: ${str(p.message) || oneLine(event.payload)}`];
-    case "warning":
+    case "warning": {
+      if (p.deniedAction) {
+        return [`${tag} denied: ${str(p.displayName) || str(p.deniedAction)}`];
+      }
       return [`${tag} warning: ${str(p.message) || oneLine(event.payload)}`];
+    }
+    case "monitor_stop":
+      return [`${tag} STOPPED by tool monitor: ${str(p.message)}`];
+    case "plugin_read": {
+      const paths = Array.isArray(p.paths) ? p.paths.filter((x): x is string => typeof x === "string").join(", ") : "";
+      return [`${tag} plugin file read (allowed): ${paths}`];
+    }
     default:
       return [`${tag} ${event.kind}: ${oneLine(event.payload)}`];
   }
@@ -174,12 +194,15 @@ export function eventPlainLines(event: UiEvent): string[] {
 function colourFor(event: UiEvent): string {
   switch (event.kind) {
     case "error":
+    case "monitor_stop":
       return ANSI.red;
     case "warning":
+    case "plugin_read":
       return ANSI.yellow;
     case "stage_started":
     case "stage_finished":
     case "status_changed":
+    case "continuation":
       return ANSI.cyan;
     case "check_result":
     case "review":
@@ -187,6 +210,7 @@ function colourFor(event: UiEvent): string {
       return ANSI.green;
     case "tool_call":
     case "tool_result":
+    case "advisor":
       return ANSI.dim;
     default:
       return "";
