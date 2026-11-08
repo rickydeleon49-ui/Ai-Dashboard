@@ -776,8 +776,8 @@ export async function runAgentRun(
       if (outOfScope.length > 0) missing.push(`changed paths outside the plan scope: ${outOfScope.join(", ")}`);
       if (needsCorrection) missing.unshift(`still not done after ${MAX_ROUNDS} correction rounds`);
 
-      // Comments that arrived after the read above must not be dropped silently (review S3).
-      const late = comments.length > 0 ? [] : await unconsumedComments();
+      // Comments not sent to the agent (read too late, or read with no round left) are never dropped silently (review S3).
+      const late = await unconsumedComments();
       if (late.length > 0) {
         if (missing.length === 0 && round < MAX_ROUNDS) {
           // About to succeed with an unread comment: send it in a correction round instead.
@@ -786,7 +786,7 @@ export async function runAgentRun(
         }
         missing.push(`${late.length} user comment(s) not sent to the agent`);
         await record("review", "system", "warning", {
-          message: `${late.length} user comment(s) arrived too late and were not sent to the agent`,
+          message: `${late.length} user comment(s) were not sent to the agent (no correction round left)`,
           commentsNotSent: late.map((c) => c.id),
         });
       }

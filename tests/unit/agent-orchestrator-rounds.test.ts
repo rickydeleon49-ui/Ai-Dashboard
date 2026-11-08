@@ -526,4 +526,21 @@ describe("late owner comments are never dropped silently (review S3)", () => {
     );
     assert.ok(warn, "a warning event lists the comments not sent");
   });
+
+  it("a comment read in the last round (no rounds left) is also recorded as not sent", T, async () => {
+    const env = makeEnv({
+      script: {
+        plan: { output: PLAN },
+        reviews: [{ output: BLOCKING }, { output: BLOCKING }, { output: BLOCKING }, { output: BLOCKING }],
+      },
+    });
+    injectLateComment(env, 4);
+    const out = await run(env);
+    assert.equal(out.status, "failed", JSON.stringify(out));
+    assert.ok(out.missing.some((m) => /1 user comment\(s\) not sent to the agent/.test(m)), JSON.stringify(out.missing));
+    const warn = (await events(env)).find(
+      (e) => e.kind === "warning" && Array.isArray((e.payload as { commentsNotSent?: unknown }).commentsNotSent),
+    );
+    assert.ok(warn, "a warning event lists the comments not sent");
+  });
 });
