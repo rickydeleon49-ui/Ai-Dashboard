@@ -204,10 +204,19 @@ const run = (env: Env): Promise<RunOutcome> =>
 const events = (env: Env): Promise<StoredAgentEvent[]> => readSince(db, env.runId, 0, 1000);
 const kinds = (evs: StoredAgentEvent[], kind: string) => evs.filter((e) => e.kind === kind);
 
+/**
+ * Swaps a recorded Windows path prefix for `to`. The rest of each path was recorded with
+ * backslashes, which are ordinary filename characters on Linux, so they become path.sep.
+ */
+function rebase(s: string, from: string, to: string): string {
+  const parts = s.split(from);
+  return parts.map((p, i) => (i === 0 ? p : p.replace(/\\/g, path.sep))).join(to);
+}
+
 /** A recorded fixture with its machine-specific paths pointed at this test's worktree and home. */
 function replay(env: Env, name: string, recordedDir: string): unknown[] {
   return fixture(name).map((l) =>
-    mapStrings(l, (s) => s.split(recordedDir).join(env.worktree).split("C:\\Users\\user").join(env.home)),
+    mapStrings(l, (s) => rebase(rebase(s, recordedDir, env.worktree), "C:\\Users\\user", env.home)),
   );
 }
 
