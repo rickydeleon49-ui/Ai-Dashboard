@@ -169,7 +169,7 @@ export type CommandRunner = (
   error?: Error;
 }>;
 
-function defaultExecFile(
+export function defaultExecFile(
   file: string,
   args: string[],
   options: { timeout?: number; env?: Record<string, string> } = {},
