@@ -297,9 +297,10 @@ desktop app.
   allowed); and after the run, any changed excluded file is listed and fails the
   run.
 - **Shared folders**: folders such as `node_modules` to link into each run's
-  worktree instead of installing them again. They would be shared, so an agent
-  could change what is inside them; the page warns about this. The list is saved
-  now; linking it into worktrees is not switched on yet.
+  worktree instead of installing them again. They are shared, so an agent or a
+  check that writes into them changes your project's own copy; the page warns
+  about this. Only folders Git ignores are linked, and the links are removed
+  before a run's worktree is deleted, so nothing is deleted through them.
 
 Saving checks the whole policy; problems are listed one per line and nothing is
 saved until they are fixed.
