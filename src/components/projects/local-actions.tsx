@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Action = "folder" | "reveal" | "editor" | "terminal";
+type Action = "app-terminal" | "folder" | "reveal" | "editor" | "terminal";
 
 /**
  * Opening a project where the work actually happens.
@@ -23,9 +23,10 @@ type Action = "folder" | "reveal" | "editor" | "terminal";
  */
 
 const BUTTONS: { action: Action; label: string; icon: typeof FolderOpen }[] = [
+  { action: "app-terminal", label: "Terminal in app", icon: SquareTerminal },
   { action: "folder", label: "Open folder", icon: FolderOpen },
   { action: "editor", label: "Editor", icon: AppWindow },
-  { action: "terminal", label: "Terminal", icon: SquareTerminal },
+  { action: "terminal", label: "System terminal", icon: SquareTerminal },
 ];
 
 const subscribeToNothing = () => () => {};

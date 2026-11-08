@@ -18,7 +18,7 @@ declare global {
       onNavigate: (callback: (route: string) => void) => () => void;
       openLocal: (
         projectId: string,
-        action: "folder" | "reveal" | "editor" | "terminal",
+        action: "app-terminal" | "folder" | "reveal" | "editor" | "terminal",
       ) => Promise<{ ok: true } | { ok: false; error: string }>;
       /** Local AI process control. Both calls take no arguments by design. */
       ai?: {
