@@ -57,6 +57,16 @@ export const runRolesSchema = z
           "Codex cannot be the implementer in this version (it runs read-only here). Use it as planner or reviewer.",
       });
     }
+    for (const role of ["planner", "reviewer"] as const) {
+      if (roles[role]?.provider === "antigravity") {
+        ctx.addIssue({
+          code: "custom",
+          path: [role, "provider"],
+          message:
+            "Antigravity can only be the implementer in this version (it has no read-only mode). Use it as the implementer.",
+        });
+      }
+    }
   });
 
 export type RunRoles = z.infer<typeof runRolesSchema>;

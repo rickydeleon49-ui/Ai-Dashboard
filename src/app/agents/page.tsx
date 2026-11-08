@@ -13,6 +13,7 @@ import { projects } from "@/db/schema";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { listRuns } from "@/core/agents/runs";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
+import { antigravityAdapter } from "@/core/agents/adapters/antigravity";
 import { codexAdapter } from "@/core/agents/adapters/codex";
 import { fakeAdapter } from "@/core/agents/adapters/fake";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
@@ -67,7 +68,7 @@ export default async function AgentsPage() {
   if (!isAgentRunsEnabled()) notFound();
   ensureDatabaseReady();
 
-  const adapters: ProbeOnlyAdapter[] = [claudeAdapter, codexAdapter];
+  const adapters: ProbeOnlyAdapter[] = [claudeAdapter, antigravityAdapter, codexAdapter];
   if (process.env.NODE_ENV !== "production") adapters.push(fakeAdapter);
 
   const [providers, runs] = await Promise.all([

@@ -114,6 +114,9 @@ describe("agent types and constants", () => {
       "status_changed",
       "error",
       "warning",
+      "plugin_read",
+      "monitor_stop",
+      "continuation",
     ]);
   });
 

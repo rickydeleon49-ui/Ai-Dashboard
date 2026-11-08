@@ -431,12 +431,16 @@ describe("Agent Settings (Release AW.1, AW1-12)", () => {
       const probes = await getProviderProbes({
         claudeProbe: mockClaude,
         codexProbe: async () => ({ installed: false, authenticated: "unknown" as const }),
+        antigravityProbe: async () => ({ installed: true, version: "1.5.3", authenticated: "unknown" as const }),
         fakeProbe: mockFake,
       });
 
-      assert.equal(probes.length, 3);
-      const [claude, codex, fake] = probes;
+      assert.equal(probes.length, 4);
+      const [claude, codex, antigravity, fake] = probes;
       assert.equal(codex?.id, "codex");
+      assert.equal(antigravity?.id, "antigravity");
+      assert.equal(antigravity?.installed, true);
+      assert.equal(antigravity?.version, "1.5.3");
 
       assert.equal(claude?.installed, true);
       assert.equal(claude?.version, "2.1.312");
