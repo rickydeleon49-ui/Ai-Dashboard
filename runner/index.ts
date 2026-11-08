@@ -28,6 +28,7 @@ import {
   runAgentRun,
   type OrchestratorDeps,
   type RunOutcome,
+  type ResumeContext,
   type RunPolicy,
 } from "@/core/agents/orchestrator";
 import { spawnAgentProcess, stopAgentProcess } from "@/core/agents/process";
@@ -46,6 +47,7 @@ import {
 import { getPolicy, toRunPolicy } from "@/core/agents/policy";
 import { runPolicyCheck } from "@/core/agents/run-check";
 import { getRun } from "@/core/agents/runs";
+import { checkResumable } from "@/core/agents/resume";
 import { runRequestSchema } from "@/core/agents/schema";
 import { postRunOutcomeToTask } from "@/core/agents/task-link";
 import { createRunWorkspace } from "@/core/agents/snapshot";
@@ -395,34 +397,42 @@ export function createRunner(overrides: RunnerOverrides): Runner {
     log("warn", "run failed before start", { runId, reason });
   }
 
-  async function launch(runId: string, controller: AbortController): Promise<void> {
+  async function launch(runId: string, controller: AbortController, mode: "start" | "resume" = "start"): Promise<void> {
     const row = db.select().from(agentRuns).where(eq(agentRuns.id, runId)).get();
     if (!row) {
       log("warn", "start intent for a missing run", { runId });
       return;
     }
-    if (row.status !== "queued") {
-      log("warn", "start intent for a run that is not queued; ignoring", { runId, status: row.status });
-      return;
+    // A resume that cannot go ahead leaves the run exactly as it was and says why in its events (AW4-07).
+    const bail = async (reason: string): Promise<void> => {
+      if (mode !== "resume") return failRun(runId, reason);
+      await event(runId, row.stage, "warning", { message: `resume refused: ${reason}`, resume: true });
+      log("warn", "resume refused", { runId, reason });
+    };
+    if (mode === "start") {
+      if (row.status !== "queued") {
+        log("warn", "start intent for a run that is not queued; ignoring", { runId, status: row.status });
+        return;
+      }
+      // Claim the run for this runner first, so recovery elsewhere never confuses it for stale.
+      db.update(agentRuns).set({ runnerEpoch: epoch, updatedAt: ISO_NOW }).where(eq(agentRuns.id, runId)).run();
     }
-    // Claim the run for this runner first, so recovery elsewhere never confuses it for stale.
-    db.update(agentRuns).set({ runnerEpoch: epoch, updatedAt: ISO_NOW }).where(eq(agentRuns.id, runId)).run();
 
     const project = db.select().from(projects).where(eq(projects.id, row.projectId)).get();
-    if (!project) return failRun(runId, "project not found");
-    if (!project.localPath) return failRun(runId, "project has no local path");
+    if (!project) return bail("project not found");
+    if (!project.localPath) return bail("project has no local path");
 
     const storage = await getStorage();
     const resolved = resolveProjectPath(project.localPath, storage.workspaceRoots, overrides.pathDeps);
-    if (!resolved.ok) return failRun(runId, `project path refused: ${resolved.reason}`);
+    if (!resolved.ok) return bail(`project path refused: ${resolved.reason}`);
     const available = checkRootAvailable(resolved.root, { isDirectory: overrides.isDirectory });
-    if (!available.ok) return failRun(runId, `project path refused: ${available.reason}`);
+    if (!available.ok) return bail(`project path refused: ${available.reason}`);
 
     let policy: RunPolicy;
     try {
       policy = toRunPolicy(getPolicy(db, row.projectId));
     } catch (error) {
-      return failRun(runId, `project policy is invalid: ${error instanceof Error ? error.message : String(error)}`);
+      return bail(`project policy is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     // The implementer adapter follows the request's implementer provider; the test hook wins.
@@ -432,11 +442,29 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       try {
         provider = runRequestSchema.parse(JSON.parse(row.request)).roles.implementer.provider;
       } catch (error) {
-        return failRun(runId, `run request is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        return bail(`run request is invalid: ${error instanceof Error ? error.message : String(error)}`);
       }
       const picked = selectImplementerAdapter(provider);
-      if (!picked) return failRun(runId, `no implementer is available for provider "${provider}"`);
+      if (!picked) return bail(`no implementer is available for provider "${provider}"`);
       implementer = picked;
+    }
+
+    // Resume: re-check everything now (the run may have changed since the request), then take the run over.
+    let resume: ResumeContext | undefined;
+    if (mode === "resume") {
+      const check = await checkResumable(db, runId, { pathDeps: overrides.pathDeps });
+      if (!check.ok) return bail(check.reason);
+      resume = check.context;
+      db.update(agentRuns)
+        .set({ status: "preparing", outcome: null, endedAt: null, runnerEpoch: epoch, updatedAt: ISO_NOW })
+        .where(eq(agentRuns.id, runId))
+        .run();
+      await event(runId, check.fromStage, "warning", {
+        message: `resumed from the ${check.fromStage} stage`,
+        resume: true,
+        startAt: check.startAt,
+        withSession: check.sessionIds.implementer !== undefined,
+      });
     }
 
     const stopGraceMs = overrides.stopGraceMs;
@@ -469,12 +497,12 @@ export function createRunner(overrides: RunnerOverrides): Runner {
     // The grant folder's parent must exist for the orchestrator's safe cleanup.
     fs.mkdirSync(nodePath.join(storage.runStore, "runs"), { recursive: true });
     log("info", "starting run", { runId });
-    const outcome = await runAgentRun(deps, { runId, repoPath: resolved.realPath, policy });
+    const outcome = await runAgentRun(deps, { runId, repoPath: resolved.realPath, policy, ...(resume ? { resume } : {}) });
     log("info", "run finished", { runId, status: outcome.status });
   }
 
   async function handleIntent(intent: AgentRunIntentRow): Promise<void> {
-    if (intent.kind === "start") {
+    if (intent.kind === "start" || intent.kind === "resume") {
       if (active) {
         // One run at a time in AW.1: put it back so a later tick takes it.
         db.update(agentRunIntents).set({ claimedAt: null }).where(eq(agentRunIntents.id, intent.id)).run();
@@ -488,7 +516,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
         done: Promise.resolve(),
       };
       active = entry;
-      entry.done = launch(runId, controller)
+      entry.done = launch(runId, controller, intent.kind === "resume" ? "resume" : "start")
         .catch(async (error) => {
           const message = error instanceof Error ? error.message : String(error);
           log("error", "run crashed in the runner", { runId, error: message });
@@ -572,7 +600,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
     const t = now();
     for (const [id, at] of releasedAt) if (t - at >= RELEASED_INTENT_BACKOFF_MS) releasedAt.delete(id);
     const intent = claimNextIntent(db, {
-      excludeKinds: active ? ["start"] : [],
+      excludeKinds: active ? ["start", "resume"] : [],
       excludeIds: [...releasedAt.keys()],
     });
     if (!intent) return false;

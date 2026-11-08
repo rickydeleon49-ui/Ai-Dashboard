@@ -92,6 +92,29 @@ export interface ReviewInput {
   baseSha: string;
 }
 
+/** Where a resumed attempt starts: the stage after the last completed boundary (AW4-07). */
+export type ResumeStartAt = "plan" | "implement" | "checks";
+
+/** Everything a resumed attempt needs from the run's earlier attempt (built by checkResumable). */
+export interface ResumeContext {
+  /** The last completed stage the resume starts after. */
+  fromStage: RunStage;
+  startAt: ResumeStartAt;
+  /** The run's existing worktree; nothing is created. */
+  workspace: { path: string; baseSha: string; branch: string; kind: WorkspaceKind };
+  /** The implementer's recorded session or conversation id, when one was recorded. */
+  implementerSessionId?: string;
+  plan: PlannerOutput | null;
+  /** Correction rounds already completed. */
+  round: number;
+  consumedCommentIds: string[];
+  /** Exit code of the last finished implementer stage (null when none). */
+  implementerExitCode: number | null;
+}
+
+const RESUME_NOTE =
+  "Note: this is a resumed attempt. An earlier attempt was interrupted, so the working tree may already contain part of the work. Check what is there and continue.";
+
 export interface OrchestratorDeps {
   db: AgentDatabase;
   implementer: AgentAdapter;
@@ -322,10 +345,11 @@ export function decide(
  */
 export async function runAgentRun(
   deps: OrchestratorDeps,
-  input: { runId: string; repoPath: string; policy: RunPolicy },
+  input: { runId: string; repoPath: string; policy: RunPolicy; resume?: ResumeContext },
 ): Promise<RunOutcome> {
   const { db, signal } = deps;
   const { runId, repoPath, policy } = input;
+  const resumeCtx = input.resume;
   const facts: RunOutcome["facts"] = {
     implementerExitCode: null,
     diffFiles: 0,
@@ -494,21 +518,28 @@ export async function runAgentRun(
     shortId = deps.workspace.shortId(runId);
     const lock = acquireWorkspaceLock(db, runId, worktreePath, deps.pathDeps);
     if (!lock.ok) throw new Error(`working copy is locked by run ${lock.heldBy}`);
-    const ws = await deps.workspace.create({ repoPath, worktreeRoot: deps.storage.worktreeRoot, runId });
+    // A resumed attempt re-uses the run's existing worktree: nothing is created or re-recorded.
+    const ws: CreateRunWorktreeResult & { kind?: WorkspaceKind } = resumeCtx
+      ? { ...resumeCtx.workspace }
+      : await deps.workspace.create({ repoPath, worktreeRoot: deps.storage.worktreeRoot, runId });
     worktreePath = ws.path;
-    db.update(agentRuns)
-      .set({ workspaceKind: ws.kind ?? "git_worktree", workspacePath: ws.path, baseRef: ws.baseSha, branch: ws.branch })
-      .where(eq(agentRuns.id, runId))
-      .run();
-    await record("inspect", "system", "stage_finished", {
-      stage: "inspect",
-      workspacePath: ws.path,
-      branch: ws.branch,
-      baseSha: ws.baseSha,
-    });
+    if (resumeCtx) {
+      round = boundedRound(resumeCtx.round);
+    } else {
+      db.update(agentRuns)
+        .set({ workspaceKind: ws.kind ?? "git_worktree", workspacePath: ws.path, baseRef: ws.baseSha, branch: ws.branch })
+        .where(eq(agentRuns.id, runId))
+        .run();
+      await record("inspect", "system", "stage_finished", {
+        stage: "inspect",
+        workspacePath: ws.path,
+        branch: ws.branch,
+        baseSha: ws.baseSha,
+      });
+    }
 
     // plan (AW.2): a validated plan feeds the implementer prompt and the scope check.
-    let plan: PlannerOutput | null = null;
+    let plan: PlannerOutput | null = resumeCtx?.plan ?? null;
     const roleCall = (role: "planner" | "reviewer", prompt: string) => ({
       role,
       prompt,
@@ -518,7 +549,7 @@ export async function runAgentRun(
       grantDir,
       round,
     });
-    if (plannerRunner) {
+    if (plannerRunner && (!resumeCtx || resumeCtx.startAt === "plan")) {
       stage = "plan";
       await setStatus(db, runId, "planning", stage, roundExtra());
       throwIfStopped(signal);
@@ -550,7 +581,7 @@ export async function runAgentRun(
     const scopePaths = plan?.scope_paths ?? [];
 
     // implement (round 0) and correct (rounds 1..MAX_ROUNDS) share one spawn path.
-    let implementerSessionId: string | undefined;
+    let implementerSessionId: string | undefined = resumeCtx?.implementerSessionId;
     /** Why the implementer stage failed for a reason other than its exit code (Antigravity only); null when it did not. */
     let implementerFailure: string | null = null;
     const runImplementer = async (
@@ -727,6 +758,18 @@ export async function runAgentRun(
       }
     };
 
+    /**
+     * The first implementer prompt of a resumed attempt. With a recorded session the agent keeps its
+     * own context, so a short continue note is enough; without one it gets the original prompt and the note.
+     */
+    const resumedPrompt = (original: string): string => {
+      if (!resumeCtx || resumeCtx.startAt === "checks") return original;
+      if (resumeCtx.implementerSessionId) return `${RESUME_NOTE} Continue the task from where the earlier attempt stopped.`;
+      return `${original}
+
+${RESUME_NOTE}`;
+    };
+
     /** True when the implementer stage failed: its own statement (Antigravity), else a non-zero exit. */
     const implementerFailed = (): boolean => implementerFailure !== null || facts.implementerExitCode !== 0;
     const implementerMissing = (): string[] =>
@@ -784,7 +827,11 @@ export async function runAgentRun(
 
     // ---- AW.1 flow: one implement pass, one review through deps.review. ----
     if (!roundsMode) {
-      await runImplementerStage("implement", request.task, undefined);
+      if (resumeCtx?.startAt === "checks") {
+        facts.implementerExitCode = resumeCtx.implementerExitCode ?? 0;
+      } else {
+        await runImplementerStage("implement", resumedPrompt(request.task), resumeCtx?.implementerSessionId);
+      }
       // An implementer that failed gets no checks or review: nothing it did can succeed.
       if (implementerFailed()) {
         return await finish({ status: "failed", facts, missing: implementerMissing() });
@@ -821,12 +868,18 @@ export async function runAgentRun(
     }
 
     // ---- AW.2 flow: implement, then (checks, diff, review, decide, correct) until done. ----
-    let prompt = buildImplementerPrompt(request.task, plan);
-    let resumeId: string | undefined;
+    let prompt = resumedPrompt(buildImplementerPrompt(request.task, plan));
+    let resumeId: string | undefined = resumeCtx?.startAt === "checks" ? undefined : resumeCtx?.implementerSessionId;
     // Owner comments already sent to the agent in a correction round.
-    const consumedComments = new Set<string>();
+    const consumedComments = new Set<string>(resumeCtx?.consumedCommentIds ?? []);
+    let skipImplement = resumeCtx?.startAt === "checks";
     for (;;) {
-      await runImplementerStage(round === 0 ? "implement" : "correct", prompt, resumeId);
+      if (skipImplement) {
+        skipImplement = false;
+        facts.implementerExitCode = resumeCtx?.implementerExitCode ?? 0;
+      } else {
+        await runImplementerStage(round === 0 ? "implement" : "correct", prompt, resumeId);
+      }
       if (implementerFailed()) {
         return await failWith(implementerMissing());
       }
