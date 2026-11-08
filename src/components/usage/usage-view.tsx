@@ -99,8 +99,8 @@ export function UsageView() {
         />
       )}
 
-      {/* USG-02: the app's own Ollama / Hermes chat and LM Studio advisor usage. */}
-      <AppUsageCard />
+      {/* The app's own Ollama / Hermes chat and LM Studio advisor usage. */}
+      <AppUsageCard app={snapshot.app} />
 
       {snapshot.warnings.length > 0 ? (
         <details className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px]">

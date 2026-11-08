@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 import type { UsageSnapshot } from "@/core/usage";
+import type { AppUsageSummary } from "@/core/usage/app-usage";
+
+/** What GET /api/usage returns: the tracker snapshot plus the app's own usage. */
+export type UsageApiSnapshot = UsageSnapshot & { app?: AppUsageSummary | null };
 
 export const USAGE_POLL_MS = 60_000;
 
 export interface UsageState {
-  snapshot: UsageSnapshot | null;
+  snapshot: UsageApiSnapshot | null;
   /** True until the first fetch settles. */
   loading: boolean;
   error: string | null;
@@ -38,7 +42,7 @@ export async function refreshUsage(): Promise<void> {
       setState({ ...state, loading: false, error: `Usage unavailable (${res.status})` });
       return;
     }
-    const snapshot = (await res.json()) as UsageSnapshot;
+    const snapshot = (await res.json()) as UsageApiSnapshot;
     setState({ snapshot, loading: false, error: null });
   } catch {
     setState({ ...state, loading: false, error: "Could not reach the usage service" });
