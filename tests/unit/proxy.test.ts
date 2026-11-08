@@ -281,3 +281,52 @@ describe("cross-site request forgery in hosted password mode", () => {
     assert.notEqual(response.status, 403);
   });
 });
+
+describe("isLoopbackAddress", () => {
+  const trueCases = [
+    "127.0.0.1",
+    "127.0.0.1:3917",
+    "localhost",
+    "localhost:3917",
+    " LOCALHOST ",
+    "::1",
+    "[::1]",
+    "[::1]:3917",
+    "0:0:0:0:0:0:0:1",
+    "::ffff:127.0.0.1",
+    "[::ffff:127.0.0.1]:80",
+  ];
+
+  for (const addr of trueCases) {
+    it(`returns true for ${JSON.stringify(addr)}`, () => {
+      assert.equal(proxyModule.isLoopbackAddress(addr), true);
+    });
+  }
+
+  const falseCases: Array<string | null | undefined> = [
+    "",
+    null,
+    undefined,
+    "203.0.113.195",
+    "203.0.113.195:80",
+    "127.0.0.2",
+    "127.0.0.1.evil.com",
+    "localhost.evil.com",
+    "localhost:abc",
+    "localhost:",
+    "[::1",
+    "[::1]x",
+    "[::1]:",
+    "::2",
+    "fe80::1",
+    "::ffff:10.0.0.1",
+    "evil.com:127.0.0.1",
+    "2001:db8::1",
+  ];
+
+  for (const addr of falseCases) {
+    it(`returns false for ${JSON.stringify(addr) ?? "undefined"}`, () => {
+      assert.equal(proxyModule.isLoopbackAddress(addr), false);
+    });
+  }
+});
