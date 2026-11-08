@@ -301,13 +301,34 @@ async function handleAccountsMode(request: NextRequest, event: NextFetchEvent) {
 
 export function isLoopbackAddress(addr: string | null | undefined): boolean {
   if (!addr) return false;
-  const trimmed = addr.trim().toLowerCase();
-  const host = trimmed.split(":")[0];
+  const s = addr.trim().toLowerCase();
+  if (s === "") return false;
+
+  let host: string;
+  if (s.startsWith("[")) {
+    const closeIndex = s.indexOf("]");
+    if (closeIndex === -1) return false;
+    const remainder = s.slice(closeIndex + 1);
+    if (remainder !== "" && !/^:\d{1,5}$/.test(remainder)) return false;
+    host = s.slice(1, closeIndex);
+  } else {
+    const colonIndex = s.indexOf(":");
+    if (colonIndex !== -1 && colonIndex === s.lastIndexOf(":")) {
+      const port = s.slice(colonIndex + 1);
+      if (!/^\d{1,5}$/.test(port)) return false;
+      host = s.slice(0, colonIndex);
+    } else {
+      host = s;
+    }
+  }
+
   return (
     host === "127.0.0.1" ||
     host === "localhost" ||
     host === "::1" ||
-    host === "[::1]"
+    host === "0:0:0:0:0:0:0:1" ||
+    host === "::ffff:127.0.0.1" ||
+    host === "0:0:0:0:0:ffff:127.0.0.1"
   );
 }
 
