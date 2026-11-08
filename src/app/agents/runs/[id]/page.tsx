@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
+import { RunDismiss } from "@/components/agents/runs/run-dismiss";
 import { RunLive } from "@/components/agents/runs/run-live";
 import { db } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { getRun } from "@/core/agents/runs";
+import { TERMINAL_STATUSES } from "@/core/agents/types";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agent run" };
@@ -34,6 +36,11 @@ export default async function AgentRunPage({
             </Link>
           </>
         }
+      />
+      <RunDismiss
+        runId={run.id}
+        finished={(TERMINAL_STATUSES as readonly string[]).includes(run.status)}
+        initialDismissedAt={run.dismissedAt}
       />
       <RunLive
         runId={run.id}

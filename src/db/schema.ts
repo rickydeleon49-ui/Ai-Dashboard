@@ -748,6 +748,8 @@ export const agentRuns = sqliteTable(
     createdAt: text("created_at").notNull().default(now),
     updatedAt: text("updated_at").notNull().default(now),
     endedAt: text("ended_at"),
+    /** AW4-11: when you dismissed this finished run (null = not dismissed). Cleanup only touches dismissed runs. */
+    dismissedAt: text("dismissed_at"),
   },
   (t) => [
     index("agent_run_task_idx").on(t.taskId),

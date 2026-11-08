@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   const runs = await listRuns(db, {
     projectId: projectId || undefined,
     limit: Number.isFinite(limit) ? limit : undefined,
+    includeDismissed: url.searchParams.get("includeDismissed") === "1",
   });
 
   return NextResponse.json({ runs });

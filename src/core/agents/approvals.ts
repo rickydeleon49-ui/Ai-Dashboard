@@ -45,7 +45,7 @@ export const APPROVAL_STATUSES = ["pending", "approved", "rejected", "executing"
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 /** Statuses that count as "one pending approval per run and kind". */
-const OPEN_STATUSES: ApprovalStatus[] = ["pending", "approved", "executing"];
+export const OPEN_STATUSES: ApprovalStatus[] = ["pending", "approved", "executing"];
 
 const FINISHED_RUN_STATUSES = ["succeeded", "failed", "stopped"];
 

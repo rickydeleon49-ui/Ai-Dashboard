@@ -4,7 +4,7 @@
  * All operations take an AgentDatabase instance (the application SQLite database,
  * a test database, or a transaction within one).
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   agentRuns,
   agentRunIntents,
@@ -40,6 +40,8 @@ export interface AgentRunRecord<TRequest = RunRequest, TOutcome = unknown> {
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;
+  /** AW4-11: when the run was dismissed, or null. */
+  dismissedAt: string | null;
 }
 
 export interface StoredAgentIntent<T = unknown> {
@@ -58,6 +60,8 @@ export interface CreateRunOptions {
 export interface ListRunsOptions {
   projectId?: string;
   limit?: number;
+  /** AW4-11: dismissed runs are hidden unless this is true. */
+  includeDismissed?: boolean;
 }
 
 function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
@@ -87,6 +91,7 @@ function parseRunRow(row: AgentRunRow): AgentRunRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     endedAt: row.endedAt ?? null,
+    dismissedAt: row.dismissedAt ?? null,
   };
 }
 
@@ -186,6 +191,9 @@ export async function listRuns(
   const conditions = [];
   if (options.projectId) {
     conditions.push(eq(agentRuns.projectId, options.projectId));
+  }
+  if (!options.includeDismissed) {
+    conditions.push(isNull(agentRuns.dismissedAt));
   }
 
   const rows = db

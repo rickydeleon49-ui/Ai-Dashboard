@@ -47,6 +47,8 @@ export const SETTING_KEYS = {
   agentWorkspaceRoots: "agent.workspace_roots",
   agentWorktreeRoot: "agent.worktree_root",
   agentRunStore: "agent.run_store",
+  /** AW4-11: remove worktrees of dismissed runs after this many days (1-365); unset = off. */
+  agentWorktreeRetentionDays: "agent.worktree_retention_days",
 
   /* AI usage trackers' shared folder (read-only), per machine. Absolute path. */
   usageFolder: "usage.folder",

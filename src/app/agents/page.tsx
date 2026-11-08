@@ -64,16 +64,21 @@ async function describeProvider(adapter: ProbeOnlyAdapter): Promise<ProviderOpti
   }
 }
 
-export default async function AgentsPage() {
+export default async function AgentsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   if (!isAgentRunsEnabled()) notFound();
   ensureDatabaseReady();
+  const showDismissed = (await searchParams)?.dismissed === "1";
 
   const adapters: ProbeOnlyAdapter[] = [claudeAdapter, antigravityAdapter, codexAdapter];
   if (process.env.NODE_ENV !== "production") adapters.push(fakeAdapter);
 
   const [providers, runs] = await Promise.all([
     Promise.all(adapters.map(describeProvider)),
-    listRuns(db, { limit: 50 }),
+    listRuns(db, { limit: 50, includeDismissed: showDismissed }),
   ]);
 
   const projectRows = db
@@ -109,11 +114,19 @@ export default async function AgentsPage() {
       )}
 
       <section aria-labelledby="run-history">
-        <h2 id="run-history" className="mb-2 text-[13px] font-semibold text-fg">
-          Run history
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 id="run-history" className="text-[13px] font-semibold text-fg">
+            Run history
+          </h2>
+          <Link
+            href={showDismissed ? "/agents" : "/agents?dismissed=1"}
+            className="text-[12px] text-[var(--accent)] hover:underline"
+          >
+            {showDismissed ? "Hide dismissed" : "Show dismissed"}
+          </Link>
+        </div>
         {runs.length === 0 ? (
-          <p className="text-[13px] text-muted">No runs yet.</p>
+          <p className="text-[13px] text-muted">{showDismissed ? "No runs yet." : "No runs to show."}</p>
         ) : (
           <Card className="overflow-x-auto">
             <table className="w-full text-left text-[13px]">
@@ -137,6 +150,7 @@ export default async function AgentsPage() {
                     </td>
                     <td className="px-4 py-2">
                       <Badge>{run.status}</Badge>
+                      {run.dismissedAt ? <span className="ml-2 text-[11px] text-faint">dismissed</span> : null}
                     </td>
                   </tr>
                 ))}

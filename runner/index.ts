@@ -31,11 +31,13 @@ import {
   type RunPolicy,
 } from "@/core/agents/orchestrator";
 import { spawnAgentProcess, stopAgentProcess } from "@/core/agents/process";
+import { applyRetention, planRetention, RETENTION_INTERVAL_MS, type RetentionDeps } from "@/core/agents/retention";
 import { reviewWithClaude } from "@/core/agents/review-claude";
 import { defaultRoleRunners } from "@/core/agents/role-runners";
 import {
   checkRootAvailable,
   getAgentStorageSettings,
+  getRetentionDays,
   releaseLocksForRun,
   resolveProjectPath,
   type AgentStorageSettings,
@@ -307,6 +309,27 @@ export interface RunnerOverrides {
   stopGraceMs?: number;
   /** Clock for the stop-intent re-release backoff (tests). */
   now?: () => number;
+  /** Replaces dependencies of the worktree cleanup (tests). */
+  retention?: RetentionDeps;
+  /** How often cleanup repeats after the startup pass; default 6 hours. */
+  retentionIntervalMs?: number;
+}
+
+/** One cleanup pass (AW4-11): plan, apply, log a summary. Does nothing unless the setting is on. */
+export async function runRetentionPass(
+  db: AgentDatabase,
+  log: LogFn,
+  deps: RetentionDeps,
+  now: Date = new Date(),
+): Promise<{ removed: number; skipped: number }> {
+  const plan = await planRetention(db, now, deps);
+  if (plan.length === 0) return { removed: 0, skipped: 0 };
+  const result = await applyRetention(plan, { ...deps, db, now: () => now });
+  log("info", `worktree cleanup: removed ${result.removed.length}, skipped ${result.skipped.length}`, {
+    removed: result.removed.map((x) => x.runId),
+    skipped: result.skipped,
+  });
+  return { removed: result.removed.length, skipped: result.skipped.length };
 }
 
 /** A stop intent released because its run is not ours is not re-claimed for this long. */
@@ -340,6 +363,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
   const getStorage = overrides.getStorage ?? (() => getAgentStorageSettings());
   let active: ActiveRun | null = null;
   let timer: NodeJS.Timeout | null = null;
+  let retentionTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let ticking = false;
   const now = overrides.now ?? Date.now;
@@ -590,11 +614,28 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       } catch (error) {
         log("warn", "worktree report failed", { error: error instanceof Error ? error.message : String(error) });
       }
+      const retentionDeps: RetentionDeps = overrides.retention ?? {
+        getStorage: async () => {
+          const storage = await getStorage();
+          return { worktreeRoot: storage.worktreeRoot, retentionDays: await getRetentionDays(), storage };
+        },
+        pathDeps: overrides.pathDeps,
+      };
+      const retentionPass = () => {
+        if (stopping) return;
+        runRetentionPass(db, log, retentionDeps, new Date(now())).catch((error) =>
+          log("warn", "worktree cleanup failed", { error: error instanceof Error ? error.message : String(error) }),
+        );
+      };
+      retentionPass();
+      retentionTimer = setInterval(retentionPass, overrides.retentionIntervalMs ?? RETENTION_INTERVAL_MS);
+      retentionTimer.unref();
       void loop();
     },
     async shutdown(waitMs = SHUTDOWN_WAIT_MS) {
       stopping = true;
       if (timer) clearTimeout(timer);
+      if (retentionTimer) clearInterval(retentionTimer);
       const current = active;
       if (current) {
         log("info", "shutting down: stopping the active run", { runId: current.runId });
