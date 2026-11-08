@@ -87,6 +87,13 @@ export const runRequestSchema = z
       .array(checkNameSchema)
       .max(20, "At most 20 checks allowed")
       .default([]),
+    antigravityAcknowledgement: z
+      .object({
+        plugins: z.array(z.string().min(1).max(200)).max(200),
+        mcpServers: z.array(z.string().min(1).max(200)).max(200),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

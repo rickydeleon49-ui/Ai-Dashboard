@@ -6,6 +6,8 @@ import { projects } from "@/db/schema";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { runRequestSchema } from "@/core/agents/schema";
 import { createRun, listRuns } from "@/core/agents/runs";
+import { readAntigravityInventory } from "@/core/agents/adapters/antigravity-inventory";
+import { checkAntigravityAcknowledgement } from "@/core/agents/antigravity-ack";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +73,23 @@ export async function POST(request: NextRequest) {
       { error: "Project has no local folder" },
       { status: 409 },
     );
+  }
+
+  if (parsed.data.roles.implementer.provider === "antigravity") {
+    const inventory = await readAntigravityInventory();
+    const ackCheck = checkAntigravityAcknowledgement(parsed.data, inventory);
+    if (!ackCheck.ok) {
+      return NextResponse.json(
+        {
+          error: ackCheck.error,
+          inventory: {
+            plugins: inventory.plugins,
+            mcpServers: inventory.mcpServers,
+          },
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const run = await createRun(db, parsed.data, {
