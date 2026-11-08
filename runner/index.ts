@@ -21,6 +21,7 @@ import { claudeAdapter } from "@/core/agents/adapters/claude-code";
 import { antigravityAdapter } from "@/core/agents/adapters/antigravity";
 import { advisorFromEnv } from "@/core/agents/advisor";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
+import { approvalEnvFor, executeApproval, failApproval, type ApprovalExecDeps } from "@/core/agents/approvals";
 import { appendEvent, type AgentDatabase } from "@/core/agents/events";
 import {
   grantDirFor,
@@ -42,6 +43,7 @@ import {
 } from "@/core/agents/roots";
 import { getPolicy, toRunPolicy } from "@/core/agents/policy";
 import { runPolicyCheck } from "@/core/agents/run-check";
+import { getRun } from "@/core/agents/runs";
 import { runRequestSchema } from "@/core/agents/schema";
 import { postRunOutcomeToTask } from "@/core/agents/task-link";
 import { createRunWorkspace } from "@/core/agents/snapshot";
@@ -297,6 +299,8 @@ export interface RunnerOverrides {
   pathDeps?: PathDeps;
   /** Replaces individual orchestrator dependencies (tests). */
   orchestrator?: Partial<Omit<OrchestratorDeps, "db" | "signal" | "storage">>;
+  /** Replaces dependencies of approval execution (tests): the draft-PR creator, clock, lock hook. */
+  approvals?: ApprovalExecDeps;
   /** Directory-availability check for the project's workspace root. */
   isDirectory?: (p: string) => boolean;
   pollIntervalMs?: number;
@@ -513,6 +517,27 @@ export function createRunner(overrides: RunnerOverrides): Runner {
         return;
       }
       log("info", "stop intent ignored: run is already finished", { runId: intent.runId, status: row.status });
+      return;
+    }
+
+    if (intent.kind === "approval_execute") {
+      let approvalId = "";
+      try {
+        const payload = intent.payload ? (JSON.parse(intent.payload) as { approvalId?: unknown }) : {};
+        approvalId = typeof payload.approvalId === "string" ? payload.approvalId : "";
+        if (!approvalId) throw new Error("approval_execute intent has no approvalId");
+        const run = db.select().from(agentRuns).where(eq(agentRuns.id, intent.runId)).get();
+        if (!run) throw new Error("run not found");
+        const record = await getRun(db, intent.runId);
+        if (!record) throw new Error("run not found");
+        const env = await approvalEnvFor(db, record, getStorage, overrides.pathDeps);
+        const done = await executeApproval(db, approvalId, env, { pathDeps: overrides.pathDeps, ...overrides.approvals });
+        log("info", "approval executed", { approvalId, status: done.status });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log("error", "approval execution failed", { intentId: intent.id, approvalId, error: message });
+        if (approvalId) await failApproval(db, approvalId, message);
+      }
       return;
     }
 

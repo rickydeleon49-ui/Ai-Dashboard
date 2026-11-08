@@ -118,11 +118,12 @@ describe("agent types and constants", () => {
       "monitor_stop",
       "continuation",
       "advisor",
+      "approval",
     ]);
   });
 
   it("defines intent kinds, workspace kinds, agent roles, and effort levels", () => {
-    assert.deepEqual(INTENT_KINDS, ["start", "stop", "approve", "deny", "resume"]);
+    assert.deepEqual(INTENT_KINDS, ["start", "stop", "approve", "deny", "resume", "approval_execute"]);
     assert.deepEqual(WORKSPACE_KINDS, ["git_worktree", "snapshot_copy"]);
     assert.deepEqual(AGENT_ROLES, ["planner", "implementer", "reviewer"]);
     assert.deepEqual(EFFORT_LEVELS, [
