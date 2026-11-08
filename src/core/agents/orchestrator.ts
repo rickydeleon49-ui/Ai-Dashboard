@@ -572,7 +572,7 @@ export async function runAgentRun(
       };
       // Antigravity only: one monitor and one accumulator per spawn; every JSON line goes through one ordered chain.
       const monitor = isAntigravity
-        ? new ToolMonitor({ worktree: ws.path, home: os.homedir(), ...deps.monitorOptions })
+        ? new ToolMonitor({ worktree: ws.path, home: os.homedir(), excludedPaths: policy.excludedPaths, ...deps.monitorOptions })
         : null;
       const acc = isAntigravity ? new AntigravityRunAccumulator() : null;
       let monitorStop: string | null = null;
