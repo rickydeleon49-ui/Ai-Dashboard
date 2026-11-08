@@ -19,6 +19,8 @@ import { agentProjectPolicies, agentRunEvents, agentRunIntents, agentRuns, proje
 import type { AgentRunIntentRow } from "@/db/schema";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
+import { antigravityAdapter } from "@/core/agents/adapters/antigravity";
+import { advisorFromEnv } from "@/core/agents/advisor";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { appendEvent, type AgentDatabase } from "@/core/agents/events";
 import {
@@ -41,6 +43,7 @@ import {
   type PathDeps,
 } from "@/core/agents/roots";
 import { runPolicyCheck } from "@/core/agents/run-check";
+import { runRequestSchema } from "@/core/agents/schema";
 import { TERMINAL_STATUSES } from "@/core/agents/types";
 import { commitStage, createRunWorktree, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
 
@@ -283,6 +286,17 @@ export function acquireRunnerLock(
   return { ok: false, holderPid: null };
 }
 
+/**
+ * The implementer adapter for a provider id (AW3-04). Only providers that can
+ * edit files here are listed; anything else is `null` so the run fails up
+ * front instead of silently falling back to Claude.
+ */
+export function selectImplementerAdapter(provider: string): AgentAdapter | null {
+  if (provider === claudeAdapter.id) return claudeAdapter;
+  if (provider === antigravityAdapter.id) return antigravityAdapter;
+  return null;
+}
+
 export interface RunnerOverrides {
   db: AgentDatabase;
   epoch?: string;
@@ -394,10 +408,24 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       return failRun(runId, `project policy is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // The implementer adapter follows the request's implementer provider; the test hook wins.
+    let implementer = overrides.implementer;
+    if (!implementer) {
+      let provider: string;
+      try {
+        provider = runRequestSchema.parse(JSON.parse(row.request)).roles.implementer.provider;
+      } catch (error) {
+        return failRun(runId, `run request is invalid: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const picked = selectImplementerAdapter(provider);
+      if (!picked) return failRun(runId, `no implementer is available for provider "${provider}"`);
+      implementer = picked;
+    }
+
     const stopGraceMs = overrides.stopGraceMs;
     const deps: OrchestratorDeps = {
       db,
-      implementer: overrides.implementer ?? claudeAdapter,
+      implementer,
       review: (input, signal) =>
         reviewWithClaude(input, signal, { grantDir: nodePath.join(grantDirFor(storage.runStore, runId), "review") }),
       workspace: {
@@ -417,6 +445,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       pathDeps: overrides.pathDeps,
       // AW.2 planner/reviewer roles (Claude Code, Codex); a role whose provider has no runner fails the run up front.
       roleRunners: defaultRoleRunners(),
+      advisor: advisorFromEnv(),
       ...overrides.orchestrator,
     };
     // The grant folder's parent must exist for the orchestrator's safe cleanup.

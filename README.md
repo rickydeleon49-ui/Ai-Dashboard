@@ -233,6 +233,33 @@ Models offered: `gpt-6.1-sol` (default) and `gpt-6-luna`. When Codex is
 installed and signed in, the run form defaults the planner and reviewer to
 Codex `gpt-6.1-sol` with `medium` effort.
 
+### Antigravity as implementer
+
+Antigravity (`agy` CLI 1.5.3+) can be the implementer only; planner and reviewer
+stay Claude Code / Codex. It has no sandbox, so the runner watches every tool
+call: any read or write outside the project folder stops the run at once and the
+run fails ("stopped by tool monitor"). One exception: reading a plugin's
+`SKILL.md` under `~/.gemini/config/plugins` is allowed and shown on the run page
+as "plugin file read (allowed)".
+
+Before the first Antigravity run the form lists the Antigravity plugins and MCP
+servers on this computer; tick "I reviewed these plugins and MCP servers". If
+the list changes later you are asked again. If Antigravity ends a stage without a
+result, the runner continues the same conversation up to 2 times, then the run
+fails.
+
+### Local advisor (LM Studio)
+
+The advisor is optional and off by default. Turn it on by starting the
+dashboard with `DASHBOARD_ADVISOR=1` (set `DASHBOARD_ADVISOR_URL` if LM Studio
+is not on http://127.0.0.1:1234), and load a model in LM Studio (Gemma 4 12B
+suggested). After the final verdict it writes a short summary marked "advisory
+only". It never changes whether the run passed. If LM Studio is offline the run
+page says "advisor unavailable".
+
+Cost per run: Antigravity uses your Google AI plan quota; the advisor is local
+and free; the Claude reviewer costs the same as before.
+
 ### Role settings
 
 Each run has a planner, implementer, and reviewer, each with provider, model,

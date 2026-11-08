@@ -20,16 +20,22 @@
  * Claude, git or a real project.
  */
 import fs from "node:fs";
+import os from "node:os";
 import nodePath from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { agentRuns } from "@/db/schema";
-import type { AgentAdapter } from "./adapters/types";
+import { AntigravityRunAccumulator, type AntigravityFailure } from "./adapters/antigravity";
+import type { AgentAdapter, NormalizedEvent } from "./adapters/types";
+import type { AdvisorFacts, AdvisorResult } from "./adapters/lmstudio";
 import { listComments } from "./comments";
 import { severityClass, type SeverityClass } from "./severity";
 import { appendEvent, type AgentDatabase } from "./events";
 import type { AgentExit, AgentProcessHandle, SpawnAgentOptions } from "./process";
 import { acquireWorkspaceLock, releaseLocksForRun, type PathDeps } from "./roots";
+import { describeViolation, stopOnViolation, ToolMonitor, type MonitorDecision, type ToolMonitorOptions } from "./tool-monitor";
 import {
+  buildAntigravityContinuationPrompt,
+  buildAntigravityImplementerPrompt,
   buildCorrectionPrompt,
   buildPlannerPrompt,
   buildReviewerPrompt,
@@ -119,6 +125,16 @@ export interface OrchestratorDeps {
   /** How long Stop waits before forcing (default: stopAgentProcess's 5 s). */
   stopGraceMs?: number;
   pathDeps?: PathDeps;
+  /** Antigravity tool monitor overrides (tests); the worktree and home default to the run's worktree and os.homedir(). */
+  monitorOptions?: Partial<ToolMonitorOptions>;
+  /**
+   * AW3-06b: optional local LM Studio advisor. Called once after the final outcome
+   * (succeeded or failed, never stopped); its result is recorded as an advisor event
+   * and never changes the outcome.
+   */
+  advisor?: (facts: AdvisorFacts, signal: AbortSignal) => Promise<AdvisorResult>;
+  /** Longest the advisor may hold the run open (default 30 s). */
+  advisorTimeoutMs?: number;
 }
 
 export interface RunOutcome {
@@ -147,6 +163,30 @@ class StoppedError extends Error {
 }
 
 const MAX_TEXT_EVENT_CHARS = 4000;
+
+/** Provider id of the Antigravity adapter: the only implementer that gets a tool monitor and continuations. */
+const ANTIGRAVITY_ID = "antigravity";
+/** An Antigravity stage that ends without a result is resumed at most this many times (design §16.3 row 4). */
+export const MAX_ANTIGRAVITY_CONTINUATIONS = 2;
+
+/** The raw step object of an Antigravity `step_update` line, or null for any other line. */
+function antigravityStep(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null) return null;
+  const line = value as Record<string, unknown>;
+  const step = line.step_update;
+  if (line.event !== "step_update" || typeof step !== "object" || step === null || Array.isArray(step)) return null;
+  return step as Record<string, unknown>;
+}
+
+/** What one implementer spawn left behind. */
+interface ImplementerAttempt {
+  exit: AgentExit;
+  /** Antigravity only: the describeViolation text when the tool monitor stopped this spawn. */
+  monitorStop: string | null;
+  /** Antigravity only: failures the accumulator saw (including the one added at exit). */
+  failures: AntigravityFailure[];
+  conversationId: string | undefined;
+}
 
 async function record(
   db: AgentDatabase,
@@ -289,6 +329,10 @@ export async function runAgentRun(
   let roundsMode = false;
   /** Correction rounds started so far; the initial implement is round 0. */
   let round = 0;
+  /** Advisor inputs: changed paths and the latest review's findings (no file contents). */
+  let diffPaths: string[] = [];
+  let taskText = "";
+  let lastFindings: Array<{ severity: string; message: string }> = [];
 
   const record = (
     recStage: RunStage | null,
@@ -330,6 +374,52 @@ export async function runAgentRun(
     }
   };
 
+  /**
+   * AW3-06b: one bounded advisory call after the outcome is decided. Any throw, timeout or
+   * ok:false leaves the outcome untouched; the result is stored verbatim as an advisor event.
+   */
+  const runAdvisor = async (outcome: RunOutcome): Promise<void> => {
+    if (!deps.advisor || outcome.status === "stopped" || signal.aborted) return;
+    const timeoutMs = deps.advisorTimeoutMs ?? 30_000;
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const advisorFacts: AdvisorFacts = {
+        task: taskText,
+        status: outcome.status,
+        reviewVerdict: outcome.facts.reviewVerdict,
+        rounds: outcome.rounds?.corrections ?? 0,
+        filesChanged: diffPaths,
+        checks: outcome.facts.checks.map((c) => ({ name: c.name, passed: c.exitCode === 0 && !c.timedOut })),
+        findings: lastFindings.map((f) => ({ severity: f.severity, title: f.message.slice(0, 200) })),
+      };
+      const timeout = new Promise<AdvisorResult>((resolve) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          resolve({ ok: false, reason: "advisor timed out" });
+        }, timeoutMs);
+      });
+      const aborted = new Promise<AdvisorResult>((resolve) => {
+        controller.signal.addEventListener("abort", () => resolve({ ok: false, reason: "advisor aborted" }), {
+          once: true,
+        });
+      });
+      const result = await Promise.race([
+        Promise.resolve().then(() => deps.advisor!(advisorFacts, controller.signal)),
+        timeout,
+        aborted,
+      ]);
+      await appendEvent(db, { runId, stage: "final", agent: "advisor", kind: "advisor", payload: result });
+    } catch {
+      // The advisor never affects the run.
+    } finally {
+      if (timer) clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+
   const finish = async (outcome: RunOutcome): Promise<RunOutcome> => {
     cleanUp();
     if (roundsMode) outcome = { ...outcome, rounds: { corrections: round } };
@@ -340,6 +430,7 @@ export async function runAgentRun(
       })
       .where(eq(agentRuns.id, runId))
       .run();
+    await runAdvisor(outcome);
     await setStatus(db, runId, outcome.status, "final", roundExtra());
     return outcome;
   };
@@ -357,6 +448,7 @@ export async function runAgentRun(
     if (unknownChecks.length > 0) {
       throw new Error(`checks not in the project policy: ${unknownChecks.join(", ")}`);
     }
+    taskText = request.task;
     required = request.checks;
     const selected = policy.checks.filter((c) => required.includes(c.name));
 
@@ -444,18 +536,22 @@ export async function runAgentRun(
 
     // implement (round 0) and correct (rounds 1..MAX_ROUNDS) share one spawn path.
     let implementerSessionId: string | undefined;
+    /** Why the implementer stage failed for a reason other than its exit code (Antigravity only); null when it did not. */
+    let implementerFailure: string | null = null;
     const runImplementer = async (
       implStage: "implement" | "correct",
       prompt: string,
       resumeSessionId: string | undefined,
-    ): Promise<AgentExit> => {
+    ): Promise<ImplementerAttempt> => {
       stage = implStage;
       await setStatus(db, runId, implStage === "implement" ? "implementing" : "correcting", stage, roundExtra());
       throwIfStopped(signal);
       if (roundsMode) await record(stage, "system", "stage_started", { stage });
+      const isAntigravity = deps.implementer.id === ANTIGRAVITY_ID;
       const invocation = deps.implementer.buildInvocation({
         workspacePath: ws.path,
-        prompt,
+        // Antigravity has no sandbox: its prompt carries the file-tools-only rules. Other prompts are untouched.
+        prompt: isAntigravity ? buildAntigravityImplementerPrompt(prompt) : prompt,
         model: request.roles.implementer.model,
         effort: request.roles.implementer.effort,
         checkCommands: selected.map((c) => c.argv),
@@ -464,6 +560,24 @@ export async function runAgentRun(
         ...(resumeSessionId ? { resumeSessionId } : {}),
       });
       const pending: Promise<void>[] = [];
+      const recordEvents = (events: NormalizedEvent[]) => {
+        for (const event of events) {
+          const sid = (event.payload as { sessionId?: unknown } | null)?.sessionId;
+          if (typeof sid === "string" && sid) implementerSessionId = sid;
+          pending.push(record(implStage, event.agent, event.kind, event.payload));
+        }
+      };
+      // Antigravity only: one monitor and one accumulator per spawn; every JSON line goes through one ordered chain.
+      const monitor = isAntigravity
+        ? new ToolMonitor({ worktree: ws.path, home: os.homedir(), ...deps.monitorOptions })
+        : null;
+      const acc = isAntigravity ? new AntigravityRunAccumulator() : null;
+      let monitorStop: string | null = null;
+      let chain: Promise<void> = Promise.resolve();
+      const pluginReadSeen = new Set<string>();
+      const stopSpawn = () => {
+        deps.stop(handle, deps.stopGraceMs === undefined ? undefined : { graceMs: deps.stopGraceMs }).catch(() => {});
+      };
       const handle = deps.spawn({
         file: invocation.file,
         args: invocation.args,
@@ -472,11 +586,45 @@ export async function runAgentRun(
         env: invocation.env as NodeJS.ProcessEnv,
         stdin: invocation.stdin,
         onJson: (value) => {
-          for (const event of deps.implementer.parseLine(value)) {
-            const sid = (event.payload as { sessionId?: unknown } | null)?.sessionId;
-            if (typeof sid === "string" && sid) implementerSessionId = sid;
-            pending.push(record(implStage, event.agent, event.kind, event.payload));
+          if (!monitor || !acc) {
+            recordEvents(deps.implementer.parseLine(value));
+            return;
           }
+          chain = chain
+            .then(async () => {
+              // After a violation nothing else the agent says is recorded: the process is being killed.
+              if (monitorStop !== null) return;
+              const step = antigravityStep(value);
+              if (step !== null) {
+                let decision: MonitorDecision;
+                try {
+                  decision = await monitor.check(step);
+                } catch {
+                  decision = { allowed: false, tool: "", reason: "tool monitor failed" };
+                }
+                if (decision.allowed) {
+                  if (decision.pluginRead) {
+                    const key = `${String(step.conversation_id)}:${String(step.step_index)}`;
+                    if (!pluginReadSeen.has(key)) {
+                      pluginReadSeen.add(key);
+                      await record(implStage, "system", "plugin_read", { tool: decision.tool, paths: decision.paths });
+                    }
+                  }
+                } else {
+                  monitorStop = describeViolation(decision);
+                  await record(implStage, "system", "monitor_stop", {
+                    message: monitorStop,
+                    tool: decision.tool,
+                    ...(decision.path !== undefined ? { path: decision.path } : {}),
+                    reason: decision.reason,
+                  });
+                  stopOnViolation(decision, stopSpawn);
+                  return;
+                }
+              }
+              recordEvents(acc.ingest(value));
+            })
+            .catch(() => {});
         },
         onText: (stream, text) => {
           pending.push(
@@ -500,9 +648,12 @@ export async function runAgentRun(
         signal.removeEventListener("abort", onAbort);
         // appendEvent inserts synchronously when called, so order is call order;
         // settle them all before any status change.
+        await chain;
+        if (acc && monitorStop === null && !signal.aborted) recordEvents(acc.finish());
         await Promise.allSettled(pending);
       }
-      if (signal.aborted || exit.stoppedByUs) throw new StoppedError();
+      // A stop by the tool monitor is not an owner Stop; the owner's abort still wins.
+      if (signal.aborted || (exit.stoppedByUs && monitorStop === null)) throw new StoppedError();
       facts.implementerExitCode = exit.code;
       await record(implStage, "system", "stage_finished", {
         stage: implStage,
@@ -511,8 +662,60 @@ export async function runAgentRun(
         ...(exit.error ? { error: exit.error } : {}),
       });
       await deps.workspace.commit(ws.path, implStage, shortId);
-      return exit;
+      return { exit, monitorStop, failures: acc ? [...acc.failures] : [], conversationId: acc?.conversationId };
     };
+
+    /**
+     * One implementer stage. Claude: a single spawn, exactly as before. Antigravity: a monitor
+     * stop fails the stage at once; an exit without a result is resumed with --conversation
+     * at most MAX_ANTIGRAVITY_CONTINUATIONS times, then the stage fails naming the count.
+     */
+    const runImplementerStage = async (
+      implStage: "implement" | "correct",
+      firstPrompt: string,
+      firstResume: string | undefined,
+    ): Promise<void> => {
+      implementerFailure = null;
+      let prompt = firstPrompt;
+      let resume = firstResume;
+      let continuations = 0;
+      for (;;) {
+        const attempt = await runImplementer(implStage, prompt, resume);
+        if (deps.implementer.id !== ANTIGRAVITY_ID) return;
+        if (attempt.monitorStop !== null) {
+          implementerFailure = attempt.monitorStop;
+          return;
+        }
+        // No failure seen: a non-zero exit is reported through decide() as before.
+        if (attempt.failures.length === 0) return;
+        const onlyNoResult = attempt.failures.every((f) => f.kind === "no_result");
+        if (!onlyNoResult || !attempt.conversationId || attempt.exit.error !== undefined) {
+          implementerFailure = `Antigravity failed: ${attempt.failures.map((f) => f.message).join("; ")}`;
+          return;
+        }
+        if (continuations >= MAX_ANTIGRAVITY_CONTINUATIONS) {
+          implementerFailure =
+            `Antigravity ended the ${implStage} stage without a result after ${continuations} of ` +
+            `${MAX_ANTIGRAVITY_CONTINUATIONS} continuation attempts`;
+          await record(implStage, "system", "error", { message: implementerFailure });
+          return;
+        }
+        continuations += 1;
+        resume = attempt.conversationId;
+        prompt = buildAntigravityContinuationPrompt();
+        await record(implStage, "system", "continuation", {
+          stage: implStage,
+          attempt: continuations,
+          of: MAX_ANTIGRAVITY_CONTINUATIONS,
+          conversationId: attempt.conversationId,
+        });
+      }
+    };
+
+    /** True when the implementer stage failed: its own statement (Antigravity), else a non-zero exit. */
+    const implementerFailed = (): boolean => implementerFailure !== null || facts.implementerExitCode !== 0;
+    const implementerMissing = (): string[] =>
+      implementerFailure !== null ? [implementerFailure] : decide(facts, required).missing;
 
     // checks + diff: run by the runner itself (§7), never taken from the agent's summary.
     const checksAndDiff = async (): Promise<{ checkResults: CheckResult[]; diff: DiffSummaryResult }> => {
@@ -539,6 +742,7 @@ export async function runAgentRun(
       const diffOpts = { excludedPaths: policy.excludedPaths, ...(scopePaths.length > 0 ? { scopePaths } : {}) };
       const diff = await deps.workspace.diff(ws.path, ws.baseSha, diffOpts);
       throwIfStopped(signal);
+      diffPaths = diff.files.map((f) => f.path);
       facts.diffFiles = diff.files.length;
       facts.excludedTouched = diff.files.filter((f) => f.excluded).map((f) => f.path);
       if (roundsMode) {
@@ -565,11 +769,10 @@ export async function runAgentRun(
 
     // ---- AW.1 flow: one implement pass, one review through deps.review. ----
     if (!roundsMode) {
-      await runImplementer("implement", request.task, undefined);
+      await runImplementerStage("implement", request.task, undefined);
       // An implementer that failed gets no checks or review: nothing it did can succeed.
-      if (facts.implementerExitCode !== 0) {
-        const decision = decide(facts, required);
-        return await finish({ status: "failed", facts, missing: decision.missing });
+      if (implementerFailed()) {
+        return await finish({ status: "failed", facts, missing: implementerMissing() });
       }
       const { checkResults, diff } = await checksAndDiff();
 
@@ -586,6 +789,7 @@ export async function runAgentRun(
         const parsed = reviewerOutputSchema.safeParse(raw);
         if (parsed.success) {
           facts.reviewVerdict = parsed.data.verdict;
+          lastFindings = parsed.data.findings;
           await record("review", "reviewer", "review", parsed.data);
         } else {
           await record("review", "reviewer", "error", {
@@ -607,10 +811,9 @@ export async function runAgentRun(
     // Owner comments already sent to the agent in a correction round.
     const consumedComments = new Set<string>();
     for (;;) {
-      await runImplementer(round === 0 ? "implement" : "correct", prompt, resumeId);
-      if (facts.implementerExitCode !== 0) {
-        const decision = decide(facts, required);
-        return await failWith(decision.missing);
+      await runImplementerStage(round === 0 ? "implement" : "correct", prompt, resumeId);
+      if (implementerFailed()) {
+        return await failWith(implementerMissing());
       }
       const { checkResults, diff } = await checksAndDiff();
 
@@ -670,6 +873,7 @@ export async function runAgentRun(
       }
       const review = parsed.data;
       facts.reviewVerdict = review.verdict;
+      lastFindings = review.findings;
       await record(stage, "reviewer", "review", review);
       await record(stage, "system", "stage_finished", { stage, verdict: review.verdict });
 

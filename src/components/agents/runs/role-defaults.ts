@@ -13,6 +13,7 @@ import {
 import { EFFORT_LEVELS } from "@/core/agents/types";
 
 export const CODEX_PROVIDER_ID = "codex";
+export const ANTIGRAVITY_PROVIDER_ID = "antigravity";
 
 export interface ProviderState {
   id: string;
@@ -55,4 +56,9 @@ export function effortLevelsFor(providerId: string): readonly string[] {
 /** Providers the implementer select may offer (Codex is excluded). */
 export function implementerProviders<T extends ProviderState>(providers: readonly T[]): T[] {
   return providers.filter((p) => p.id !== CODEX_PROVIDER_ID && p.canImplement !== false);
+}
+
+/** Providers the planner and reviewer selects may offer (Antigravity is implementer-only; the server schema rejects it). */
+export function reviewRoleProviders<T extends ProviderState>(providers: readonly T[]): T[] {
+  return providers.filter((p) => p.id !== ANTIGRAVITY_PROVIDER_ID);
 }

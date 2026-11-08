@@ -106,6 +106,14 @@ export const EVENT_KINDS = [
   "error",
   /** Non-fatal diagnostic notice or policy exception (e.g. denied tool warning). */
   "warning",
+  /** The Antigravity tool monitor allowed a read of a plugin SKILL.md (AW3-04). */
+  "plugin_read",
+  /** The tool monitor killed the implementer for a tool call outside the allowlist (AW3-04). */
+  "monitor_stop",
+  /** The runner resumed an Antigravity conversation after an exit without a result (AW3-04). */
+  "continuation",
+  /** Advisory summary from the local LM Studio model; never changes the outcome (AW3-06b). */
+  "advisor",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];

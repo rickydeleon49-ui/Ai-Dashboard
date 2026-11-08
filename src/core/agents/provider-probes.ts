@@ -5,6 +5,7 @@
  * resolved executable, version, authentication, and configured models.
  */
 import { claudeAdapter } from "./adapters/claude-code";
+import { antigravityAdapter } from "./adapters/antigravity";
 import { codexAdapter } from "./adapters/codex";
 import { CODEX_MODELS } from "./codex-constants";
 import { fakeAdapter } from "./adapters/fake";
@@ -25,6 +26,7 @@ export interface ProviderProbeInfo {
 export interface ProviderProbeDeps {
   claudeProbe?: () => Promise<ProbeResult>;
   codexProbe?: () => Promise<ProbeResult>;
+  antigravityProbe?: () => Promise<ProbeResult>;
   fakeProbe?: () => Promise<ProbeResult>;
   includeFake?: boolean;
 }
@@ -37,6 +39,9 @@ export const CLAUDE_CODE_MODELS = [
 ];
 
 export { CODEX_MODELS };
+
+/** Antigravity's models come from `agy models` on demand; the run form accepts a free-text model until then. */
+export const ANTIGRAVITY_MODELS: string[] = [];
 
 export const FAKE_AGENT_MODELS = [
   "default",
@@ -105,7 +110,33 @@ export async function getProviderProbes(
     });
   }
 
-  // 3. Fake Agent
+  // 3. Antigravity (implementer only; probe = `agy --version` plus the cached sign-in result, never a model turn)
+  const runAntigravityProbe = deps.antigravityProbe ?? (() => antigravityAdapter.probe());
+  try {
+    const res = await runAntigravityProbe();
+    providers.push({
+      id: antigravityAdapter.id,
+      name: antigravityAdapter.displayName,
+      installed: res.installed,
+      version: res.version,
+      authenticated: res.authenticated,
+      models: ANTIGRAVITY_MODELS,
+      executable: res.executable,
+      error: res.error,
+      tried: res.tried,
+    });
+  } catch (err) {
+    providers.push({
+      id: antigravityAdapter.id,
+      name: antigravityAdapter.displayName,
+      installed: false,
+      authenticated: "unknown",
+      models: ANTIGRAVITY_MODELS,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // 4. Fake Agent
   const runFakeProbe = deps.fakeProbe ?? (() => fakeAdapter.probe());
   try {
     const res = await runFakeProbe();
