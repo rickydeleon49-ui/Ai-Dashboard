@@ -47,6 +47,9 @@ export const SETTING_KEYS = {
   agentWorkspaceRoots: "agent.workspace_roots",
   agentWorktreeRoot: "agent.worktree_root",
   agentRunStore: "agent.run_store",
+
+  /* AI usage trackers' shared folder (read-only), per machine. Absolute path. */
+  usageFolder: "usage.folder",
 } as const;
 
 /**
