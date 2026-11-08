@@ -394,7 +394,7 @@ function PolicyForm({
             <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-500">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span>
-                These folders are shared with agent worktrees, so an agent can change what is inside them.
+                These folders are shared with agent worktrees: an agent or a check that writes into them changes your project&apos;s own copy. Only folders Git ignores are linked.
               </span>
             </div>
           )}

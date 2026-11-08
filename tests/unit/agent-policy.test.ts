@@ -217,6 +217,7 @@ describe("getPolicy / savePolicy", () => {
     assert.deepEqual(rp, {
       checks: [{ name: "a", argv: ["x"], timeoutSec: DEFAULT_CHECK_TIMEOUT_SEC, required: false }],
       excludedPaths: ["s/**"],
+      dependencyLinks: [],
     });
   });
 });

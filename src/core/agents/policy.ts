@@ -8,7 +8,7 @@
  *   but a failure does not fail the run.
  * - `excludedPaths`: globs agents may not touch.
  * - `dependencyLinks`: folder names (`node_modules`, `.venv`) kept in the
- *   `defaults` JSON next to any other keys. Only stored for now.
+ *   `defaults` JSON next to any other keys. Each run links the ignored ones from the project into its worktree.
  *
  * Test restrictions are expressed as `required` per check, so the
  * `test_restrictions` column is left as `[]` and is not read.
@@ -217,5 +217,5 @@ export function toRunPolicy(policy: ProjectPolicy): RunPolicy {
     timeoutSec: c.timeoutSec,
     required: c.required,
   }));
-  return { checks, excludedPaths: policy.excludedPaths };
+  return { checks, excludedPaths: policy.excludedPaths, dependencyLinks: policy.dependencyLinks };
 }

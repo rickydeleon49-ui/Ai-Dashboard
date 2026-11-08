@@ -12,6 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { promisify } from "node:util";
+import { unlinkDependencies } from "./dependency-links";
 import { normalizeForCompare } from "./roots";
 import { resolveExecutable } from "./resolve-executable";
 import { redactText } from "./redact";
@@ -929,6 +930,18 @@ export async function removeRunWorktree(
         reason: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  // Linked dependency folders (AW4-14): drop the links first so nothing is ever deleted through them.
+  try {
+    unlinkDependencies(worktreePath);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `a shared folder link could not be removed, so the worktree was kept: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
   }
 
   const backoff = backoffMs ?? [100, 200, 400, 800, 1600];

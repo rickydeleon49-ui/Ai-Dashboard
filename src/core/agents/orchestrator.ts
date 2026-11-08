@@ -42,6 +42,7 @@ import {
   MAX_ROUNDS,
   escapeBlock,
 } from "./prompts";
+import { linkDependencies } from "./dependency-links";
 import type { RoleRunner, RoleRunnerMap } from "./role-runners";
 import {
   plannerOutputSchema,
@@ -73,6 +74,8 @@ export interface PolicyCheck {
 export interface RunPolicy {
   checks: PolicyCheck[];
   excludedPaths: string[];
+  /** Folder names linked from the project into the run's worktree (AW4-14). */
+  dependencyLinks?: string[];
 }
 
 export interface CheckResult {
@@ -125,6 +128,8 @@ export interface OrchestratorDeps {
    * has no entry fails the run up front; there is no fallback.
    */
   roleRunners?: RoleRunnerMap;
+  /** Test seam for the dependency links (AW4-14); defaults to linkDependencies. */
+  linkDependencies?: typeof linkDependencies;
   workspace: {
     /** A snapshot_copy workspace (non-Git project) reports its kind; absent means git_worktree. */
     create: (opts: { repoPath: string; worktreeRoot: string; runId: string }) => Promise<CreateRunWorktreeResult & { kind?: WorkspaceKind }>;
@@ -536,6 +541,25 @@ export async function runAgentRun(
         branch: ws.branch,
         baseSha: ws.baseSha,
       });
+      const links = policy.dependencyLinks ?? [];
+      if (links.length > 0) {
+        const linkFn = deps.linkDependencies ?? linkDependencies;
+        const res = await linkFn({ projectPath: repoPath, worktreePath: ws.path, names: links });
+        if (res.linked.length > 0 || res.skipped.length > 0) {
+          const text = [
+            res.linked.length > 0 ? `Shared folders linked: ${res.linked.join(", ")}.` : "",
+            ...res.skipped.map((k) => `Shared folder ${k.name} skipped: ${k.reason}.`),
+          ]
+            .filter(Boolean)
+            .join(" ");
+          await record("inspect", "system", res.skipped.length > 0 ? "warning" : "output", {
+            type: "dependency_links",
+            text,
+            linked: res.linked,
+            skipped: res.skipped,
+          });
+        }
+      }
     }
 
     // plan (AW.2): a validated plan feeds the implementer prompt and the scope check.
