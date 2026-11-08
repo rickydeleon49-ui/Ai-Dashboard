@@ -186,6 +186,27 @@ describe("runRequestSchema", () => {
     assert.deepEqual(parsed.checks, ["typecheck", "lint", "test:unit"]);
   });
 
+  it("rejects Antigravity as planner or reviewer but allows it as implementer", () => {
+    for (const role of ["planner", "reviewer"] as const) {
+      assert.throws(
+        () =>
+          runRequestSchema.parse({
+            projectId: "proj_1",
+            task: "t",
+            roles: { implementer: { provider: "claude-code" }, [role]: { provider: "antigravity" } },
+          }),
+        /Antigravity can only be the implementer/,
+        role,
+      );
+    }
+    const ok = runRequestSchema.parse({
+      projectId: "proj_1",
+      task: "t",
+      roles: { implementer: { provider: "antigravity" }, reviewer: { provider: "claude-code" } },
+    });
+    assert.equal(ok.roles.implementer.provider, "antigravity");
+  });
+
   it("rejects an empty or whitespace-only task", () => {
     assert.throws(
       () =>

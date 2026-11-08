@@ -21,6 +21,8 @@ import {
   agentWorkspaceLocks,
   projects,
 } from "../../src/db/schema";
+import { antigravityAdapter } from "../../src/core/agents/adapters/antigravity";
+import { claudeAdapter } from "../../src/core/agents/adapters/claude-code";
 import { fakeAdapter } from "../../src/core/agents/adapters/fake";
 import { readSince } from "../../src/core/agents/events";
 import { acquireWorkspaceLock } from "../../src/core/agents/roots";
@@ -38,6 +40,7 @@ import {
   createRunner,
   RELEASED_INTENT_BACKOFF_MS,
   recoverRuns,
+  selectImplementerAdapter,
   worktreeReport,
   type LogFn,
 } from "../../runner/index";
@@ -656,5 +659,49 @@ describe("reviewer parsing and prompt fencing", () => {
     assert.match(prompt, /<check_output name="lint">/);
     assert.equal(prompt.split("</check_output>").length - 1, 1, "only the real closing tag remains");
     assert.match(prompt, /untrusted data/);
+  });
+});
+
+describe("implementer adapter choice (AW3-04)", () => {
+  it("picks the adapter from the implementer provider", () => {
+    assert.equal(selectImplementerAdapter("claude-code"), claudeAdapter);
+    assert.equal(selectImplementerAdapter("antigravity"), antigravityAdapter);
+  });
+
+  it("has no adapter for other providers", () => {
+    for (const provider of ["codex", "fake", "gemini", ""]) {
+      assert.equal(selectImplementerAdapter(provider), null, provider);
+    }
+  });
+
+  it("fails a run for an unknown provider up front, with no fallback to Claude", async () => {
+    const fx = makeFixture();
+    const runner = createRunner({
+      db,
+      epoch: "epoch-current",
+      log: silent,
+      getStorage: async () => ({
+        workspaceRoots: [fx.workspaceRoot],
+        worktreeRoot: fx.worktreeRoot,
+        runStore: fx.runStore,
+      }),
+      orchestrator: { review: async () => ({ verdict: "approve", findings: [] }), stopGraceMs: 500 },
+      stopGraceMs: 500,
+    });
+    const runId = `run-runner-${++counter}`;
+    const request = {
+      projectId: fx.projectId,
+      task: "add a file",
+      roles: { implementer: { provider: "bogus-provider" } },
+      checks: ["ok"],
+    };
+    db.insert(agentRuns).values({ id: runId, projectId: fx.projectId, request: JSON.stringify(request) }).run();
+    insertIntent(runId, "start");
+    assert.equal(await runner.tick(), true);
+    await runner.idle();
+    const row = rowOf(runId);
+    assert.equal(row.status, "failed");
+    assert.match(row.outcome ?? "", /no implementer is available for provider \\"bogus-provider\\"/);
+    assert.equal((await eventsOf(runId)).some((e) => e.kind === "tool_call"), false, "nothing was spawned");
   });
 });
