@@ -142,7 +142,7 @@ describe("readAntigravityInventory (Round AW3-02)", () => {
 
     assert.deepEqual(inv.plugins, [{ name: "bad-plugin", hasHooks: false }]);
     assert.equal(inv.errors.length, 1);
-    const errorEntry = inv.errors[0];
+    const errorEntry = inv.errors[0] ?? "";
     assert.ok(
       !errorEntry.includes(sensitiveFileText),
       "Error entry must not contain any file contents",
@@ -227,8 +227,8 @@ describe("readAntigravityInventory (Round AW3-02)", () => {
 
     assert.deepEqual(inv.plugins, [{ name: "large-plugin", hasHooks: false }]);
     assert.equal(inv.errors.length, 1);
-    assert.match(inv.errors[0], /plugin\.json/);
-    assert.match(inv.errors[0], /EFBIG/);
-    assert.ok(!inv.errors[0].includes("xxxx"));
+    assert.match(inv.errors[0] ?? "", /plugin\.json/);
+    assert.match(inv.errors[0] ?? "", /EFBIG/);
+    assert.ok(!(inv.errors[0] ?? "").includes("xxxx"));
   });
 });
