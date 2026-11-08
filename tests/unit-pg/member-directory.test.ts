@@ -1187,6 +1187,9 @@ describe("Release 2C.1 Stage A: Soft removal, re-invitation & reinstatement inva
         { status: "suspended" },
         { callerRole: "admin" },
       );
+      // Handle the rejection at once: client 2 can reject in the same I/O turn as c1's COMMIT,
+      // before assert.rejects below is attached, which Node reports as an unhandled rejection.
+      adminSuspendPromise.catch(() => {});
 
       // Give admin transaction time to run and block on c1's row lock
       await new Promise((resolve) => setTimeout(resolve, 300));
