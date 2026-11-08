@@ -44,8 +44,9 @@ import { getPolicy, toRunPolicy } from "@/core/agents/policy";
 import { runPolicyCheck } from "@/core/agents/run-check";
 import { runRequestSchema } from "@/core/agents/schema";
 import { postRunOutcomeToTask } from "@/core/agents/task-link";
+import { createRunWorkspace } from "@/core/agents/snapshot";
 import { TERMINAL_STATUSES } from "@/core/agents/types";
-import { commitStage, createRunWorktree, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
+import { commitStage, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
 
 export const POLL_INTERVAL_MS = 500;
 export const SHUTDOWN_WAIT_MS = 15_000;
@@ -417,7 +418,8 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       review: (input, signal) =>
         reviewWithClaude(input, signal, { grantDir: nodePath.join(grantDirFor(storage.runStore, runId), "review") }),
       workspace: {
-        create: createRunWorktree,
+        // Git projects get a worktree; non-Git folders a snapshot copy (honouring exclusions).
+        create: (opts) => createRunWorkspace({ ...opts, excludedPaths: policy.excludedPaths }),
         commit: commitStage,
         diff: diffSummary,
         patch: diffPatch,

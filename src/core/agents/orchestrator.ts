@@ -52,7 +52,7 @@ import {
   type ReviewerOutput,
   type RunRequest,
 } from "./schema";
-import type { EventAgent, EventKind, RunStage, RunStatus } from "./types";
+import type { EventAgent, EventKind, RunStage, RunStatus, WorkspaceKind } from "./types";
 import { postRunOutcomeToTask } from "./task-link";
 import {
   isPathInScope,
@@ -103,7 +103,8 @@ export interface OrchestratorDeps {
    */
   roleRunners?: RoleRunnerMap;
   workspace: {
-    create: (opts: { repoPath: string; worktreeRoot: string; runId: string }) => Promise<CreateRunWorktreeResult>;
+    /** A snapshot_copy workspace (non-Git project) reports its kind; absent means git_worktree. */
+    create: (opts: { repoPath: string; worktreeRoot: string; runId: string }) => Promise<CreateRunWorktreeResult & { kind?: WorkspaceKind }>;
     commit: (worktreePath: string, stage: string, runShortId: string) => Promise<string | null>;
     diff: (
       worktreePath: string,
@@ -496,7 +497,7 @@ export async function runAgentRun(
     const ws = await deps.workspace.create({ repoPath, worktreeRoot: deps.storage.worktreeRoot, runId });
     worktreePath = ws.path;
     db.update(agentRuns)
-      .set({ workspaceKind: "git_worktree", workspacePath: ws.path, baseRef: ws.baseSha, branch: ws.branch })
+      .set({ workspaceKind: ws.kind ?? "git_worktree", workspacePath: ws.path, baseRef: ws.baseSha, branch: ws.branch })
       .where(eq(agentRuns.id, runId))
       .run();
     await record("inspect", "system", "stage_finished", {
