@@ -279,6 +279,62 @@ approves, every required check passes and all changes are inside the plan
 scope; after round 3 it fails and lists what is still open. The run page has a
 round switcher, the plan, and findings grouped as blocking, major and minor.
 
+### Project policy
+
+Each project has a policy, edited on the project's page with the **Agent policy**
+button (page `/settings/agents/projects/<id>`). The button shows only in the
+desktop app.
+
+- **Checks**: commands the runner runs in the worktree after the agent finishes
+  (for example `npm test`). Each has a name, a command, a timeout in seconds,
+  and **Required** or informational. A failed required check fails the run; an
+  informational one is only shown. Commands run directly, never through a shell,
+  so pipes and `&&` do not work; write one check per command. Quote an argument
+  that contains spaces with double quotes.
+- **Excluded paths**: relative globs (for example `secret/**` or `*.env`) agents
+  may not change. Three layers enforce it: Claude Code gets deny rules for them;
+  the Antigravity tool monitor stops the run on a write to one (reading is
+  allowed); and after the run, any changed excluded file is listed and fails the
+  run.
+- **Shared folders**: folders such as `node_modules` to link into each run's
+  worktree instead of installing them again. They would be shared, so an agent
+  could change what is inside them; the page warns about this. The list is saved
+  now; linking it into worktrees is not switched on yet.
+
+Saving checks the whole policy; problems are listed one per line and nothing is
+saved until they are fixed.
+
+### Projects without Git
+
+A project folder that is not a Git repository is copied into the worktree
+folder first (`<worktree root>/command-center/snap/<run>/base`), skipping
+excluded paths, links, and heavy folders (`node_modules`, `.venv`, `venv`,
+`__pycache__`, `.next`, `dist`, `build`, `.git`, `.DS_Store`). The copy becomes
+a throwaway Git repository and the run works in a worktree of it, so the run
+page, diff and review look the same as for a Git project.
+
+The copy is refused above 50,000 files or 2 GB.
+
+Your original folder is not changed by the run. Copying the result back is a
+separate step that needs your approval. Before writing, it checks that none of
+the affected files changed in your folder since the copy was made (if one did,
+nothing is written), makes a timestamped backup of every file it will overwrite
+or delete (with a `manifest.json`), copies only the changed files, then checks
+each file's hash. If a check fails, your files are restored from the backup.
+The approval screen for copying back arrives with run approvals.
+
+### Runs linked to a task
+
+A run can be tied to one task of its project. **Next task** in the run form
+fills in the next eligible task from the project's task board (open, not blocked,
+and with no active run); **Clear** removes it.
+
+When the run ends, one entry is added to the task's activity with the result, a
+link to the run, the check counts and the review verdict.
+
+A run never changes the task itself: status, priority and dates stay as you set
+them.
+
 ## Commands
 
 | Command | Does |
