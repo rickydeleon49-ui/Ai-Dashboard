@@ -25,6 +25,15 @@ export const ANTIGRAVITY_TOOL_ALLOWLIST: readonly string[] = Object.freeze([
 const ALLOWED_TOOLS: ReadonlySet<string> = new Set(ANTIGRAVITY_TOOL_ALLOWLIST);
 const PLUGIN_READ_TOOLS: ReadonlySet<string> = new Set(["read_file", "view_file"]);
 const PLUGIN_FILE_NAME = "SKILL.md";
+/** File tools must name the file they touch; a path under an unknown key is a denial. */
+const PATH_REQUIRED_TOOLS: ReadonlySet<string> = new Set([
+  "view_file",
+  "read_file",
+  "write_to_file",
+  "write_file",
+  "replace_file_content",
+  "multi_replace_file_content",
+]);
 
 const EXPLICIT_PATH_KEYS = new Set(
   [
@@ -115,6 +124,9 @@ export class ToolMonitor {
 
     try {
       const raw = this.collectPaths(info?.parameters);
+      if (raw.length === 0 && PATH_REQUIRED_TOOLS.has(tool)) {
+        throw new Deny("file tool without a recognised path parameter");
+      }
       const resolved: string[] = [];
       let pluginRead = false;
       for (const candidate of raw) {
@@ -150,6 +162,8 @@ export class ToolMonitor {
       if (value === undefined || value === null) continue;
       const items = Array.isArray(value) ? value : [value];
       for (const item of items) {
+        // Flags such as EmptyFile: true cannot name a path.
+        if (typeof item === "boolean" || typeof item === "number") continue;
         if (typeof item !== "string") throw new Deny(`non-string path parameter ${key}`);
         if (item === "" || item.includes("\0")) {
           throw new Deny(`invalid path parameter ${key}`, item);

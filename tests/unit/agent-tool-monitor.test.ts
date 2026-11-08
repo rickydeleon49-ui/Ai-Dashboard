@@ -292,3 +292,24 @@ test("real filesystem: worktree, new files, symlink escape", async (t) => {
     t.diagnostic("file symlink not permitted here; dangling case skipped");
   }
 });
+
+test("flag parameters under path-like keys are ignored, objects still deny", async () => {
+  const mon = winMonitor();
+  const ok = await mon.check(
+    step("write_to_file", { TargetFile: "src/a.ts", EmptyFile: false, CodeContent: "x" }),
+  );
+  assert.equal(ok.allowed, true);
+  const bad = await mon.check(step("write_to_file", { TargetFile: { p: "C:/x" } }));
+  assert.equal(bad.allowed, false);
+});
+
+test("file tools without a recognised path parameter are denied", async () => {
+  const mon = winMonitor();
+  for (const tool of ["read_file", "view_file", "write_file", "write_to_file", "replace_file_content"]) {
+    const d = await mon.check(step(tool, { Target: "C:/Windows/win.ini" }));
+    assert.equal(d.allowed, false, tool);
+  }
+  // Search and listing tools default to the worktree when no path is given.
+  assert.equal((await mon.check(step("grep_search", { Query: "x" }))).allowed, true);
+  assert.equal((await mon.check(step("finish", {}))).allowed, true);
+});
