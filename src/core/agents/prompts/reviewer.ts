@@ -58,6 +58,7 @@ export function buildReviewerPrompt(input: ReviewerPromptInput): string {
     parts.push(
       "",
       "## Plan acceptance criteria",
+      "Planner's plan (guidance; the task above is authoritative):",
       "<plan>",
       ...acceptanceLines,
       "</plan>",

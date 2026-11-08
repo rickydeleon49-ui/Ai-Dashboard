@@ -449,3 +449,20 @@ describe("runs without planner or reviewer roles keep the AW.1 flow", () => {
     assert.equal(evs.some((e) => e.kind === "stage_started"), false);
   });
 });
+
+describe("the owner's task stays authoritative (review S1)", () => {
+  it("a planner that narrows plan.task does not replace request.task in any prompt", T, async () => {
+    const narrowed = { ...PLAN, task: "only add X" };
+    const env = makeEnv({ script: { plan: { output: narrowed }, reviews: [{ output: BLOCKING }, { output: APPROVE }] } });
+    const out = await run(env);
+    assert.equal(out.status, "succeeded", JSON.stringify(out));
+    assert.ok(env.prompts.length >= 2, "implement and correct prompts");
+    const taskSection = (p: string) => p.split("## Task\n")[1]?.split("\n\n")[0];
+    for (const p of env.prompts) assert.equal(taskSection(p), "do the thing", p);
+    assert.match(env.prompts[0] ?? "", /Planner's plan \(guidance; the task above is authoritative\)/);
+    assert.match(env.prompts[0] ?? "", /only add X/);
+    const reviews = reviewCalls(env);
+    assert.equal(reviews.length, 2);
+    for (const r of reviews) assert.equal(taskSection(r.prompt), "do the thing", r.prompt);
+  });
+});
