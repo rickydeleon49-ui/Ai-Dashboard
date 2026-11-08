@@ -114,6 +114,8 @@ export const EVENT_KINDS = [
   "continuation",
   /** Advisory summary from the local LM Studio model; never changes the outcome (AW3-06b). */
   "advisor",
+  /** An approval-gated action was requested, decided, executed or failed (AW4-08). */
+  "approval",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -127,6 +129,8 @@ export const INTENT_KINDS = [
   "approve",
   "deny",
   "resume",
+  /** The runner executes an approved agent_run_approval row (AW4-08). */
+  "approval_execute",
 ] as const;
 
 export type IntentKind = (typeof INTENT_KINDS)[number];

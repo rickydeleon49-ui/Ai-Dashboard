@@ -743,11 +743,16 @@ export const agentRuns = sqliteTable(
     correctionRound: integer("correction_round").notNull().default(0),
     outcome: text("outcome"),
     runnerEpoch: text("runner_epoch"),
+    /** AW4-05: the one task this run is tied to (null = none). A run never changes the task itself. */
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
     createdAt: text("created_at").notNull().default(now),
     updatedAt: text("updated_at").notNull().default(now),
     endedAt: text("ended_at"),
+    /** AW4-11: when you dismissed this finished run (null = not dismissed). Cleanup only touches dismissed runs. */
+    dismissedAt: text("dismissed_at"),
   },
   (t) => [
+    index("agent_run_task_idx").on(t.taskId),
     index("agent_run_project_created_idx").on(t.projectId, t.createdAt),
     index("agent_run_status_idx").on(t.status),
   ],
@@ -803,6 +808,33 @@ export const agentWorkspaceLocks = sqliteTable(
 );
 export const agentWorkspaceLock = agentWorkspaceLocks;
 
+/** AW4-08: an approval-gated action on a finished run: previewed, approved, then executed by the runner. */
+export const agentRunApprovals = sqliteTable(
+  "agent_run_approval",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    /** merge | push | draft_pr | apply_back | delete_worktree */
+    kind: text("kind").notNull(),
+    /** pending | approved | rejected | executing | done | failed */
+    status: text("status").notNull().default("pending"),
+    preview: text("preview").notNull().default("{}"),
+    target: text("target").notNull().default("{}"),
+    result: text("result"),
+    error: text("error"),
+    requestedAt: text("requested_at").notNull().default(now),
+    decidedAt: text("decided_at"),
+    executedAt: text("executed_at"),
+  },
+  (t) => [
+    index("agent_run_approval_run_idx").on(t.runId, t.requestedAt),
+    index("agent_run_approval_status_idx").on(t.status),
+  ],
+);
+export const agentRunApproval = agentRunApprovals;
+
 export const agentRunComments = sqliteTable(
   "agent_run_comment",
   {
@@ -828,3 +860,4 @@ export type AgentRunEventRow = typeof agentRunEvents.$inferSelect;
 export type AgentRunIntentRow = typeof agentRunIntents.$inferSelect;
 export type AgentWorkspaceLockRow = typeof agentWorkspaceLocks.$inferSelect;
 export type AgentRunCommentRow = typeof agentRunComments.$inferSelect;
+export type AgentRunApprovalRow = typeof agentRunApprovals.$inferSelect;

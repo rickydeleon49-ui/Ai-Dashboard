@@ -48,6 +48,7 @@ const POLICY: RunPolicy = {
   checks: [
     { name: "lint", argv: ["npm", "run", "lint"] },
     { name: "test", argv: ["npm", "test"] },
+    { name: "info", argv: ["npm", "run", "info"], required: false },
   ],
   excludedPaths: ["secrets/**"],
 };
@@ -247,6 +248,23 @@ describe("runAgentRun (AW1-08)", () => {
     assert.deepEqual(outcome.missing, ['check "lint" exited with code 1']);
     assertTerminal(env, outcome);
     assertCleanedUp(env);
+  });
+
+  it("2b. an optional check that fails is reported but does not fail the run", { timeout: 30_000 }, async () => {
+    const env = makeEnv({ checks: ["lint", "test", "info"], checkResults: { info: { exitCode: 1 } } });
+    const outcome = await run(env);
+    assert.equal(outcome.status, "succeeded");
+    assert.deepEqual(outcome.missing, []);
+    assert.deepEqual(env.calls.runCheck, ["lint", "test", "info"]);
+    const evs = await events(env);
+    assert.ok(evs.some((e) => e.kind === "check_result" && JSON.stringify(e.payload).includes("info")));
+  });
+
+  it("2c. a required check still fails the run next to an optional one", { timeout: 30_000 }, async () => {
+    const env = makeEnv({ checks: ["lint", "test", "info"], checkResults: { lint: { exitCode: 1 }, info: { exitCode: 1 } } });
+    const outcome = await run(env);
+    assert.equal(outcome.status, "failed");
+    assert.deepEqual(outcome.missing, ['check "lint" exited with code 1']);
   });
 
   it("3. a timed-out check fails the run", { timeout: 30_000 }, async () => {
@@ -579,5 +597,50 @@ describe("decide (AW1-08)", () => {
     const f = good();
     f.checks.push({ name: "extra", exitCode: 9, timedOut: false });
     assert.equal(decide(f, req).status, "succeeded");
+  });
+});
+
+describe("dependency links (AW4-14)", () => {
+  const withLinks = (env: Env, links: string[], result: { linked: string[]; skipped: { name: string; reason: string }[] }) => {
+    const seen: Array<{ projectPath: string; worktreePath: string; names: readonly string[] }> = [];
+    env.deps.linkDependencies = async (o) => {
+      seen.push(o);
+      return result;
+    };
+    return {
+      seen,
+      go: () =>
+        runAgentRun(env.deps, {
+          runId: env.runId,
+          repoPath: path.join(env.root, "repo"),
+          policy: { ...POLICY, dependencyLinks: links },
+        }),
+    };
+  };
+
+  it("records one event with what was linked and skipped", { timeout: 30_000 }, async () => {
+    const env = makeEnv();
+    const { seen, go } = withLinks(env, ["node_modules", ".venv"], {
+      linked: ["node_modules"],
+      skipped: [{ name: ".venv", reason: "not found in the project" }],
+    });
+    const outcome = await go();
+    assert.equal(outcome.status, "succeeded");
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0]?.projectPath, path.join(env.root, "repo"));
+    assert.equal(seen[0]?.worktreePath, path.join(env.worktreeRoot, env.runId));
+    const evs = (await events(env)).filter((e) => (e.payload as { type?: string } | null)?.type === "dependency_links");
+    assert.equal(evs.length, 1);
+    assert.equal(evs[0]?.kind, "warning");
+    assert.deepEqual((evs[0]?.payload as { linked: string[] }).linked, ["node_modules"]);
+  });
+
+  it("records no event when the policy lists no folders", { timeout: 30_000 }, async () => {
+    const env = makeEnv();
+    const { seen, go } = withLinks(env, [], { linked: [], skipped: [] });
+    await go();
+    assert.equal(seen.length, 0);
+    const evs = (await events(env)).filter((e) => (e.payload as { type?: string } | null)?.type === "dependency_links");
+    assert.equal(evs.length, 0);
   });
 });

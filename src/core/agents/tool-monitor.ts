@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import nodePath from "node:path";
+import { matchGlob } from "./workspace";
 
 /**
  * Antigravity tool monitor (AW3-03). Antigravity runs with its own tools, so
@@ -35,6 +36,18 @@ const PATH_REQUIRED_TOOLS: ReadonlySet<string> = new Set([
   "multi_replace_file_content",
 ]);
 
+/**
+ * Excluded paths protect files from change, so only these read-only tools may touch them.
+ * Every other file tool (and any tool added to the allowlist later) counts as a write.
+ */
+const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  "view_file",
+  "read_file",
+  "list_dir",
+  "grep_search",
+  "find_by_name",
+]);
+
 const EXPLICIT_PATH_KEYS = new Set(
   [
     "Path",
@@ -63,6 +76,8 @@ export interface ToolMonitorOptions {
    * Defaults to fs.readlink only when realpath is not injected.
    */
   readlink?: (p: string) => Promise<string>;
+  /** Worktree-relative globs (same syntax as the policy). Write-class tools on a match are denied. */
+  excludedPaths?: string[];
 }
 
 class Deny extends Error {
@@ -93,6 +108,7 @@ export class ToolMonitor {
   private readonly readlinkFn?: (p: string) => Promise<string>;
   private readonly worktree: string;
   private readonly home: string | undefined;
+  private readonly excludedPaths: string[];
   private worktreeReal?: Promise<string>;
   private pluginsReal?: Promise<string | undefined>;
 
@@ -103,6 +119,7 @@ export class ToolMonitor {
     this.readlinkFn = opts.readlink ?? (opts.realpath ? undefined : (x) => fs.promises.readlink(x));
     this.worktree = opts.worktree;
     this.home = opts.home;
+    this.excludedPaths = opts.excludedPaths ?? [];
   }
 
   /** Accepts the raw `step_update` object. Safe to call for every state of a step. */
@@ -132,6 +149,7 @@ export class ToolMonitor {
       for (const candidate of raw) {
         const real = await this.resolveReal(candidate);
         if (await this.insideWorktree(real)) {
+          if (!READ_ONLY_TOOLS.has(tool)) await this.assertNotExcluded(real);
           resolved.push(real);
           continue;
         }
@@ -227,6 +245,17 @@ export class ToolMonitor {
     if (t === r) return true;
     const prefix = r.endsWith(this.p.sep) ? r : r + this.p.sep;
     return t.startsWith(prefix);
+  }
+
+  /** Denies when the resolved path (worktree-relative, forward slashes) matches an excluded glob. */
+  private async assertNotExcluded(real: string): Promise<void> {
+    if (this.excludedPaths.length === 0) return;
+    const root = await this.resolveWorktree();
+    const rel = this.p.relative(root, real).split(this.p.sep).join("/");
+    const subject = this.fold(rel);
+    for (const glob of this.excludedPaths) {
+      if (matchGlob(this.fold(glob), subject)) throw new Deny(`excluded path ${rel}`);
+    }
   }
 
   private async insideWorktree(real: string): Promise<boolean> {

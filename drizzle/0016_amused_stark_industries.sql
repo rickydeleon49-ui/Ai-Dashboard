@@ -1,0 +1,1 @@
+ALTER TABLE `agent_run` ADD `dismissed_at` text;

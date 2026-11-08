@@ -3,6 +3,8 @@ import { isAgentRunsEnabled } from "@/core/agents/availability";
 import {
   getAgentStorageSettings,
   inspectRootStatus,
+  getRetentionDays,
+  setRetentionDays,
   setRunStore,
   setWorkspaceRoots,
   setWorktreeRoot,
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     storage,
+    retentionDays: await getRetentionDays(),
     statuses: {
       workspaceRoots: rootsStatus,
       worktreeRoot: worktreeStatus,
@@ -58,10 +61,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Body must be an object" }, { status: 400 });
   }
 
-  const { workspaceRoots, worktreeRoot, runStore } = body as {
+  const { workspaceRoots, worktreeRoot, runStore, retentionDays } = body as {
     workspaceRoots?: unknown;
     worktreeRoot?: unknown;
     runStore?: unknown;
+    retentionDays?: unknown;
   };
 
   if (workspaceRoots !== undefined) {
@@ -106,6 +110,19 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  if (retentionDays !== undefined) {
+    if (retentionDays !== null && typeof retentionDays !== "number") {
+      return NextResponse.json(
+        { error: "retentionDays must be a whole number of days (1-365) or null" },
+        { status: 400 },
+      );
+    }
+    const res = await setRetentionDays(retentionDays);
+    if (!res.ok) {
+      return NextResponse.json({ error: res.reason }, { status: 400 });
+    }
+  }
+
   const storage = await getAgentStorageSettings();
   const rootsStatus = storage.workspaceRoots.map((r) => inspectRootStatus(r));
   const worktreeStatus = inspectRootStatus(storage.worktreeRoot, {
@@ -119,6 +136,7 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({
     success: true,
     storage,
+    retentionDays: await getRetentionDays(),
     statuses: {
       workspaceRoots: rootsStatus,
       worktreeRoot: worktreeStatus,

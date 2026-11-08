@@ -279,6 +279,139 @@ approves, every required check passes and all changes are inside the plan
 scope; after round 3 it fails and lists what is still open. The run page has a
 round switcher, the plan, and findings grouped as blocking, major and minor.
 
+### Project policy
+
+Each project has a policy, edited on the project's page with the **Agent policy**
+button (page `/settings/agents/projects/<id>`). The button shows only in the
+desktop app.
+
+- **Checks**: commands the runner runs in the worktree after the agent finishes
+  (for example `npm test`). Each has a name, a command, a timeout in seconds,
+  and **Required** or informational. A failed required check fails the run; an
+  informational one is only shown. Commands run directly, never through a shell,
+  so pipes and `&&` do not work; write one check per command. Quote an argument
+  that contains spaces with double quotes.
+- **Excluded paths**: relative globs (for example `secret/**` or `*.env`) agents
+  may not change. Three layers enforce it: Claude Code gets deny rules for them;
+  the Antigravity tool monitor stops the run on a write to one (reading is
+  allowed); and after the run, any changed excluded file is listed and fails the
+  run.
+- **Shared folders**: folders such as `node_modules` to link into each run's
+  worktree instead of installing them again. They are shared, so an agent or a
+  check that writes into them changes your project's own copy; the page warns
+  about this. Only folders Git ignores are linked, and the links are removed
+  before a run's worktree is deleted, so nothing is deleted through them.
+
+Saving checks the whole policy; problems are listed one per line and nothing is
+saved until they are fixed.
+
+### Projects without Git
+
+A project folder that is not a Git repository is copied into the worktree
+folder first (`<worktree root>/command-center/snap/<run>/base`), skipping
+excluded paths, links, and heavy folders (`node_modules`, `.venv`, `venv`,
+`__pycache__`, `.next`, `dist`, `build`, `.git`, `.DS_Store`). The copy becomes
+a throwaway Git repository and the run works in a worktree of it, so the run
+page, diff and review look the same as for a Git project.
+
+The copy is refused above 50,000 files or 2 GB.
+
+Your original folder is not changed by the run. Copying the result back is a
+separate step that needs your approval. Before writing, it checks that none of
+the affected files changed in your folder since the copy was made (if one did,
+nothing is written), makes a timestamped backup of every file it will overwrite
+or delete (with a `manifest.json`), copies only the changed files, then checks
+each file's hash. If a check fails, your files are restored from the backup.
+Copy back from the run's **Approvals** card (see Run approvals below).
+
+### Runs linked to a task
+
+A run can be tied to one task of its project. **Next task** in the run form
+fills in the next eligible task from the project's task board (open, not blocked,
+and with no active run); **Clear** removes it.
+
+When the run ends, one entry is added to the task's activity with the result, a
+link to the run, the check counts and the review verdict.
+
+A run never changes the task itself: status, priority and dates stay as you set
+them.
+
+### Run approvals
+
+After a run finishes (succeeded, failed or stopped), its page has an
+**Approvals** card. Nothing below happens without your approval.
+
+Each action has three steps: **Preview** shows exactly what will happen; then
+**Approve** or **Reject**; after approval the runner does it in the background,
+and the result (or the error) is shown and added to the run's event log.
+
+Actions:
+- **Merge into a branch**: merges the run branch into the branch you name. That
+  branch must be the one checked out in your project folder; the app never
+  switches your checkout. Refused if your checkout has uncommitted changes or
+  the preview found conflicts. The merge commit uses your own Git name.
+- **Push branch**: pushes the run branch to a remote (default `origin`). Never a
+  force push.
+- **Open draft pull request**: opens a draft pull request on GitHub with the
+  GitHub token from Settings. The body lists the run's checks, review and
+  changed files. The app never merges a pull request.
+- **Copy results back to your folder**: for projects without Git only; this is
+  the copy-back step described in "Projects without Git", with its backup and
+  checks.
+- **Delete worktree**: removes a run's worktree even when its branch has commits
+  that are not merged. The branch itself is kept.
+
+Before running an approved action the runner checks again: if the run branch or
+your branch moved since the preview, it stops and asks for a new preview. Each
+run has at most one open approval per action.
+
+### Resuming a run
+
+A run that was interrupted, failed or stopped shows a **Resume** button next to
+Stop on its page.
+
+Resume starts again from the last stage that finished (plan, implement or
+checks), in the same worktree. It never continues a command halfway.
+
+When a session id was recorded for the implementer, the same session continues
+(Claude Code and Antigravity). Otherwise the stage starts fresh with its original
+instructions and a note that it is a resumed attempt.
+
+Resume is refused, with the reason shown in red, when: the worktree has a commit
+or file changes that the run did not make (up to 10 paths are listed); an
+approval for the run is still open; another run holds the project lock; the
+worktree no longer exists.
+
+The runner does the work in the background; the run's event log shows "resume
+requested" and where it resumed from.
+
+### Dismissing runs and cleaning up worktrees
+
+A finished run (succeeded, failed, stopped or interrupted) has a **Dismiss**
+button on its page. Dismissed runs are hidden from the runs list; **Show
+dismissed** brings them back, and **Restore** undoes a dismiss.
+
+A run cannot be dismissed while one of its approvals is open or a resume is
+queued.
+
+Settings > Agents has "Remove worktrees of dismissed runs after N days" (1 to
+365). It is off by default.
+
+When it is on, the runner checks once at start and then every 6 hours. It only
+removes worktrees of dismissed runs older than N days, and only inside its own
+`command-center` folder.
+
+It skips a worktree that has uncommitted or untracked changes, and a run whose
+branch has commits that no other branch or remote branch has. Skipped runs are
+left as they are.
+
+After removing a worktree it deletes the run branch only if it is fully merged.
+For projects without Git it also removes the run's temporary copy; your own
+folder and the copy-back backups are never touched.
+
+**Preview cleanup** in the same settings card lists what would be removed or
+skipped and why. Previewing never deletes anything.
+
 ## Commands
 
 | Command | Does |

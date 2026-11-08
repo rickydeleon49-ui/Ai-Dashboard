@@ -87,6 +87,8 @@ export const runRequestSchema = z
       .array(checkNameSchema)
       .max(20, "At most 20 checks allowed")
       .default([]),
+    /** AW4-05: optional task this run is tied to (must belong to the project; checked by the API). */
+    taskId: z.string().trim().min(1, "Task ID must not be empty").max(200).optional(),
     antigravityAcknowledgement: z
       .object({
         plugins: z.array(z.string().min(1).max(200)).max(200),

@@ -26,6 +26,8 @@ export interface BuildRunRequestInput {
     reviewer?: RoleInput | null;
   };
   checks?: string | readonly string[];
+  /** AW4-05: optional linked task id (blank is omitted). */
+  taskId?: string | null;
   antigravityAcknowledgement?: {
     plugins: string[] | readonly string[];
     mcpServers: string[] | readonly string[];
@@ -86,6 +88,11 @@ export function buildRunRequest(input: BuildRunRequestInput): RunRequest {
     },
     checks: normalizeChecks(input.checks),
   };
+
+  const taskId = input.taskId?.trim();
+  if (taskId) {
+    request.taskId = taskId;
+  }
 
   if (
     implementer.provider === "antigravity" &&

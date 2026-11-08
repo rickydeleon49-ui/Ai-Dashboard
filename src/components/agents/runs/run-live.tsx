@@ -15,6 +15,7 @@ import {
   type RunComment,
 } from "./comments-logic";
 import { RunComments } from "./run-comments";
+import { RunApprovals } from "./run-approvals";
 import {
   availableRounds,
   checksForRound,
@@ -161,6 +162,8 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
   const [connection, setConnection] = React.useState<"connecting" | "live" | "reconnecting" | "ended">("connecting");
   const [stopState, setStopState] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
   const [stopError, setStopError] = React.useState<string | null>(null);
+  const [resumeState, setResumeState] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [resumeError, setResumeError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [draft, setDraft] = React.useState<{ file: string; line: number | null } | null>(null);
   const [comments, setComments] = React.useState<RunComment[]>([]);
@@ -172,6 +175,7 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
 
   const status = deriveStatus(stream.events) ?? initialStatus;
   const terminal = isTerminalStatus(status);
+  const resumable = status === "interrupted" || status === "failed" || status === "stopped";
 
   // Pull the stored outcome once the run is terminal.
   React.useEffect(() => {
@@ -271,6 +275,26 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
     }
   }
 
+  async function resume() {
+    setResumeState("sending");
+    setResumeError(null);
+    try {
+      const res = await fetch(`/api/agent-runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
+      if (res.ok) {
+        setResumeState("sent");
+        // The event stream closed when the run ended; reload to follow the resumed attempt.
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setResumeError(body.error ?? `Resume failed (${res.status})`);
+        setResumeState("error");
+      }
+    } catch {
+      setResumeError("Resume request failed");
+      setResumeState("error");
+    }
+  }
+
   async function copyLog() {
     try {
       await navigator.clipboard.writeText(plain);
@@ -294,10 +318,20 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
                 {stopState === "sent" ? "Stopping..." : "Stop"}
               </Button>
             ) : null}
+            {resumable ? (
+              <Button size="sm" onClick={resume} disabled={resumeState === "sending" || resumeState === "sent"}>
+                {resumeState === "sent" ? "Resuming..." : "Resume"}
+              </Button>
+            ) : null}
           </div>
         </CardHeader>
         <CardBody>
           {stopError ? <p className="mb-2 text-[12px] text-red-400">{stopError}</p> : null}
+          {resumeError ? (
+            <p role="alert" className="mb-2 text-[12px] text-red-400">
+              {resumeError}
+            </p>
+          ) : null}
           <ol className="flex flex-wrap gap-2" aria-label="Stage timeline">
             {timeline.map((t) => (
               <li key={t.stage}>
@@ -483,6 +517,8 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
         onDraftConsumed={() => setDraft(null)}
         onCommentsChange={setComments}
       />
+
+      <RunApprovals runId={runId} finished={status === "succeeded" || status === "failed" || status === "stopped"} />
 
       <Card>
         <CardHeader>

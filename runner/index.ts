@@ -14,38 +14,45 @@ import fs from "node:fs";
 import nodePath from "node:path";
 import crypto from "node:crypto";
 import { and, asc, eq, isNull, notInArray, sql } from "drizzle-orm";
-import { z } from "zod";
-import { agentProjectPolicies, agentRunEvents, agentRunIntents, agentRuns, projects } from "@/db/schema";
+import { agentRunEvents, agentRunIntents, agentRuns, projects } from "@/db/schema";
 import type { AgentRunIntentRow } from "@/db/schema";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
 import { antigravityAdapter } from "@/core/agents/adapters/antigravity";
 import { advisorFromEnv } from "@/core/agents/advisor";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
+import { approvalEnvFor, executeApproval, failApproval, type ApprovalExecDeps } from "@/core/agents/approvals";
 import { appendEvent, type AgentDatabase } from "@/core/agents/events";
 import {
   grantDirFor,
   runAgentRun,
   type OrchestratorDeps,
-  type PolicyCheck,
   type RunOutcome,
+  type ResumeContext,
   type RunPolicy,
 } from "@/core/agents/orchestrator";
 import { spawnAgentProcess, stopAgentProcess } from "@/core/agents/process";
+import { applyRetention, planRetention, RETENTION_INTERVAL_MS, type RetentionDeps } from "@/core/agents/retention";
 import { reviewWithClaude } from "@/core/agents/review-claude";
 import { defaultRoleRunners } from "@/core/agents/role-runners";
 import {
   checkRootAvailable,
   getAgentStorageSettings,
+  getRetentionDays,
   releaseLocksForRun,
   resolveProjectPath,
   type AgentStorageSettings,
   type PathDeps,
 } from "@/core/agents/roots";
+import { getPolicy, toRunPolicy } from "@/core/agents/policy";
 import { runPolicyCheck } from "@/core/agents/run-check";
+import { getRun } from "@/core/agents/runs";
+import { checkResumable } from "@/core/agents/resume";
 import { runRequestSchema } from "@/core/agents/schema";
+import { postRunOutcomeToTask } from "@/core/agents/task-link";
+import { createRunWorkspace } from "@/core/agents/snapshot";
 import { TERMINAL_STATUSES } from "@/core/agents/types";
-import { commitStage, createRunWorktree, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
+import { commitStage, diffPatch, diffSummary, shortRunId, worktreePathFor } from "@/core/agents/workspace";
 
 export const POLL_INTERVAL_MS = 500;
 export const SHUTDOWN_WAIT_MS = 15_000;
@@ -59,16 +66,6 @@ export const ndjsonLog: LogFn = (level, msg, extra) => {
   process.stdout.write(JSON.stringify({ level, msg, ...extra }) + "\n");
 };
 
-const policyChecksSchema = z.array(
-  z
-    .object({
-      name: z.string().min(1),
-      argv: z.array(z.string()).min(1),
-      timeoutSec: z.number().positive().optional(),
-    })
-    .strict(),
-);
-const stringArraySchema = z.array(z.string());
 
 /** appendEvent inserts synchronously; this only keeps a rejection from going unhandled. */
 function fire(promise: Promise<unknown>): void {
@@ -306,12 +303,35 @@ export interface RunnerOverrides {
   pathDeps?: PathDeps;
   /** Replaces individual orchestrator dependencies (tests). */
   orchestrator?: Partial<Omit<OrchestratorDeps, "db" | "signal" | "storage">>;
+  /** Replaces dependencies of approval execution (tests): the draft-PR creator, clock, lock hook. */
+  approvals?: ApprovalExecDeps;
   /** Directory-availability check for the project's workspace root. */
   isDirectory?: (p: string) => boolean;
   pollIntervalMs?: number;
   stopGraceMs?: number;
   /** Clock for the stop-intent re-release backoff (tests). */
   now?: () => number;
+  /** Replaces dependencies of the worktree cleanup (tests). */
+  retention?: RetentionDeps;
+  /** How often cleanup repeats after the startup pass; default 6 hours. */
+  retentionIntervalMs?: number;
+}
+
+/** One cleanup pass (AW4-11): plan, apply, log a summary. Does nothing unless the setting is on. */
+export async function runRetentionPass(
+  db: AgentDatabase,
+  log: LogFn,
+  deps: RetentionDeps,
+  now: Date = new Date(),
+): Promise<{ removed: number; skipped: number }> {
+  const plan = await planRetention(db, now, deps);
+  if (plan.length === 0) return { removed: 0, skipped: 0 };
+  const result = await applyRetention(plan, { ...deps, db, now: () => now });
+  log("info", `worktree cleanup: removed ${result.removed.length}, skipped ${result.skipped.length}`, {
+    removed: result.removed.map((x) => x.runId),
+    skipped: result.skipped,
+  });
+  return { removed: result.removed.length, skipped: result.skipped.length };
 }
 
 /** A stop intent released because its run is not ours is not re-claimed for this long. */
@@ -345,6 +365,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
   const getStorage = overrides.getStorage ?? (() => getAgentStorageSettings());
   let active: ActiveRun | null = null;
   let timer: NodeJS.Timeout | null = null;
+  let retentionTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let ticking = false;
   const now = overrides.now ?? Date.now;
@@ -368,44 +389,50 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       .where(eq(agentRuns.id, runId))
       .run();
     await event(runId, "final", "status_changed", { status: "failed", stage: "final" });
+    try {
+      postRunOutcomeToTask(db, runId);
+    } catch {
+      // best-effort task note
+    }
     log("warn", "run failed before start", { runId, reason });
   }
 
-  async function launch(runId: string, controller: AbortController): Promise<void> {
+  async function launch(runId: string, controller: AbortController, mode: "start" | "resume" = "start"): Promise<void> {
     const row = db.select().from(agentRuns).where(eq(agentRuns.id, runId)).get();
     if (!row) {
       log("warn", "start intent for a missing run", { runId });
       return;
     }
-    if (row.status !== "queued") {
-      log("warn", "start intent for a run that is not queued; ignoring", { runId, status: row.status });
-      return;
+    // A resume that cannot go ahead leaves the run exactly as it was and says why in its events (AW4-07).
+    const bail = async (reason: string): Promise<void> => {
+      if (mode !== "resume") return failRun(runId, reason);
+      await event(runId, row.stage, "warning", { message: `resume refused: ${reason}`, resume: true });
+      log("warn", "resume refused", { runId, reason });
+    };
+    if (mode === "start") {
+      if (row.status !== "queued") {
+        log("warn", "start intent for a run that is not queued; ignoring", { runId, status: row.status });
+        return;
+      }
+      // Claim the run for this runner first, so recovery elsewhere never confuses it for stale.
+      db.update(agentRuns).set({ runnerEpoch: epoch, updatedAt: ISO_NOW }).where(eq(agentRuns.id, runId)).run();
     }
-    // Claim the run for this runner first, so recovery elsewhere never confuses it for stale.
-    db.update(agentRuns).set({ runnerEpoch: epoch, updatedAt: ISO_NOW }).where(eq(agentRuns.id, runId)).run();
 
     const project = db.select().from(projects).where(eq(projects.id, row.projectId)).get();
-    if (!project) return failRun(runId, "project not found");
-    if (!project.localPath) return failRun(runId, "project has no local path");
+    if (!project) return bail("project not found");
+    if (!project.localPath) return bail("project has no local path");
 
     const storage = await getStorage();
     const resolved = resolveProjectPath(project.localPath, storage.workspaceRoots, overrides.pathDeps);
-    if (!resolved.ok) return failRun(runId, `project path refused: ${resolved.reason}`);
+    if (!resolved.ok) return bail(`project path refused: ${resolved.reason}`);
     const available = checkRootAvailable(resolved.root, { isDirectory: overrides.isDirectory });
-    if (!available.ok) return failRun(runId, `project path refused: ${available.reason}`);
+    if (!available.ok) return bail(`project path refused: ${available.reason}`);
 
     let policy: RunPolicy;
     try {
-      const policyRow = db
-        .select()
-        .from(agentProjectPolicies)
-        .where(eq(agentProjectPolicies.projectId, row.projectId))
-        .get();
-      const checks: PolicyCheck[] = policyRow ? policyChecksSchema.parse(JSON.parse(policyRow.checkCommands)) : [];
-      const excludedPaths = policyRow ? stringArraySchema.parse(JSON.parse(policyRow.excludedPaths)) : [];
-      policy = { checks, excludedPaths };
+      policy = toRunPolicy(getPolicy(db, row.projectId));
     } catch (error) {
-      return failRun(runId, `project policy is invalid: ${error instanceof Error ? error.message : String(error)}`);
+      return bail(`project policy is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     // The implementer adapter follows the request's implementer provider; the test hook wins.
@@ -415,11 +442,29 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       try {
         provider = runRequestSchema.parse(JSON.parse(row.request)).roles.implementer.provider;
       } catch (error) {
-        return failRun(runId, `run request is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        return bail(`run request is invalid: ${error instanceof Error ? error.message : String(error)}`);
       }
       const picked = selectImplementerAdapter(provider);
-      if (!picked) return failRun(runId, `no implementer is available for provider "${provider}"`);
+      if (!picked) return bail(`no implementer is available for provider "${provider}"`);
       implementer = picked;
+    }
+
+    // Resume: re-check everything now (the run may have changed since the request), then take the run over.
+    let resume: ResumeContext | undefined;
+    if (mode === "resume") {
+      const check = await checkResumable(db, runId, { pathDeps: overrides.pathDeps });
+      if (!check.ok) return bail(check.reason);
+      resume = check.context;
+      db.update(agentRuns)
+        .set({ status: "preparing", outcome: null, endedAt: null, runnerEpoch: epoch, updatedAt: ISO_NOW })
+        .where(eq(agentRuns.id, runId))
+        .run();
+      await event(runId, check.fromStage, "warning", {
+        message: `resumed from the ${check.fromStage} stage`,
+        resume: true,
+        startAt: check.startAt,
+        withSession: check.sessionIds.implementer !== undefined,
+      });
     }
 
     const stopGraceMs = overrides.stopGraceMs;
@@ -429,7 +474,8 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       review: (input, signal) =>
         reviewWithClaude(input, signal, { grantDir: nodePath.join(grantDirFor(storage.runStore, runId), "review") }),
       workspace: {
-        create: createRunWorktree,
+        // Git projects get a worktree; non-Git folders a snapshot copy (honouring exclusions).
+        create: (opts) => createRunWorkspace({ ...opts, excludedPaths: policy.excludedPaths }),
         commit: commitStage,
         diff: diffSummary,
         patch: diffPatch,
@@ -451,12 +497,12 @@ export function createRunner(overrides: RunnerOverrides): Runner {
     // The grant folder's parent must exist for the orchestrator's safe cleanup.
     fs.mkdirSync(nodePath.join(storage.runStore, "runs"), { recursive: true });
     log("info", "starting run", { runId });
-    const outcome = await runAgentRun(deps, { runId, repoPath: resolved.realPath, policy });
+    const outcome = await runAgentRun(deps, { runId, repoPath: resolved.realPath, policy, ...(resume ? { resume } : {}) });
     log("info", "run finished", { runId, status: outcome.status });
   }
 
   async function handleIntent(intent: AgentRunIntentRow): Promise<void> {
-    if (intent.kind === "start") {
+    if (intent.kind === "start" || intent.kind === "resume") {
       if (active) {
         // One run at a time in AW.1: put it back so a later tick takes it.
         db.update(agentRunIntents).set({ claimedAt: null }).where(eq(agentRunIntents.id, intent.id)).run();
@@ -470,7 +516,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
         done: Promise.resolve(),
       };
       active = entry;
-      entry.done = launch(runId, controller)
+      entry.done = launch(runId, controller, intent.kind === "resume" ? "resume" : "start")
         .catch(async (error) => {
           const message = error instanceof Error ? error.message : String(error);
           log("error", "run crashed in the runner", { runId, error: message });
@@ -506,6 +552,11 @@ export function createRunner(overrides: RunnerOverrides): Runner {
           releaseLocksForRun(db, intent.runId);
           await event(intent.runId, null, "warning", { message: "stopped by user before it started" });
           await event(intent.runId, "final", "status_changed", { status: "stopped", stage: "final" });
+          try {
+            postRunOutcomeToTask(db, intent.runId);
+          } catch {
+            // best-effort task note
+          }
           log("info", "stopped a queued run", { runId: intent.runId });
         }
         return;
@@ -521,6 +572,27 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       return;
     }
 
+    if (intent.kind === "approval_execute") {
+      let approvalId = "";
+      try {
+        const payload = intent.payload ? (JSON.parse(intent.payload) as { approvalId?: unknown }) : {};
+        approvalId = typeof payload.approvalId === "string" ? payload.approvalId : "";
+        if (!approvalId) throw new Error("approval_execute intent has no approvalId");
+        const run = db.select().from(agentRuns).where(eq(agentRuns.id, intent.runId)).get();
+        if (!run) throw new Error("run not found");
+        const record = await getRun(db, intent.runId);
+        if (!record) throw new Error("run not found");
+        const env = await approvalEnvFor(db, record, getStorage, overrides.pathDeps);
+        const done = await executeApproval(db, approvalId, env, { pathDeps: overrides.pathDeps, ...overrides.approvals });
+        log("info", "approval executed", { approvalId, status: done.status });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log("error", "approval execution failed", { intentId: intent.id, approvalId, error: message });
+        if (approvalId) await failApproval(db, approvalId, message);
+      }
+      return;
+    }
+
     log("info", "intent kind not used in AW.1; marked claimed", { intentId: intent.id, kind: intent.kind });
   }
 
@@ -528,7 +600,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
     const t = now();
     for (const [id, at] of releasedAt) if (t - at >= RELEASED_INTENT_BACKOFF_MS) releasedAt.delete(id);
     const intent = claimNextIntent(db, {
-      excludeKinds: active ? ["start"] : [],
+      excludeKinds: active ? ["start", "resume"] : [],
       excludeIds: [...releasedAt.keys()],
     });
     if (!intent) return false;
@@ -570,11 +642,28 @@ export function createRunner(overrides: RunnerOverrides): Runner {
       } catch (error) {
         log("warn", "worktree report failed", { error: error instanceof Error ? error.message : String(error) });
       }
+      const retentionDeps: RetentionDeps = overrides.retention ?? {
+        getStorage: async () => {
+          const storage = await getStorage();
+          return { worktreeRoot: storage.worktreeRoot, retentionDays: await getRetentionDays(), storage };
+        },
+        pathDeps: overrides.pathDeps,
+      };
+      const retentionPass = () => {
+        if (stopping) return;
+        runRetentionPass(db, log, retentionDeps, new Date(now())).catch((error) =>
+          log("warn", "worktree cleanup failed", { error: error instanceof Error ? error.message : String(error) }),
+        );
+      };
+      retentionPass();
+      retentionTimer = setInterval(retentionPass, overrides.retentionIntervalMs ?? RETENTION_INTERVAL_MS);
+      retentionTimer.unref();
       void loop();
     },
     async shutdown(waitMs = SHUTDOWN_WAIT_MS) {
       stopping = true;
       if (timer) clearTimeout(timer);
+      if (retentionTimer) clearInterval(retentionTimer);
       const current = active;
       if (current) {
         log("info", "shutting down: stopping the active run", { runId: current.runId });

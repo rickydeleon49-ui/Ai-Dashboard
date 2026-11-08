@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
-import { getAgentStorageSettings, inspectRootStatus } from "@/core/agents/roots";
+import { getAgentStorageSettings, getRetentionDays, inspectRootStatus } from "@/core/agents/roots";
 import { getProviderProbes } from "@/core/agents/provider-probes";
 import { AgentSettingsManager } from "@/components/agents/settings/agent-settings-manager";
+import { RetentionCard } from "@/components/agents/settings/retention-card";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agent Settings" };
@@ -22,6 +23,7 @@ export default async function AgentSettingsPage() {
     createdOnDemand: true,
   });
   const providers = await getProviderProbes();
+  const retentionDays = await getRetentionDays();
 
   return (
     <div className="space-y-6">
@@ -38,6 +40,7 @@ export default async function AgentSettingsPage() {
         }}
         initialProviders={providers}
       />
+      <RetentionCard initialDays={retentionDays} />
     </div>
   );
 }

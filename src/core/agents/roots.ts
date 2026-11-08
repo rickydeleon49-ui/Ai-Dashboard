@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import nodePath from "node:path";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { agentWorkspaceLocks } from "@/db/schema";
 import { resolveDatabasePath } from "@/db/path";
 import type { AgentDatabase } from "./events";
@@ -307,6 +308,41 @@ export async function getAgentStorageSettings(
     }
   }
   return { workspaceRoots, worktreeRoot, runStore };
+}
+
+/* ------------------------------------------------------------------ */
+/* Worktree retention (AW4-11)                                         */
+/* ------------------------------------------------------------------ */
+
+const KEY_RETENTION_DAYS = "agent.worktree_retention_days";
+
+/** "Remove worktrees of dismissed runs after N days": a whole number from 1 to 365. */
+export const retentionDaysSchema = z.number().int().min(1).max(365);
+
+/** Null (the default) means cleanup is off. A stored value that is not valid also reads as off. */
+export async function getRetentionDays(opts: StorageOptions = {}): Promise<number | null> {
+  const store = opts.store ?? (await defaultStore());
+  const raw = store.get(KEY_RETENTION_DAYS);
+  if (raw === null || raw.trim() === "") return null;
+  const parsed = retentionDaysSchema.safeParse(Number(raw));
+  return parsed.success ? parsed.data : null;
+}
+
+export async function setRetentionDays(
+  days: number | null,
+  opts: StorageOptions = {},
+): Promise<ValidationResult> {
+  const store = opts.store ?? (await defaultStore());
+  if (days === null) {
+    store.set(KEY_RETENTION_DAYS, ""); // an empty value deletes the setting
+    return { ok: true };
+  }
+  const parsed = retentionDaysSchema.safeParse(days);
+  if (!parsed.success) {
+    return { ok: false, reason: "Retention must be a whole number of days from 1 to 365, or off" };
+  }
+  store.set(KEY_RETENTION_DAYS, String(parsed.data));
+  return { ok: true };
 }
 
 export type ValidationResult = { ok: true } | { ok: false; reason: string };

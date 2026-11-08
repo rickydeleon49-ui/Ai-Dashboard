@@ -313,3 +313,92 @@ test("file tools without a recognised path parameter are denied", async () => {
   assert.equal((await mon.check(step("grep_search", { Query: "x" }))).allowed, true);
   assert.equal((await mon.check(step("finish", {}))).allowed, true);
 });
+
+/* Excluded paths (AW4-04): writes denied, reads allowed. */
+
+function exclMonitor(excludedPaths: string[], platform: NodeJS.Platform = "linux") {
+  return platform === "win32"
+    ? new ToolMonitor({ worktree: "H:\work\t1", platform, realpath: identity, excludedPaths })
+    : new ToolMonitor({ worktree: "/work/t1", platform, realpath: identity, excludedPaths });
+}
+
+test("excluded path: write denied with the relative path in the reason, read allowed", async () => {
+  const mon = exclMonitor(["secret/**"]);
+  for (const tool of ["write_to_file", "write_file", "replace_file_content", "multi_replace_file_content"]) {
+    const d = await mon.check(step(tool, { TargetFile: "secret/x.txt" }));
+    assert.equal(d.allowed, false, tool);
+    assert.equal(!d.allowed && d.reason, "excluded path secret/x.txt");
+    assert.match(describeViolation(d), /excluded path secret\/x\.txt/);
+  }
+  for (const tool of ["view_file", "read_file"]) {
+    assert.equal((await mon.check(step(tool, { Path: "/work/t1/secret/x.txt" }))).allowed, true, tool);
+  }
+  assert.equal((await mon.check(step("list_dir", { DirectoryPath: "secret" }))).allowed, true);
+  assert.equal((await mon.check(step("grep_search", { SearchPath: "secret", Query: "k" }))).allowed, true);
+  assert.equal((await mon.check(step("write_file", { Path: "src/a.txt" }))).allowed, true);
+  assert.equal((await mon.check(step("write_file", { Path: "secrets/a.txt" }))).allowed, true);
+});
+
+test("excluded path: unknown file tools are write-class, finish has no path", async () => {
+  const mon = exclMonitor(["secret/**"]);
+  // Not in the allowlist at all, so denied before the path check.
+  assert.equal((await mon.check(step("delete_file", { Path: "secret/x" }))).allowed, false);
+  assert.equal((await mon.check({ step_type: "tool", tool_name: "finish", tool_info: { name: "finish", parameters: {} } })).allowed, true);
+});
+
+test("excluded path: .. segments cannot dodge the match", async () => {
+  const mon = exclMonitor(["secret/**"]);
+  for (const p of ["src/../secret/x.txt", "./secret/./x.txt", "/work/t1/src/../../t1/secret/x.txt"]) {
+    const d = await mon.check(step("write_file", { Path: p }));
+    assert.equal(d.allowed, false, p);
+    assert.equal(!d.allowed && d.reason, "excluded path secret/x.txt", p);
+  }
+});
+
+test("excluded path: glob forms", async () => {
+  const mon = exclMonitor(["secret/**", "*.env", "config/prod.json"]);
+  const denied = ["secret/a/b/c.txt", "secret", ".env", "app/.env", "prod.env", "config/prod.json"];
+  for (const p of denied) {
+    assert.equal((await mon.check(step("write_file", { Path: p }))).allowed, false, p);
+  }
+  const allowed = ["config/dev.json", "config/prod.json.bak", "src/env.ts"];
+  for (const p of allowed) {
+    assert.equal((await mon.check(step("write_file", { Path: p }))).allowed, true, p);
+  }
+});
+
+test("excluded path: Windows backslash input and case folding", async () => {
+  const mon = exclMonitor(["secret/**", "*.env"], "win32");
+  for (const p of ["secret\\x.txt", "H:\\work\\t1\\SECRET\\x.txt", "H:/work/t1/secret/x.txt", "a\\b\\prod.ENV"]) {
+    const d = await mon.check(step("write_to_file", { TargetFile: p }));
+    assert.equal(d.allowed, false, p);
+  }
+  assert.equal((await mon.check(step("write_to_file", { TargetFile: "src\\x.txt" }))).allowed, true);
+  assert.equal((await mon.check(step("read_file", { Path: "secret\\x.txt" }))).allowed, true);
+});
+
+test("excluded path: symlink into an excluded directory is denied (real filesystem)", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agy-excl-"));
+  try {
+    const work = path.join(root, "work");
+    fs.mkdirSync(path.join(work, "secret"), { recursive: true });
+    fs.mkdirSync(path.join(work, "src"), { recursive: true });
+    fs.writeFileSync(path.join(work, "secret", "k.txt"), "k");
+    try {
+      fs.symlinkSync(path.join(work, "secret"), path.join(work, "src", "alias"), "junction");
+    } catch {
+      t.diagnostic("symlink/junction not permitted here; symlink case skipped");
+      return;
+    }
+    const mon = new ToolMonitor({ worktree: work, excludedPaths: ["secret/**"] });
+    const viaLink = await mon.check(step("write_file", { Path: "src/alias/k.txt" }));
+    assert.equal(viaLink.allowed, false);
+    assert.equal(!viaLink.allowed && viaLink.reason, "excluded path secret/k.txt");
+    const newViaLink = await mon.check(step("write_file", { Path: "src/alias/new.txt" }));
+    assert.equal(newViaLink.allowed, false);
+    assert.equal((await mon.check(step("read_file", { Path: "src/alias/k.txt" }))).allowed, true);
+    assert.equal((await mon.check(step("write_file", { Path: "src/ok.txt" }))).allowed, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
