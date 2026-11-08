@@ -11,7 +11,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createNdjsonParser } from "../../ai/ndjson";
-import { spawnAgentProcess, stopAgentProcess, type AgentExit } from "../process";
+import { ROLE_CALL_TIMEOUT_MS, spawnAgentProcess, stopAgentProcess, type AgentExit } from "../process";
 import { resolveExecutable, type ResolveOptions } from "../resolve-executable";
 import {
   plannerOutputSchema,
@@ -254,7 +254,8 @@ export type CodexFailureKind =
   | "schema-invalid"
   | "codex-error"
   | "spawn-failed"
-  | "aborted";
+  | "aborted"
+  | "timeout";
 
 export type CodexResult<T> =
   | { ok: true; value: T }
@@ -404,6 +405,8 @@ export interface RunCodexOptions extends CodexArgvOptions {
   signal?: AbortSignal;
   onEvent?: (event: CodexEvent) => void;
   graceMs?: number;
+  /** Stop the process after this long. Default: ROLE_CALL_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 export interface CodexRunOutcome {
@@ -451,7 +454,8 @@ export async function runCodex(opts: RunCodexOptions): Promise<CodexRunOutcome> 
     file: opts.file,
     args: fullArgs,
     cwd: opts.worktree,
-    env: opts.env,
+    // Never inherit the full process.env: an unset env is filtered here.
+    env: opts.env ?? (buildCodexEnv() as NodeJS.ProcessEnv),
     stdin: opts.prompt,
     onJson: (value) => {
       for (const ev of parseCodexLine(value, opts.role)) {
@@ -465,6 +469,12 @@ export async function runCodex(opts: RunCodexOptions): Promise<CodexRunOutcome> 
   });
 
   let aborted = false;
+  let timedOut = false;
+  const timeoutMs = opts.timeoutMs ?? ROLE_CALL_TIMEOUT_MS;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void stopAgentProcess(handle, { graceMs: opts.graceMs });
+  }, timeoutMs);
   const onAbort = () => {
     aborted = true;
     void stopAgentProcess(handle, { graceMs: opts.graceMs });
@@ -475,9 +485,16 @@ export async function runCodex(opts: RunCodexOptions): Promise<CodexRunOutcome> 
   }
 
   const exit = await handle.done;
+  clearTimeout(timer);
   opts.signal?.removeEventListener("abort", onAbort);
 
   const base = { sessionId, usage, exit, errorMessage };
+  if (timedOut && !aborted) {
+    return {
+      ...base,
+      result: { ok: false, kind: "timeout", message: `Codex timed out after ${Math.round(timeoutMs / 1000)}s and was stopped.` },
+    };
+  }
   if (aborted) {
     return { ...base, result: { ok: false, kind: "aborted", message: "Codex run was stopped." } };
   }

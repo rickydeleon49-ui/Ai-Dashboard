@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
 import { cleanup, migrate } from "../helpers/db";
 import { agentRuns, projects } from "../../src/db/schema";
 import { fakeAdapter } from "../../src/core/agents/adapters/fake";
@@ -77,6 +78,7 @@ interface Env {
 function makeEnv(
   sequence: string,
   roles: Record<string, { provider: string }> = { planner: { provider: "codex" }, reviewer: { provider: "codex" } },
+  timeoutMs?: number,
 ): Env {
   const runId = `run-codex-${++counter}`;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex runner "));
@@ -108,6 +110,7 @@ function makeEnv(
           FAKE_CODEX_STATE_FILE: path.join(root, "codex-state"),
         },
         graceMs: 300,
+        timeoutMs,
       }),
     },
     workspace: {
@@ -218,6 +221,15 @@ describe("Codex as planner and reviewer in a full run", () => {
     };
     const out = await run(env);
     assert.equal(out.status, "stopped", JSON.stringify(out));
+  });
+
+  it("a Codex review that never exits times out, fails the run and releases the lock (review S2)", T, async () => {
+    const env = makeEnv("plan-scoped,hang", undefined, 700);
+    const out = await run(env);
+    assert.equal(out.status, "failed", JSON.stringify(out));
+    assert.match(out.missing[0] ?? "", /timed out/);
+    const row = db.select().from(agentRuns).where(eq(agentRuns.id, env.runId)).get();
+    assert.equal(row?.status, "failed");
   });
 
   it("a codex role with no codex runner still fails up front", T, async () => {

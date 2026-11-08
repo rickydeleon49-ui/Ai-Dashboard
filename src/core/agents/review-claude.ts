@@ -11,7 +11,7 @@ import fs from "node:fs";
 import nodePath from "node:path";
 import { buildClaudeEnv } from "./adapters/claude-code";
 import type { ReviewInput } from "./orchestrator";
-import { spawnAgentProcess, stopAgentProcess } from "./process";
+import { ROLE_CALL_TIMEOUT_MS, spawnAgentProcess, stopAgentProcess } from "./process";
 import { resolveExecutable } from "./resolve-executable";
 
 export interface ClaudeCliCall {
@@ -237,7 +237,7 @@ export async function claudeReadOnlyJson(
       env: buildClaudeEnv(deps.baseEnv ?? process.env),
       stdin: prompt,
     };
-    const run = deps.runCli ?? makeDefaultRunCli(deps.timeoutMs ?? 10 * 60 * 1000);
+    const run = deps.runCli ?? makeDefaultRunCli(deps.timeoutMs ?? ROLE_CALL_TIMEOUT_MS);
     const stdout = await run(call, signal);
 
     let envelope: unknown;

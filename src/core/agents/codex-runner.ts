@@ -28,6 +28,8 @@ export interface CodexRoleRunnerDeps {
   resolve?: () => ResolveResult;
   env?: NodeJS.ProcessEnv;
   graceMs?: number;
+  /** Per-call time limit (default ROLE_CALL_TIMEOUT_MS). */
+  timeoutMs?: number;
 }
 
 /** The folder for one Codex call, inside the run's storage dir. */
@@ -62,9 +64,10 @@ export function createCodexRoleRunner(deps: CodexRoleRunnerDeps = {}): RoleRunne
         worktree: input.workspacePath,
         model: input.model,
         effort: input.effort,
-        env: deps.env ?? buildCodexEnv(),
+        env: deps.env ?? (buildCodexEnv() as NodeJS.ProcessEnv),
         signal,
         graceMs: deps.graceMs,
+        timeoutMs: deps.timeoutMs,
       });
     } catch (err) {
       return { failure: `codex invalid-request: ${err instanceof Error ? err.message : String(err)}` };
