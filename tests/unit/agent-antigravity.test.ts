@@ -165,7 +165,7 @@ test("argv: required flags in order, prompt only on stdin", () => {
   const inv = build({ model: "gemini-3.8-flash-high", effort: "high" }, 300);
   assert.equal(inv.file, "agy-test-bin");
   assert.deepEqual(inv.args, [
-    "-p",
+    "-p=",
     "--input-format",
     "stream-json",
     "--output-format",

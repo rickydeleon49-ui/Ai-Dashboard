@@ -378,9 +378,10 @@ export function buildAntigravityInvocation(
     prefixArgs = res.prefixArgs;
   }
 
+  // `-p=` (empty value): the prompt arrives on stdin as stream-json; a bare `-p` would take the next flag as its prompt.
   const args = [
     ...prefixArgs,
-    "-p",
+    "-p=",
     "--input-format",
     "stream-json",
     "--output-format",
