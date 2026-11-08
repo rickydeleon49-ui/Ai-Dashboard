@@ -719,6 +719,16 @@ Status: rows 1–9 built on branch `roadmap/aw2` (not yet released; ships after 
 | 7 | `tests/fixtures/agy/*.jsonl`, `tests/unit/agent-antigravity.test.ts` | The real smoke-test outputs, converted to UTF-8, replayed through the adapter. Tests cover: `SUCCESS` with an `ERROR` step → `failed` (smoke 1); a hook-blocked turn → `failed` (smoke 2); an outside-workspace read → stopped and `failed` (smoke 3); a denial-ended turn → two continuations, then `failed` (smoke 4); a forward-slash path inside the workspace → allowed (smoke 5); a subagent call → `failed`; inventory parsing; the advisor being offline does not change the outcome. |
 | 8 | `README.md`, this note | Antigravity setup, the plugin acknowledgement, the advisor, and the cost per run |
 
+Status (AW.3 built):
+- Row 1: Antigravity adapter with probe, cached on-demand sign-in, stream-json argv builder, and denylist assertions (`src/core/agents/adapters/antigravity.ts`).
+- Row 2: Plugin and MCP server inventory reader for `~/.gemini` (`src/core/agents/adapters/antigravity-inventory.ts`).
+- Row 3: Tool monitor enforcing implementer allowlist and worktree boundary with plugin `SKILL.md` exception (`src/core/agents/tool-monitor.ts`).
+- Row 4: Upfront file-tools-only prompt and stage continuations up to 2 times (`src/core/agents/prompts/implementer-antigravity.ts`, orchestrator).
+- Row 5: Run form inventory review acknowledgement for plugins, hooks, and MCP servers.
+- Row 6: Local LM Studio advisor client on port 1234 emitting advisory summary events without altering run outcomes (`src/core/agents/adapters/lmstudio.ts`).
+- Row 7: Smoke test replay fixtures and unit tests covering monitor denials, continuations, inventory, and advisor (`tests/unit/agent-antigravity.test.ts`).
+- Row 8: README setup documentation and AW.3 design note status update (`README.md`, this note).
+
 ### 16.4 AW.4 — Policy, tasks, non-Git projects, resume and approvals
 
 | # | Files | What |
