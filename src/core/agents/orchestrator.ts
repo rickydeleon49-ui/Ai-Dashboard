@@ -65,6 +65,8 @@ export interface PolicyCheck {
   name: string;
   argv: string[];
   timeoutSec?: number;
+  /** Default true. An optional check runs and is reported, but a failure does not fail the run. */
+  required?: boolean;
 }
 
 export interface RunPolicy {
@@ -449,8 +451,9 @@ export async function runAgentRun(
       throw new Error(`checks not in the project policy: ${unknownChecks.join(", ")}`);
     }
     taskText = request.task;
-    required = request.checks;
-    const selected = policy.checks.filter((c) => required.includes(c.name));
+    const requested = request.checks;
+    required = requested.filter((name) => policy.checks.find((c) => c.name === name)?.required !== false);
+    const selected = policy.checks.filter((c) => requested.includes(c.name));
 
     // AW.2: every named planner/reviewer role needs a runner before anything starts.
     roundsMode = Boolean(request.roles.planner || request.roles.reviewer);

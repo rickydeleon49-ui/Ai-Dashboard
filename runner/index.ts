@@ -14,8 +14,7 @@ import fs from "node:fs";
 import nodePath from "node:path";
 import crypto from "node:crypto";
 import { and, asc, eq, isNull, notInArray, sql } from "drizzle-orm";
-import { z } from "zod";
-import { agentProjectPolicies, agentRunEvents, agentRunIntents, agentRuns, projects } from "@/db/schema";
+import { agentRunEvents, agentRunIntents, agentRuns, projects } from "@/db/schema";
 import type { AgentRunIntentRow } from "@/db/schema";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
@@ -27,7 +26,6 @@ import {
   grantDirFor,
   runAgentRun,
   type OrchestratorDeps,
-  type PolicyCheck,
   type RunOutcome,
   type RunPolicy,
 } from "@/core/agents/orchestrator";
@@ -42,6 +40,7 @@ import {
   type AgentStorageSettings,
   type PathDeps,
 } from "@/core/agents/roots";
+import { getPolicy, toRunPolicy } from "@/core/agents/policy";
 import { runPolicyCheck } from "@/core/agents/run-check";
 import { runRequestSchema } from "@/core/agents/schema";
 import { TERMINAL_STATUSES } from "@/core/agents/types";
@@ -59,16 +58,6 @@ export const ndjsonLog: LogFn = (level, msg, extra) => {
   process.stdout.write(JSON.stringify({ level, msg, ...extra }) + "\n");
 };
 
-const policyChecksSchema = z.array(
-  z
-    .object({
-      name: z.string().min(1),
-      argv: z.array(z.string()).min(1),
-      timeoutSec: z.number().positive().optional(),
-    })
-    .strict(),
-);
-const stringArraySchema = z.array(z.string());
 
 /** appendEvent inserts synchronously; this only keeps a rejection from going unhandled. */
 function fire(promise: Promise<unknown>): void {
@@ -396,14 +385,7 @@ export function createRunner(overrides: RunnerOverrides): Runner {
 
     let policy: RunPolicy;
     try {
-      const policyRow = db
-        .select()
-        .from(agentProjectPolicies)
-        .where(eq(agentProjectPolicies.projectId, row.projectId))
-        .get();
-      const checks: PolicyCheck[] = policyRow ? policyChecksSchema.parse(JSON.parse(policyRow.checkCommands)) : [];
-      const excludedPaths = policyRow ? stringArraySchema.parse(JSON.parse(policyRow.excludedPaths)) : [];
-      policy = { checks, excludedPaths };
+      policy = toRunPolicy(getPolicy(db, row.projectId));
     } catch (error) {
       return failRun(runId, `project policy is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
