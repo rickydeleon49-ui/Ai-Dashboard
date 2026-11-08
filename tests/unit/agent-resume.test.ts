@@ -13,8 +13,8 @@ import { after, before, describe, it } from "node:test";
 import { eq } from "drizzle-orm";
 import { cleanup, migrate } from "../helpers/db";
 import { agentRunApprovals, agentRunIntents, agentRuns, agentWorkspaceLocks, projects } from "../../src/db/schema";
-import { antigravityAdapter } from "../../src/core/agents/adapters/antigravity";
-import { claudeAdapter } from "../../src/core/agents/adapters/claude-code";
+import { buildAntigravityInvocation } from "../../src/core/agents/adapters/antigravity";
+import { buildClaudeInvocation } from "../../src/core/agents/adapters/claude-code";
 import { fakeAdapter } from "../../src/core/agents/adapters/fake";
 import type { AgentAdapter, InvocationRequest } from "../../src/core/agents/adapters/types";
 import { appendEvent, readSince } from "../../src/core/agents/events";
@@ -315,17 +315,20 @@ describe("session ids reach each adapter", () => {
   const grant = fs.mkdtempSync(path.join(os.tmpdir(), "resume grant "));
   tempDirs.push(ws, grant);
   const base = { workspacePath: ws, prompt: "p", checkCommands: [], excludedPaths: [], grantDir: grant };
+  // CI has no real CLIs installed: resolve every name to a stand-in path.
+  const resolveExecutable = ((name: string) =>
+    ({ ok: true, file: `/usr/local/bin/${name}`, prefixArgs: [], source: `/usr/local/bin/${name}` }) as const) as never;
 
   it("Claude Code gets --resume <id>", () => {
-    const inv = claudeAdapter.buildInvocation({ ...base, resumeSessionId: SESSION });
+    const inv = buildClaudeInvocation({ ...base, resumeSessionId: SESSION }, { resolveExecutable });
     const i = inv.args.indexOf("--resume");
     assert.ok(i >= 0);
     assert.equal(inv.args[i + 1], SESSION);
-    assert.equal(claudeAdapter.buildInvocation(base).args.includes("--resume"), false);
+    assert.equal(buildClaudeInvocation(base, { resolveExecutable }).args.includes("--resume"), false);
   });
 
   it("Antigravity gets --conversation <id>", () => {
-    const inv = antigravityAdapter.buildInvocation({ ...base, resumeSessionId: SESSION });
+    const inv = buildAntigravityInvocation({ ...base, resumeSessionId: SESSION }, { resolveExecutable });
     const i = inv.args.indexOf("--conversation");
     assert.ok(i >= 0);
     assert.equal(inv.args[i + 1], SESSION);

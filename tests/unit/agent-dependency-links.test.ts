@@ -36,7 +36,7 @@ interface Fx {
   runId: string;
 }
 
-/** A repo whose .gitignore lists `node_modules/` and `.venv`, with a real worktree. */
+/** A repo whose .gitignore lists `node_modules` and `.venv` (no slash: a `name/` rule does not match a link on Mac/Linux), with a real worktree. */
 async function makeFx(): Promise<Fx> {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "dep links ")));
   tempDirs.push(root);
@@ -44,7 +44,7 @@ async function makeFx(): Promise<Fx> {
   const worktreeRoot = path.join(root, "work trees");
   fs.mkdirSync(repo, { recursive: true });
   fs.mkdirSync(worktreeRoot, { recursive: true });
-  fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n.venv\n");
+  fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules\n.venv\n");
   fs.writeFileSync(path.join(repo, "README.md"), "# hi\n");
   git(repo, "init", "-b", "main");
   git(repo, "config", "core.autocrlf", "false");
@@ -84,6 +84,20 @@ describe("linkDependencies", () => {
     assert.equal(res.skipped[0]?.name, "vendor");
     assert.match(res.skipped[0]?.reason ?? "", /not ignored by Git/);
     assert.equal(fs.existsSync(path.join(fx.worktree, "vendor")), false);
+  });
+
+  it("a `node_modules/` rule (with the slash): linked on Windows, skipped with a hint elsewhere", async () => {
+    const fx = await makeFx();
+    fs.writeFileSync(path.join(fx.worktree, ".gitignore"), "node_modules/\n");
+    makeModules(fx.repo);
+    const res = await linkDependencies({ projectPath: fx.repo, worktreePath: fx.worktree, names: ["node_modules"] });
+    if (process.platform === "win32") {
+      assert.deepEqual(res, { linked: ["node_modules"], skipped: [] });
+    } else {
+      assert.deepEqual(res.linked, []);
+      assert.match(res.skipped[0]?.reason ?? "", /without the slash/);
+      assert.equal(fs.existsSync(path.join(fx.worktree, "node_modules")), false);
+    }
   });
 
   it("skips a missing source and a source that is itself a link", async () => {

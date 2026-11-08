@@ -101,7 +101,11 @@ export async function linkDependencies(options: LinkDependenciesOptions): Promis
       }
       if (!ignored) {
         removeLinkEntry(target);
-        skip("not ignored by Git, so a commit would include it");
+        skip(
+          process.platform === "win32"
+            ? "not ignored by Git, so a commit would include it"
+            : `not ignored by Git, so a commit would include it (a "${name}/" rule does not match a link; list it as "${name}" without the slash)`,
+        );
         continue;
       }
       result.linked.push(name);
