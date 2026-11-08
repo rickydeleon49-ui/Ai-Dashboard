@@ -5,12 +5,8 @@ import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
-import {
-  type ProjectPolicy,
-  MAX_POLICY_CHECKS,
-  MAX_EXCLUDED_PATHS,
-  MAX_DEPENDENCY_LINKS,
-} from "@/core/agents/policy";
+import type { ProjectPolicy } from "@/core/agents/policy";
+import { MAX_POLICY_CHECKS, MAX_EXCLUDED_PATHS, MAX_DEPENDENCY_LINKS } from "@/core/agents/policy-limits";
 import {
   argvToText,
   textToArgv,

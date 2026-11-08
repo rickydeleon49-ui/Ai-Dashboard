@@ -24,14 +24,26 @@ import { DEFAULT_CHECK_TIMEOUT_SEC } from "./run-check";
 import { isSafeAbsolute, resolveExecutable, type ResolveDeps, type ResolveResult } from "./resolve-executable";
 import { checkNameSchema } from "./schema";
 
-export const MAX_POLICY_CHECKS = 20;
-export const MAX_CHECK_ARGV_ITEMS = 50;
-export const MAX_CHECK_ARG_CHARS = 2000;
-export const MAX_CHECK_TIMEOUT_SEC = 3600;
-export const MAX_EXCLUDED_PATHS = 200;
-export const MAX_EXCLUDED_PATH_CHARS = 500;
-export const MAX_DEPENDENCY_LINKS = 20;
-export const MAX_DEPENDENCY_LINK_CHARS = 200;
+import {
+  MAX_POLICY_CHECKS,
+  MAX_CHECK_ARGV_ITEMS,
+  MAX_CHECK_ARG_CHARS,
+  MAX_CHECK_TIMEOUT_SEC,
+  MAX_EXCLUDED_PATHS,
+  MAX_EXCLUDED_PATH_CHARS,
+  MAX_DEPENDENCY_LINKS,
+  MAX_DEPENDENCY_LINK_CHARS,
+} from "./policy-limits";
+export {
+  MAX_POLICY_CHECKS,
+  MAX_CHECK_ARGV_ITEMS,
+  MAX_CHECK_ARG_CHARS,
+  MAX_CHECK_TIMEOUT_SEC,
+  MAX_EXCLUDED_PATHS,
+  MAX_EXCLUDED_PATH_CHARS,
+  MAX_DEPENDENCY_LINKS,
+  MAX_DEPENDENCY_LINK_CHARS,
+} from "./policy-limits";
 
 const ISO_NOW = sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`;
 

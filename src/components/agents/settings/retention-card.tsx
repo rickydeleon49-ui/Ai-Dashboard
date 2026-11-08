@@ -88,7 +88,7 @@ export function RetentionCard({ initialDays }: { initialDays: number | null }) {
           Remove the worktrees of dismissed runs after this many days. Only dismissed runs are touched, and a
           worktree with unsaved changes or a branch with unmerged commits is always kept. Empty means off.
         </p>
-        <form onSubmit={save} className="flex items-center gap-2">
+        <form onSubmit={save} noValidate className="flex items-center gap-2">
           <Input
             type="number"
             min={1}
