@@ -8,7 +8,7 @@
  * Codex is never an implementer.
  */
 import path from "node:path";
-import { runCodex, type CodexRunOutcome } from "./adapters/codex";
+import { buildCodexEnv, runCodex, type CodexRunOutcome } from "./adapters/codex";
 import { resolveExecutable, type ResolveResult } from "./resolve-executable";
 import type {
   PlannerRunResult,
@@ -62,7 +62,7 @@ export function createCodexRoleRunner(deps: CodexRoleRunnerDeps = {}): RoleRunne
         worktree: input.workspacePath,
         model: input.model,
         effort: input.effort,
-        env: deps.env,
+        env: deps.env ?? buildCodexEnv(),
         signal,
         graceMs: deps.graceMs,
       });

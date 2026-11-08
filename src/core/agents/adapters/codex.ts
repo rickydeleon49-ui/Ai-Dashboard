@@ -415,6 +415,25 @@ export interface CodexRunOutcome {
   errorMessage?: string;
 }
 
+// Explicit allowlist (lowercase), design section 6 item 5. Codex reads its login
+// from CODEX_HOME or ~/.codex. OPENAI_API_KEY is deliberately not listed.
+const CODEX_ALLOWED_ENV = new Set([
+  "path", "pathext", "systemroot", "windir", "comspec", "temp", "tmp", "home",
+  "userprofile", "appdata", "localappdata", "lang", "lc_all", "term",
+  "codex_home", "https_proxy", "http_proxy", "no_proxy",
+]);
+
+export function buildCodexEnv(
+  baseEnv: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (value === undefined) continue;
+    if (CODEX_ALLOWED_ENV.has(key.toLowerCase())) env[key] = value;
+  }
+  return env;
+}
+
 /** Spawns Codex (shell: false), maps events, and validates the output file. */
 export async function runCodex(opts: RunCodexOptions): Promise<CodexRunOutcome> {
   const { args, outputFile } = await buildCodexArgv(opts.role, opts);

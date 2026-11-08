@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { cleanup, migrate } from "../helpers/db";
 import { agentRuns, projects } from "../../src/db/schema";
 import { fakeAdapter } from "../../src/core/agents/adapters/fake";
-import { probeCodex } from "../../src/core/agents/adapters/codex";
+import { buildCodexEnv, probeCodex } from "../../src/core/agents/adapters/codex";
 import { createCodexRoleRunner, codexRunDirFor } from "../../src/core/agents/codex-runner";
 import { CODEX_EFFORT_LEVELS, CODEX_MODELS } from "../../src/core/agents/codex-constants";
 import { defaultRoleRunners } from "../../src/core/agents/role-runners";
@@ -380,5 +380,44 @@ describe("run form role defaults", () => {
       describeReviewIndependence({ implementer: { provider: "claude-code" }, reviewer: { provider: "codex" } }),
       { kind: "separate-provider", label: "Different provider" },
     );
+  });
+});
+
+describe("Codex environment allowlist (review B1)", () => {
+  it("buildCodexEnv drops secrets and keeps PATH and CODEX_HOME", () => {
+    const env = buildCodexEnv({
+      PATH: "/bin",
+      CODEX_HOME: "/h/.codex",
+      DESKTOP_INTERNAL_SECRET: "s",
+      ANTHROPIC_API_KEY: "k",
+      OPENAI_API_KEY: "o",
+      FOO_TOKEN: "t",
+    });
+    assert.deepEqual(env, { PATH: "/bin", CODEX_HOME: "/h/.codex" });
+  });
+
+  it("the production runner (no env dep) spawns Codex with a filtered env", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-env-"));
+    tempDirs.push(dir);
+    const dump = path.join(dir, "env.json");
+    const script = path.join(dir, "dump-env.mjs");
+    fs.writeFileSync(script, `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(dump)}, JSON.stringify(process.env)); process.exit(1);`);
+    const saved = { s: process.env.DESKTOP_INTERNAL_SECRET, f: process.env.FOO_TOKEN };
+    process.env.DESKTOP_INTERNAL_SECRET = "secret";
+    process.env.FOO_TOKEN = "tok";
+    try {
+      const runner = createCodexRoleRunner({ executable: { file: process.execPath, prefixArgs: [script] } });
+      await runner.runPlanner(
+        { role: "planner", prompt: "p", workspacePath: dir, grantDir: dir, round: 0 },
+        new AbortController().signal,
+      );
+    } finally {
+      if (saved.s === undefined) delete process.env.DESKTOP_INTERNAL_SECRET; else process.env.DESKTOP_INTERNAL_SECRET = saved.s;
+      if (saved.f === undefined) delete process.env.FOO_TOKEN; else process.env.FOO_TOKEN = saved.f;
+    }
+    const seen = JSON.parse(fs.readFileSync(dump, "utf8")) as Record<string, string>;
+    assert.equal(seen.DESKTOP_INTERNAL_SECRET, undefined);
+    assert.equal(seen.FOO_TOKEN, undefined);
+    assert.ok(Object.keys(seen).some((k) => k.toLowerCase() === "path"));
   });
 });
