@@ -43,6 +43,8 @@ export interface NormalizedEvent {
 export interface AgentAdapter {
   readonly id: string;
   readonly displayName: string;
+  /** True when buildInvocation honours resumeSessionId and the session survives the process (default false). */
+  readonly supportsResume?: boolean;
   probe(deps?: unknown): Promise<ProbeResult>;
   buildInvocation(req: InvocationRequest): Invocation;
   parseLine(obj: unknown): NormalizedEvent[];

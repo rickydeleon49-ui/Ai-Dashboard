@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select, Textarea, Input } from "@/components/ui/field";
-import { EFFORT_LEVELS } from "@/core/agents/types";
-import { parseCheckNames } from "./logic";
 import { buildModelOptions, resolveProviderModels } from "./model-options";
+import { describeReviewIndependence } from "./role-independence";
+import { buildRunRequest } from "./build-run-request";
+import { defaultReviewRoles, effortLevelsFor, implementerProviders } from "./role-defaults";
 
 export interface ProviderOption {
   id: string;
@@ -17,6 +18,11 @@ export interface ProviderOption {
   usable: boolean;
   /** Configured models for this provider (AW1-17). */
   models?: string[];
+  /** Probe facts used for role defaults (AW2-04b). */
+  installed?: boolean;
+  authenticated?: boolean | "unknown";
+  /** False for providers that cannot implement (Codex is read-only in AW.2). */
+  canImplement?: boolean;
 }
 
 export interface ProjectOption {
@@ -34,44 +40,85 @@ export function RunForm({
   checkSuggestions: string[];
 }) {
   const router = useRouter();
-  const firstUsable = providers.find((p) => p.usable)?.id ?? providers[0]?.id ?? "";
+  const implementerChoices = implementerProviders(providers);
+  const firstUsable = implementerChoices.find((p) => p.usable)?.id ?? implementerChoices[0]?.id ?? "";
+  const reviewDefaults = React.useMemo(() => defaultReviewRoles(providers), [providers]);
   const [projectId, setProjectId] = React.useState(projects[0]?.id ?? "");
   const [task, setTask] = React.useState("");
+
   const [implementer, setImplementer] = React.useState(firstUsable);
-  const [model, setModel] = React.useState("");
-  const [effort, setEffort] = React.useState("");
-  const [planner, setPlanner] = React.useState("");
-  const [reviewer, setReviewer] = React.useState("");
+  const [implementerModel, setImplementerModel] = React.useState("");
+  const [implementerEffort, setImplementerEffort] = React.useState("");
+
+  const [planner, setPlanner] = React.useState(reviewDefaults.planner.provider);
+  const [plannerModel, setPlannerModel] = React.useState(reviewDefaults.planner.model);
+  const [plannerEffort, setPlannerEffort] = React.useState(reviewDefaults.planner.effort);
+
+  const [reviewer, setReviewer] = React.useState(reviewDefaults.reviewer.provider);
+  const [reviewerModel, setReviewerModel] = React.useState(reviewDefaults.reviewer.model);
+  const [reviewerEffort, setReviewerEffort] = React.useState(reviewDefaults.reviewer.effort);
+
   const [checks, setChecks] = React.useState(checkSuggestions.join(", "));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const handleImplementerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setImplementer(e.target.value);
-    setModel("");
+    setImplementerModel("");
+    setImplementerEffort("");
   };
 
-  const modelOptions = buildModelOptions(resolveProviderModels(implementer, providers));
+  const handlePlannerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setPlanner(e.target.value);
+    setPlannerModel("");
+    setPlannerEffort("");
+  };
+
+  const handleReviewerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setReviewer(e.target.value);
+    setReviewerModel("");
+    setReviewerEffort("");
+  };
+
+  const implementerModelOptions = buildModelOptions(resolveProviderModels(implementer, providers));
+  const plannerModelOptions = buildModelOptions(resolveProviderModels(planner, providers));
+  const reviewerModelOptions = buildModelOptions(resolveProviderModels(reviewer, providers));
+
+  const independence = describeReviewIndependence({
+    implementer: { provider: implementer },
+    reviewer: reviewer ? { provider: reviewer } : undefined,
+  });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const role = (provider: string, withModel: boolean) => ({
-      provider,
-      ...(withModel && model.trim() ? { model: model.trim() } : {}),
-      ...(withModel && effort ? { effort } : {}),
-    });
-    const body = {
+    const body = buildRunRequest({
       projectId,
       task,
       roles: {
-        implementer: role(implementer, true),
-        ...(planner ? { planner: role(planner, false) } : {}),
-        ...(reviewer ? { reviewer: role(reviewer, false) } : {}),
+        implementer: {
+          provider: implementer,
+          model: implementerModel,
+          effort: implementerEffort,
+        },
+        planner: planner
+          ? {
+              provider: planner,
+              model: plannerModel,
+              effort: plannerEffort,
+            }
+          : undefined,
+        reviewer: reviewer
+          ? {
+              provider: reviewer,
+              model: reviewerModel,
+              effort: reviewerEffort,
+            }
+          : undefined,
       },
-      checks: parseCheckNames(checks),
-    };
+      checks,
+    });
     try {
       const res = await fetch("/api/agent-runs", {
         method: "POST",
@@ -95,11 +142,14 @@ export function RunForm({
     }
   }
 
-  const providerOptions = providers.map((p) => (
-    <option key={p.id} value={p.id}>
-      {p.label} ({p.note})
-    </option>
-  ));
+  const optionsFor = (list: ProviderOption[]) =>
+    list.map((p) => (
+      <option key={p.id} value={p.id}>
+        {p.label} ({p.note})
+      </option>
+    ));
+  const providerOptions = optionsFor(providers);
+  const implementerOptions = optionsFor(implementerChoices);
 
   return (
     <Card>
@@ -129,26 +179,30 @@ export function RunForm({
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Implementer">
               <Select value={implementer} onChange={handleImplementerChange} required>
-                {providerOptions}
+                {implementerOptions}
               </Select>
             </Field>
             <Field label="Model" hint="optional">
-              {modelOptions.length > 0 ? (
-                <Select value={model} onChange={(e) => setModel(e.target.value)}>
-                  {modelOptions.map((opt) => (
+              {implementerModelOptions.length > 0 ? (
+                <Select value={implementerModel} onChange={(e) => setImplementerModel(e.target.value)}>
+                  {implementerModelOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
                   ))}
                 </Select>
               ) : (
-                <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="provider default" />
+                <Input
+                  value={implementerModel}
+                  onChange={(e) => setImplementerModel(e.target.value)}
+                  placeholder="provider default"
+                />
               )}
             </Field>
             <Field label="Effort" hint="optional">
-              <Select value={effort} onChange={(e) => setEffort(e.target.value)}>
-                <option value="">Default</option>
-                {EFFORT_LEVELS.map((l) => (
+              <Select value={implementerEffort} onChange={(e) => setImplementerEffort(e.target.value)}>
+                <option value="">Provider default</option>
+                {effortLevelsFor(implementer).map((l) => (
                   <option key={l} value={l}>
                     {l}
                   </option>
@@ -156,17 +210,92 @@ export function RunForm({
               </Select>
             </Field>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Planner" hint="optional">
-              <Select value={planner} onChange={(e) => setPlanner(e.target.value)}>
+              <Select value={planner} onChange={handlePlannerChange}>
                 <option value="">None</option>
                 {providerOptions}
               </Select>
             </Field>
+            <Field label="Model" hint="optional">
+              {plannerModelOptions.length > 0 ? (
+                <Select
+                  value={plannerModel}
+                  onChange={(e) => setPlannerModel(e.target.value)}
+                  disabled={!planner}
+                >
+                  {plannerModelOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  value={plannerModel}
+                  onChange={(e) => setPlannerModel(e.target.value)}
+                  placeholder="provider default"
+                  disabled={!planner}
+                />
+              )}
+            </Field>
+            <Field label="Effort" hint="optional">
+              <Select
+                value={plannerEffort}
+                onChange={(e) => setPlannerEffort(e.target.value)}
+                disabled={!planner}
+              >
+                <option value="">Provider default</option>
+                {effortLevelsFor(planner).map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Reviewer" hint="optional">
-              <Select value={reviewer} onChange={(e) => setReviewer(e.target.value)}>
+              <Select value={reviewer} onChange={handleReviewerChange}>
                 <option value="">None</option>
                 {providerOptions}
+              </Select>
+              <p className="text-[11px] text-muted">{independence.label}</p>
+            </Field>
+            <Field label="Model" hint="optional">
+              {reviewerModelOptions.length > 0 ? (
+                <Select
+                  value={reviewerModel}
+                  onChange={(e) => setReviewerModel(e.target.value)}
+                  disabled={!reviewer}
+                >
+                  {reviewerModelOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  value={reviewerModel}
+                  onChange={(e) => setReviewerModel(e.target.value)}
+                  placeholder="provider default"
+                  disabled={!reviewer}
+                />
+              )}
+            </Field>
+            <Field label="Effort" hint="optional">
+              <Select
+                value={reviewerEffort}
+                onChange={(e) => setReviewerEffort(e.target.value)}
+                disabled={!reviewer}
+              >
+                <option value="">Provider default</option>
+                {effortLevelsFor(reviewer).map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
               </Select>
             </Field>
           </div>

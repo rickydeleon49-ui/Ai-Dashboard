@@ -40,6 +40,7 @@ export default async function AgentRunPage({
         initialStatus={run.status}
         initialOutcome={run.outcome}
         requiredChecks={run.request?.checks ?? []}
+        hasReviewStage={Boolean(run.request?.roles?.planner || run.request?.roles?.reviewer)}
       />
     </div>
   );

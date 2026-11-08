@@ -12,6 +12,9 @@ import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import { createNdjsonParser } from "../ai/ndjson";
 
+/** Default time limit for one read-only planner or reviewer call (Claude and Codex). */
+export const ROLE_CALL_TIMEOUT_MS = 10 * 60 * 1000;
+
 export interface AgentExit {
   code: number | null;
   signal: NodeJS.Signals | null;

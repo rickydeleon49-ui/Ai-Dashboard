@@ -692,6 +692,8 @@ The same format as §15: steps in order, each testable before the next. Every re
 
 ### 16.2 AW.2 — Codex planner and reviewer, and correction rounds
 
+Status: rows 1–9 built on branch `roadmap/aw2` (not yet released; ships after AW.1).
+
 | # | Files | What |
 | ---: | --- | --- |
 | 1 | `src/core/agents/schemas/plan.ts`, `schemas/review.ts` | Zod schemas, which are the single source of truth, exported to JSON Schema files (Zod 4 `toJSONSchema`) for `--output-schema` and `--json-schema`. A plan is `{task, scope_paths[], acceptance[], checks[]}`. A review is `{verdict: approve\|request_changes, findings[{id, severity: blocking\|major\|minor\|nit, file?, line?, message, actionable}]}`. |

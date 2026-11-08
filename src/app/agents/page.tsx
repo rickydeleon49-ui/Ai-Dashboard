@@ -13,20 +13,26 @@ import { projects } from "@/db/schema";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
 import { listRuns } from "@/core/agents/runs";
 import { claudeAdapter } from "@/core/agents/adapters/claude-code";
+import { codexAdapter } from "@/core/agents/adapters/codex";
 import { fakeAdapter } from "@/core/agents/adapters/fake";
 import type { AgentAdapter } from "@/core/agents/adapters/types";
-import { CLAUDE_CODE_MODELS, FAKE_AGENT_MODELS } from "@/core/agents/provider-probes";
+import { CLAUDE_CODE_MODELS, CODEX_MODELS, FAKE_AGENT_MODELS } from "@/core/agents/provider-probes";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agents" };
 
 function getAdapterModels(adapterId: string): string[] | undefined {
   if (adapterId === claudeAdapter.id) return CLAUDE_CODE_MODELS;
+  if (adapterId === codexAdapter.id) return CODEX_MODELS;
   if (adapterId === fakeAdapter.id) return FAKE_AGENT_MODELS;
   return undefined;
 }
 
-async function describeProvider(adapter: AgentAdapter): Promise<ProviderOption> {
+type ProbeOnlyAdapter = Pick<AgentAdapter, "id" | "displayName" | "probe">;
+
+async function describeProvider(adapter: ProbeOnlyAdapter): Promise<ProviderOption> {
+  // Codex runs read-only in AW.2: planner and reviewer only.
+  const canImplement = adapter.id !== codexAdapter.id;
   const models = getAdapterModels(adapter.id);
   try {
     const probe = await adapter.probe();
@@ -39,6 +45,9 @@ async function describeProvider(adapter: AgentAdapter): Promise<ProviderOption> 
       note,
       usable: probe.installed && probe.authenticated !== false,
       models,
+      installed: probe.installed,
+      authenticated: probe.authenticated,
+      canImplement,
     };
   } catch {
     return {
@@ -47,6 +56,9 @@ async function describeProvider(adapter: AgentAdapter): Promise<ProviderOption> 
       note: "probe failed",
       usable: false,
       models,
+      installed: false,
+      authenticated: "unknown",
+      canImplement,
     };
   }
 }
@@ -55,7 +67,7 @@ export default async function AgentsPage() {
   if (!isAgentRunsEnabled()) notFound();
   ensureDatabaseReady();
 
-  const adapters: AgentAdapter[] = [claudeAdapter];
+  const adapters: ProbeOnlyAdapter[] = [claudeAdapter, codexAdapter];
   if (process.env.NODE_ENV !== "production") adapters.push(fakeAdapter);
 
   const [providers, runs] = await Promise.all([

@@ -7,12 +7,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/field";
 import { EVENT_AGENTS, isTerminalStatus } from "@/core/agents/types";
+import { commentRejectionReason } from "@/core/agents/comment-rules";
+import type { SeverityClass } from "@/core/agents/severity";
+import {
+  groupComments,
+  newFileLineNumbers,
+  type RunComment,
+} from "./comments-logic";
+import { RunComments } from "./run-comments";
+import {
+  availableRounds,
+  checksForRound,
+  derivePlan,
+  diffForRound,
+  diffPatchForRound,
+  findingsBySeverity,
+  reviewForRound,
+  roundLabel,
+  selectedRound,
+  SEVERITY_ORDER,
+} from "./rounds-logic";
 import {
   acceptEvent,
-  deriveChecks,
-  deriveDiff,
-  deriveDiffPatch,
-  deriveReview,
   deriveStatus,
   deriveTimeline,
   diffToText,
@@ -38,6 +54,12 @@ const TerminalView = dynamic(() => import("./terminal-view"), {
 
 const RECONNECT_MS = 2000;
 
+const SEVERITY_BADGE: Record<SeverityClass, string> = {
+  blocking: "text-red-400",
+  major: "text-yellow-400",
+  minor: "text-muted",
+};
+
 const PATCH_LINE_CLASS: Record<PatchLineKind, string> = {
   add: "text-green-400",
   del: "text-red-400",
@@ -47,7 +69,17 @@ const PATCH_LINE_CLASS: Record<PatchLineKind, string> = {
 };
 
 /** One file's patch in a collapsible block; the lines render only once opened (patches can be large). */
-function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffFileView | undefined }) {
+function PatchBlock({
+  file,
+  summary,
+  commentsByLine,
+  onSelectLine,
+}: {
+  file: DiffPatchFileView;
+  summary: DiffFileView | undefined;
+  commentsByLine?: Map<number | "file", RunComment[]>;
+  onSelectLine?: (draft: { file: string; line: number | null }) => void;
+}) {
   const [open, setOpen] = React.useState(false);
   const name = file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path;
   let note = "";
@@ -57,6 +89,13 @@ function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffF
     else if (file.truncated) note = "Truncated — patch text left out (size limit)";
     else note = "No patch text.";
   }
+
+  const lines = React.useMemo(() => (open && file.patch !== "" ? patchLines(file.patch) : []), [open, file.patch]);
+  const lineNumbers = React.useMemo(
+    () => (open && lines.length > 0 ? newFileLineNumbers(lines.map((l) => l.text)) : []),
+    [open, lines],
+  );
+
   return (
     <details
       className="rounded-md border border-line bg-[var(--bg-subtle)]"
@@ -71,11 +110,33 @@ function PatchBlock({ file, summary }: { file: DiffPatchFileView; summary: DiffF
           <p className="px-2 pb-2 text-[12px] text-muted">{note}</p>
         ) : (
           <pre className="max-h-96 overflow-auto whitespace-pre px-2 pb-2 font-mono text-[12px]">
-            {patchLines(file.patch).map((l, i) => (
-              <span key={i} className={`block ${PATCH_LINE_CLASS[l.kind]}`}>
-                {l.text === "" ? " " : l.text}
-              </span>
-            ))}
+            {lines.map((l, i) => {
+              const lineNum = lineNumbers[i] ?? null;
+              const count = lineNum !== null ? commentsByLine?.get(lineNum)?.length ?? 0 : 0;
+              const isClickable = lineNum !== null && Boolean(onSelectLine);
+              return (
+                <span
+                  key={i}
+                  className={`block ${PATCH_LINE_CLASS[l.kind]} ${
+                    isClickable ? "cursor-pointer hover:bg-[var(--bg-hover)]" : ""
+                  }`}
+                  onClick={isClickable ? () => onSelectLine?.({ file: file.path, line: lineNum }) : undefined}
+                >
+                  <span className="inline-block w-10 select-none pr-2 text-right text-faint">
+                    {lineNum !== null ? lineNum : ""}
+                  </span>
+                  <span>{l.text === "" ? " " : l.text}</span>
+                  {count > 0 ? (
+                    <span
+                      className="ml-2 inline-flex items-center rounded bg-[var(--accent-soft)] px-1 text-[10px] font-semibold text-[var(--accent)] select-none"
+                      title={`${count} comment${count === 1 ? "" : "s"}`}
+                    >
+                      {count}
+                    </span>
+                  ) : null}
+                </span>
+              );
+            })}
             {file.truncated ? <span className="block text-faint">… Truncated</span> : null}
           </pre>
         )
@@ -89,9 +150,11 @@ export interface RunLiveProps {
   initialStatus: string;
   initialOutcome: unknown;
   requiredChecks: string[];
+  /** False for AW.1 runs (no planner or reviewer): comments are never read. */
+  hasReviewStage?: boolean;
 }
 
-export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }: RunLiveProps) {
+export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, hasReviewStage = true }: RunLiveProps) {
   const [stream, setStream] = React.useState<StreamState>(emptyStreamState);
   const [filter, setFilter] = React.useState<AgentFilter>("all");
   const [outcomeRaw, setOutcomeRaw] = React.useState<unknown>(initialOutcome);
@@ -99,6 +162,9 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const [stopState, setStopState] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
   const [stopError, setStopError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const [draft, setDraft] = React.useState<{ file: string; line: number | null } | null>(null);
+  const [comments, setComments] = React.useState<RunComment[]>([]);
+  const [pickedRound, setPickedRound] = React.useState<number | null>(null);
   const lastSeenRef = React.useRef(0);
   React.useEffect(() => {
     lastSeenRef.current = stream.lastSeen;
@@ -169,10 +235,22 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
   const visible = React.useMemo(() => filterByAgent(stream.events, filter), [stream.events, filter]);
   const plain = React.useMemo(() => eventsToPlainText(visible), [visible]);
   const timeline = React.useMemo(() => deriveTimeline(stream.events, terminal), [stream.events, terminal]);
-  const checks = React.useMemo(() => deriveChecks(stream.events), [stream.events]);
-  const diff = React.useMemo(() => deriveDiff(stream.events), [stream.events]);
-  const diffPatch = React.useMemo(() => deriveDiffPatch(stream.events), [stream.events]);
-  const review = React.useMemo(() => deriveReview(stream.events), [stream.events]);
+  const rounds = React.useMemo(() => availableRounds(stream.events), [stream.events]);
+  const latestRound = rounds[rounds.length - 1] ?? 0;
+  // Follows new rounds until the user picks one by hand.
+  const round = selectedRound(rounds, pickedRound);
+  const plan = React.useMemo(() => derivePlan(stream.events), [stream.events]);
+  const checks = React.useMemo(() => checksForRound(stream.events, round), [stream.events, round]);
+  const diff = React.useMemo(() => diffForRound(stream.events, round), [stream.events, round]);
+  const diffPatch = React.useMemo(() => diffPatchForRound(stream.events, round), [stream.events, round]);
+  const diffFiles = React.useMemo(() => {
+    if (diffPatch && diffPatch.files.length > 0) return diffPatch.files.map((f) => f.path);
+    if (diff && diff.files.length > 0) return diff.files.map((f) => f.path);
+    return [];
+  }, [diffPatch, diff]);
+  const groupedComments = React.useMemo(() => groupComments(comments), [comments]);
+  const review = React.useMemo(() => reviewForRound(stream.events, round), [stream.events, round]);
+  const findings = React.useMemo(() => (review ? findingsBySeverity(review) : null), [review]);
   const outcome = parseOutcome(outcomeRaw);
 
   async function stop() {
@@ -305,6 +383,58 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
         </CardBody>
       </Card>
 
+      {plan ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Plan</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-2 text-[13px]">
+            <p className="whitespace-pre-wrap text-fg">{plan.task}</p>
+            {plan.scopePaths.length > 0 ? (
+              <div>
+                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">Scope</h3>
+                <ul className="list-disc pl-5 font-mono text-[12px]">
+                  {plan.scopePaths.map((p) => (
+                    <li key={p} className="break-all">
+                      {p}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {plan.acceptance.length > 0 ? (
+              <div>
+                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">Acceptance</h3>
+                <ul className="list-disc pl-5">
+                  {plan.acceptance.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {plan.checks.length > 0 ? (
+              <p className="text-[12px] text-muted">Advisory checks: {plan.checks.join(", ")}</p>
+            ) : null}
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {rounds.length > 1 ? (
+        <div role="group" aria-label="Round" className="flex flex-wrap items-center gap-2">
+          {rounds.map((r) => (
+            <Button
+              key={r}
+              size="sm"
+              variant={r === round ? "primary" : undefined}
+              aria-pressed={r === round}
+              onClick={() => setPickedRound(r)}
+            >
+              {roundLabel(r)}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Changed files</CardTitle>
@@ -326,12 +456,33 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
             <div className="mt-3 space-y-2">
               {diffPatch.truncated ? <p className="text-[12px] text-faint">Truncated: some patch text is cut or left out.</p> : null}
               {diffPatch.files.map((f) => (
-                <PatchBlock key={`${f.oldPath ?? ""}>${f.path}`} file={f} summary={diff.files.find((s) => s.path === f.path)} />
+                <PatchBlock
+                  key={`${f.oldPath ?? ""}>${f.path}`}
+                  file={f}
+                  summary={diff.files.find((s) => s.path === f.path)}
+                  commentsByLine={groupedComments.byFile.get(f.path)}
+                  onSelectLine={(d) => setDraft(d)}
+                />
               ))}
             </div>
           ) : null}
         </CardBody>
       </Card>
+
+      <RunComments
+        runId={runId}
+        round={round}
+        readOnlyNote={
+          commentRejectionReason({ status, hasReviewStage }) ??
+          (round < latestRound
+            ? `Comments are picked up for the latest round only. Switch to ${roundLabel(latestRound)} to add one.`
+            : undefined)
+        }
+        files={diffFiles}
+        draft={draft}
+        onDraftConsumed={() => setDraft(null)}
+        onCommentsChange={setComments}
+      />
 
       <Card>
         <CardHeader>
@@ -376,21 +527,36 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks }
             {review.findings.length === 0 ? (
               <p className="text-[13px] text-muted">No findings.</p>
             ) : (
-              <ul className="space-y-1 text-[13px]">
-                {review.findings.map((f, i) => (
-                  <li key={i}>
-                    <span className="font-medium">{f.severity}</span>
-                    {f.path ? (
-                      <span className="text-muted">
-                        {" "}
-                        {f.path}
-                        {f.line ? `:${f.line}` : ""}
-                      </span>
-                    ) : null}{" "}
-                    {f.message}
-                  </li>
-                ))}
-              </ul>
+              <div className="space-y-3 text-[13px]">
+                {SEVERITY_ORDER.map((cls) => {
+                  const list = findings?.groups[cls] ?? [];
+                  if (list.length === 0) return null;
+                  return (
+                    <div key={cls}>
+                      <h3 className="mb-1 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wider text-muted">
+                        <Badge className={SEVERITY_BADGE[cls]}>{cls}</Badge>
+                        <span>{list.length}</span>
+                      </h3>
+                      <ul className="space-y-1">
+                        {list.map((f, i) => (
+                          <li key={i}>
+                            <span className="font-medium">{f.severity}</span>
+                            {f.path ? (
+                              <span className="text-muted">
+                                {" "}
+                                {f.path}
+                                {f.line ? `:${f.line}` : ""}
+                              </span>
+                            ) : null}{" "}
+                            {f.message}
+                            {f.actionable ? <span className="ml-2 text-[11px] text-[var(--accent)]">actionable</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </CardBody>
         </Card>

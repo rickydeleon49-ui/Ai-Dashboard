@@ -5,6 +5,8 @@
  * resolved executable, version, authentication, and configured models.
  */
 import { claudeAdapter } from "./adapters/claude-code";
+import { codexAdapter } from "./adapters/codex";
+import { CODEX_MODELS } from "./codex-constants";
 import { fakeAdapter } from "./adapters/fake";
 import type { ProbeResult } from "./adapters/types";
 
@@ -22,6 +24,7 @@ export interface ProviderProbeInfo {
 
 export interface ProviderProbeDeps {
   claudeProbe?: () => Promise<ProbeResult>;
+  codexProbe?: () => Promise<ProbeResult>;
   fakeProbe?: () => Promise<ProbeResult>;
   includeFake?: boolean;
 }
@@ -32,6 +35,8 @@ export const CLAUDE_CODE_MODELS = [
   "claude-haiku-5-5",
   "claude-fable-5-1",
 ];
+
+export { CODEX_MODELS };
 
 export const FAKE_AGENT_MODELS = [
   "default",
@@ -74,7 +79,33 @@ export async function getProviderProbes(
     });
   }
 
-  // 2. Fake Agent
+  // 2. Codex (planner and reviewer only; never reads ~/.codex)
+  const runCodexProbe = deps.codexProbe ?? (() => codexAdapter.probe());
+  try {
+    const res = await runCodexProbe();
+    providers.push({
+      id: codexAdapter.id,
+      name: codexAdapter.displayName,
+      installed: res.installed,
+      version: res.version,
+      authenticated: res.authenticated,
+      models: CODEX_MODELS,
+      executable: res.executable,
+      error: res.error,
+      tried: res.tried,
+    });
+  } catch (err) {
+    providers.push({
+      id: codexAdapter.id,
+      name: codexAdapter.displayName,
+      installed: false,
+      authenticated: "unknown",
+      models: CODEX_MODELS,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // 3. Fake Agent
   const runFakeProbe = deps.fakeProbe ?? (() => fakeAdapter.probe());
   try {
     const res = await runFakeProbe();

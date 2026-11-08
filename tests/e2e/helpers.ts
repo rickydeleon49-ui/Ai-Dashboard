@@ -34,6 +34,11 @@ async function freePort(): Promise<number> {
 
 export let baseURL = "";
 
+/** Path of the throwaway SQLite file the server is using (for seeding). */
+export function e2eDatabasePath(): string {
+  return path.join(root, "e2e.db");
+}
+
 let server: ChildProcess | null = null;
 let browser: Browser | null = null;
 let root = "";
