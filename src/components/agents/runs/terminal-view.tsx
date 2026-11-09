@@ -114,7 +114,7 @@ export default function TerminalView({
     <div
       ref={hostRef}
       aria-hidden="true"
-      className="h-80 w-full overflow-hidden rounded-md border border-line bg-[#0b0c0f] p-2"
+      className="h-80 w-full max-w-full overflow-hidden rounded-md border border-line bg-[#0b0c0f] p-2"
     />
   );
 }
