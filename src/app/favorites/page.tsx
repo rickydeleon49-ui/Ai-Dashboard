@@ -8,6 +8,7 @@ import { ProjectGrid } from "@/components/projects/project-card";
 import { projectRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import { buildProjectQuery } from "@/core/projects/query";
+import { cn } from "@/lib/utils";
 import type { SearchParams } from "@/lib/routing";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function FavoritesPage({
     // Practically unreachable: proxy.ts already requires a session in
     // accounts mode, and sign-in always creates a personal workspace.
     return (
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5">
         <PageHeader title="Favorites" />
         <EmptyState icon={LogIn} title="Sign-in required" description="Sign in to see your favorites." />
       </div>
@@ -37,7 +38,7 @@ export default async function FavoritesPage({
   ]);
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="Favorites"
         description="Pinned projects, kept one click away."
@@ -51,7 +52,7 @@ export default async function FavoritesPage({
           title="No favorites yet"
           description="Star a project from any card or its detail page and it will be pinned here."
           action={
-            <Link href="/projects" className={buttonClasses("secondary", "lg")}>
+            <Link href="/projects" className={cn(buttonClasses("secondary", "lg"), "min-h-[40px] md:min-h-0")}>
               Browse projects
             </Link>
           }

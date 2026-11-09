@@ -136,7 +136,7 @@ export function InboxButton({ workspaceId }: { workspaceId: string }) {
                 href="/inbox"
                 data-autofocus
                 onClick={() => close(false)}
-                className={buttonClasses("ghost", "sm")}
+                className={cn(buttonClasses("ghost", "sm"), "min-h-[40px] md:min-h-0")}
               >
                 Open inbox
               </Link>
@@ -144,7 +144,7 @@ export function InboxButton({ workspaceId }: { workspaceId: string }) {
                 type="button"
                 aria-label="Close notifications"
                 onClick={() => close(true)}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-[var(--bg-subtle)]"
+                className="flex h-7 w-7 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-7 md:w-7 items-center justify-center rounded-md text-muted hover:bg-[var(--bg-subtle)]"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
               </button>

@@ -53,14 +53,14 @@ export function NotificationPreferencesForm({ workspaceId }: { workspaceId: stri
   }
 
   return (
-    <fieldset className="space-y-3">
-      <legend className="text-sm font-semibold text-fg">Notify me about</legend>
-      <p className="text-[12px] text-muted">
+    <fieldset className="min-w-0 space-y-3">
+      <legend className="text-sm font-semibold text-fg break-words">Notify me about</legend>
+      <p className="text-[12px] text-muted break-words">
         These apply to this workspace only. Turning a category off stops new notifications of that kind; it
         doesn&apos;t remove ones you already have.
       </p>
       {error ? (
-        <p role="alert" className="text-[13px] text-red-400">
+        <p role="alert" className="text-[13px] text-red-400 break-words">
           {error}
         </p>
       ) : null}
@@ -70,11 +70,11 @@ export function NotificationPreferencesForm({ workspaceId }: { workspaceId: stri
         </p>
       ) : null}
       {preferences ? (
-        <ul className="space-y-2">
+        <ul className="min-w-0 space-y-2">
           {NOTIFICATION_CATEGORIES.map((category) => {
             const id = `notification-pref-${category}`;
             return (
-              <li key={category} className="flex items-start gap-2.5">
+              <li key={category} className="flex items-start gap-2.5 min-w-0">
                 <input
                   id={id}
                   type="checkbox"
@@ -82,13 +82,13 @@ export function NotificationPreferencesForm({ workspaceId }: { workspaceId: stri
                   disabled={saving !== null}
                   aria-describedby={`${id}-description`}
                   onChange={(event) => toggle(category, event.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-line bg-surface text-accent focus:ring-accent"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-line bg-surface text-accent focus:ring-accent"
                 />
-                <div>
-                  <label htmlFor={id} className="text-[13px] font-medium text-fg">
+                <div className="min-w-0 flex-1">
+                  <label htmlFor={id} className="text-[13px] font-medium text-fg break-words">
                     {LABELS[category].title}
                   </label>
-                  <p id={`${id}-description`} className="text-[12px] text-muted">
+                  <p id={`${id}-description`} className="text-[12px] text-muted break-words">
                     {LABELS[category].description}
                   </p>
                 </div>
@@ -97,7 +97,7 @@ export function NotificationPreferencesForm({ workspaceId }: { workspaceId: stri
           })}
         </ul>
       ) : null}
-      <p role="status" aria-live="polite" className="text-[12px] text-muted">
+      <p role="status" aria-live="polite" className="text-[12px] text-muted break-words">
         {status}
       </p>
     </fieldset>

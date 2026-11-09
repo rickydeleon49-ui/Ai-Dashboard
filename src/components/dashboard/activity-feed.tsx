@@ -26,20 +26,20 @@ const ICONS: Record<string, LucideIcon> = {
 export function ActivityFeed({ items }: { items: ActivityItem[] }) {
   if (items.length === 0) {
     return (
-      <p className="px-4 py-8 text-center text-[13px] text-faint">
+      <p className="px-4 py-8 text-center text-[13px] text-faint break-words">
         Activity from across the dashboard will appear here.
       </p>
     );
   }
 
   return (
-    <ul className="divide-y divide-[var(--border)]">
+    <ul className="divide-y divide-[var(--border)] min-w-0">
       {items.map((item) => {
         const Icon = ICONS[item.type] ?? PencilLine;
         const body = (
           <>
             <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" strokeWidth={1.75} />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-fg">
+            <span className="min-w-0 flex-1 break-words text-[13px] text-fg">
               {item.message}
             </span>
             <span className="shrink-0 text-[11px] tabular-nums text-faint">
@@ -49,16 +49,16 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
         );
 
         return (
-          <li key={item.id}>
+          <li key={item.id} className="min-w-0">
             {item.projectId ? (
               <Link
                 href={`/projects/${item.projectId}`}
-                className="flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
+                className="flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-[var(--bg-subtle)] min-h-[40px] md:min-h-0 min-w-0"
               >
                 {body}
               </Link>
             ) : (
-              <div className="flex items-start gap-2.5 px-4 py-2.5">{body}</div>
+              <div className="flex items-start gap-2.5 px-4 py-2.5 min-w-0">{body}</div>
             )}
           </li>
         );

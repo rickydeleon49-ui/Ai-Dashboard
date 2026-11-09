@@ -194,7 +194,7 @@ export function NotificationList({
   const hasUnread = items.some((n) => !n.read) || (unreadCount ?? 0) > 0;
 
   return (
-    <div className="space-y-3" aria-busy={state === "loading" || loadingMore}>
+    <div className="min-w-0 space-y-3" aria-busy={state === "loading" || loadingMore}>
       {view === "inbox" ? (
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -203,6 +203,7 @@ export function NotificationList({
             variant="ghost"
             onClick={markAll}
             disabled={markingAll || state !== "ready" || !hasUnread}
+            className="min-h-[40px] md:min-h-0"
           >
             <CheckCheck className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
             {markingAll ? "Marking…" : "Mark all read"}
@@ -211,7 +212,7 @@ export function NotificationList({
       ) : null}
 
       {actionError ? (
-        <p role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-400">
+        <p role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-400 break-words">
           {actionError}
         </p>
       ) : null}
@@ -221,31 +222,31 @@ export function NotificationList({
           Loading notifications…
         </p>
       ) : state === "error" ? (
-        <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-line px-4 py-6 text-center">
-          <p className="text-[13px] text-fg">Couldn&apos;t load notifications.</p>
-          <Button type="button" size="sm" onClick={() => setReloadToken((t) => t + 1)}>
+        <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-line px-4 py-6 text-center min-w-0">
+          <p className="text-[13px] text-fg break-words">Couldn&apos;t load notifications.</p>
+          <Button type="button" size="sm" onClick={() => setReloadToken((t) => t + 1)} className="min-h-[40px] md:min-h-0">
             <RotateCw className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
             Retry
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-line px-4 py-8 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-line px-4 py-8 text-center min-w-0">
           <BellOff className="h-4.5 w-4.5 text-muted" strokeWidth={1.75} aria-hidden="true" />
-          <p className="text-[13px] font-medium text-fg">
+          <p className="text-[13px] font-medium text-fg break-words">
             {view === "archived"
               ? "No archived notifications"
               : filter === "unread"
                 ? "No unread notifications"
                 : "You're all caught up"}
           </p>
-          <p className="text-[12px] text-muted">
+          <p className="text-[12px] text-muted break-words">
             {view === "archived"
               ? "Notifications you archive in this workspace appear here."
               : "Assignments, mentions, comments and due-date changes in this workspace appear here."}
           </p>
         </div>
       ) : (
-        <ul aria-label={view === "archived" ? "Archived notifications" : "Notifications"} className="space-y-2">
+        <ul aria-label={view === "archived" ? "Archived notifications" : "Notifications"} className="min-w-0 space-y-2">
           {items.map((n) => (
             <NotificationItem
               key={n.id}
@@ -261,7 +262,7 @@ export function NotificationList({
       {state === "ready" && items.length > 0 ? (
         nextCursor ? (
           <div className="flex justify-center">
-            <Button type="button" size="sm" variant="outline" onClick={loadMore} disabled={loadingMore}>
+            <Button type="button" size="sm" variant="outline" onClick={loadMore} disabled={loadingMore} className="min-h-[40px] md:min-h-0">
               {loadingMore ? "Loading…" : "Load more"}
             </Button>
           </div>
@@ -291,13 +292,13 @@ function NotificationItem({
   return (
     <li
       className={cn(
-        "rounded-lg border px-3 py-2.5",
+        "rounded-lg border px-3 py-2.5 min-w-0",
         n.read ? "border-line bg-transparent" : "border-[var(--border-strong)] bg-[var(--bg-subtle)]",
       )}
       data-notification-id={n.id}
       data-read={n.read ? "true" : "false"}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-2.5 min-w-0">
         <span
           aria-hidden="true"
           className={cn(
@@ -306,7 +307,7 @@ function NotificationItem({
           )}
         />
         <div className="min-w-0 flex-1 space-y-1">
-          <p className={cn("text-[13px] leading-snug", n.read ? "text-muted" : "font-semibold text-fg")}>
+          <p className={cn("text-[13px] leading-snug break-words", n.read ? "text-muted" : "font-semibold text-fg")}>
             {n.read ? null : (
               <span className="mr-1.5 inline-flex items-center rounded border border-[var(--border-strong)] px-1 text-[10px] font-semibold uppercase tracking-wide text-fg">
                 Unread
@@ -314,18 +315,18 @@ function NotificationItem({
             )}
             {sentence}
           </p>
-          <p className="text-[12px] text-muted">
+          <p className="text-[12px] text-muted break-words">
             {n.task ? (
               <Link
                 href={`/projects/${encodeURIComponent(n.task.projectId)}/tasks#task-${encodeURIComponent(n.task.id)}`}
-                className="font-medium text-fg underline-offset-2 hover:underline focus-visible:underline"
+                className="font-medium text-fg underline-offset-2 hover:underline focus-visible:underline break-words"
               >
                 {n.task.title}
               </Link>
             ) : (
               <span className="italic">This task is no longer available</span>
             )}
-            {n.project ? <span className="text-faint"> · {n.project.name}</span> : null}
+            {n.project ? <span className="text-faint break-words"> · {n.project.name}</span> : null}
             {n.comment?.deleted ? <span className="text-faint"> · Comment deleted</span> : null}
           </p>
           <p className="text-[11px] text-faint">
@@ -341,6 +342,7 @@ function NotificationItem({
             onClick={() => onChange({ read: !n.read })}
             aria-label={n.read ? `Mark as unread: ${sentence}, ${subject}` : `Mark as read: ${sentence}, ${subject}`}
             title={n.read ? "Mark as unread" : "Mark as read"}
+            className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0"
           >
             {n.read ? (
               <Mail className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
@@ -356,6 +358,7 @@ function NotificationItem({
             onClick={() => onChange({ archived: !n.archived })}
             aria-label={n.archived ? `Restore: ${sentence}, ${subject}` : `Archive: ${sentence}, ${subject}`}
             title={n.archived ? "Restore to inbox" : "Archive"}
+            className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0"
           >
             {n.archived ? (
               <ArchiveRestore className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />

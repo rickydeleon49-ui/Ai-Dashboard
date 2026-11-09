@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonClasses } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { cn } from "@/lib/utils";
 import { StatTiles, type Stat } from "@/components/dashboard/stat-tiles";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
@@ -99,12 +100,12 @@ export default async function DashboardPage() {
   const empty = stats.total === 0 && stats.archived === 0;
 
   return (
-    <div className="space-y-7">
+    <div className="min-w-0 space-y-7">
       <PageHeader
         title="Dashboard"
         description="Everything you are building, in one place."
         actions={
-          <Link href="/projects" className={buttonClasses("secondary", "md")}>
+          <Link href="/projects" className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}>
             Open library
           </Link>
         }
@@ -119,11 +120,11 @@ export default async function DashboardPage() {
           description="Add your first project by hand, or sync your GitHub repositories to fill the library automatically."
           action={
             <div className="flex flex-wrap justify-center gap-2">
-              <Link href="/projects/new" className={buttonClasses("primary", "lg")}>
+              <Link href="/projects/new" className={cn(buttonClasses("primary", "lg"), "min-h-[40px] md:min-h-0")}>
                 New project
               </Link>
               {accountsMode ? null : (
-                <Link href="/github" className={buttonClasses("secondary", "lg")}>
+                <Link href="/github" className={cn(buttonClasses("secondary", "lg"), "min-h-[40px] md:min-h-0")}>
                   <Github className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Connect GitHub
                 </Link>
@@ -133,7 +134,7 @@ export default async function DashboardPage() {
         />
       ) : null}
 
-      <section className="space-y-2.5">
+      <section className="min-w-0 space-y-2.5">
         <h2 className="text-[13px] font-semibold tracking-tight text-fg">
           Quick actions
         </h2>
@@ -141,14 +142,14 @@ export default async function DashboardPage() {
       </section>
 
       {activeProjects.length > 0 ? (
-        <section className="space-y-2.5">
+        <section className="min-w-0 space-y-2.5">
           <div className="flex items-center justify-between">
             <h2 className="text-[13px] font-semibold tracking-tight text-fg">
               Currently working on
             </h2>
             <Link
               href="/projects?status=active"
-              className="text-[12px] text-muted transition-colors hover:text-fg"
+              className="inline-flex items-center text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0"
             >
               View all
             </Link>
@@ -157,69 +158,77 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle>Recently opened</CardTitle>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="min-w-0">
+            <CardTitle className="min-w-0 break-words">Recently opened</CardTitle>
             <Link
               href="/projects?sort=opened"
-              className="text-[12px] text-muted transition-colors hover:text-fg"
+              className="inline-flex items-center text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0"
             >
               View all
             </Link>
           </CardHeader>
-          <ProjectRowList
-            projects={recentlyOpened}
-            timestamp="opened"
-            empty="Projects you open will be tracked here."
-          />
+          <div className="min-w-0 overflow-x-auto">
+            <ProjectRowList
+              projects={recentlyOpened}
+              timestamp="opened"
+              empty="Projects you open will be tracked here."
+            />
+          </div>
         </Card>
 
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle>Favorites</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="min-w-0">
+            <CardTitle className="min-w-0 break-words">Favorites</CardTitle>
             <Link
               href="/favorites"
-              className="text-[12px] text-muted transition-colors hover:text-fg"
+              className="inline-flex items-center text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0"
             >
               View all
             </Link>
           </CardHeader>
-          <ProjectRowList
-            projects={favorites}
-            empty="Star a project to pin it here."
-          />
+          <div className="min-w-0 overflow-x-auto">
+            <ProjectRowList
+              projects={favorites}
+              empty="Star a project to pin it here."
+            />
+          </div>
         </Card>
 
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              <Activity className="h-3.5 w-3.5 text-faint" strokeWidth={1.75} />
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="min-w-0">
+            <CardTitle className="flex items-center gap-1.5 min-w-0 break-words">
+              <Activity className="h-3.5 w-3.5 shrink-0 text-faint" strokeWidth={1.75} />
               Recent activity
             </CardTitle>
           </CardHeader>
-          <ActivityFeed items={activity} />
+          <div className="min-w-0 overflow-x-auto">
+            <ActivityFeed items={activity} />
+          </div>
         </Card>
 
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <CardTitle>Latest updates</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="min-w-0">
+            <CardTitle className="min-w-0 break-words">Latest updates</CardTitle>
             <Link
               href="/projects"
-              className="text-[12px] text-muted transition-colors hover:text-fg"
+              className="inline-flex items-center text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0"
             >
               View all
             </Link>
           </CardHeader>
-          <ProjectRowList
-            projects={allRecent}
-            empty="Nothing in the library yet."
-          />
+          <div className="min-w-0 overflow-x-auto">
+            <ProjectRowList
+              projects={allRecent}
+              empty="Nothing in the library yet."
+            />
+          </div>
         </Card>
       </div>
 
       {stats.total > 0 ? (
-        <section className="space-y-2.5">
+        <section className="min-w-0 space-y-2.5">
           <h2 className="text-[13px] font-semibold tracking-tight text-fg">
             By status
           </h2>
@@ -232,7 +241,7 @@ export default async function DashboardPage() {
                 <Link
                   key={status}
                   href={`/projects?status=${status}${status === "archived" ? "&archived=1" : ""}`}
-                  className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12.5px] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-subtle)]"
+                  className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12.5px] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-subtle)] min-h-[40px] md:min-h-0"
                   title={meta.description}
                 >
                   <span className="text-muted">{meta.label}</span>

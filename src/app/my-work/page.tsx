@@ -104,7 +104,7 @@ export default async function MyWorkPage({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="My Work"
         description="Everything assigned to you, across every project in this workspace."
@@ -122,14 +122,16 @@ export default async function MyWorkPage({
           description="Tasks assigned to you will show up here, across every project."
         />
       ) : (
-        <MyWorkList
-          tasks={filteredTasks}
-          projectNames={projectNames}
-          accountsMode={accountsMode}
-          callerRole={callerRole}
-          members={membersList}
-          workspaceId={workspaceId}
-        />
+        <div className="min-w-0 overflow-x-auto">
+          <MyWorkList
+            tasks={filteredTasks}
+            projectNames={projectNames}
+            accountsMode={accountsMode}
+            callerRole={callerRole}
+            members={membersList}
+            workspaceId={workspaceId}
+          />
+        </div>
       )}
     </div>
   );

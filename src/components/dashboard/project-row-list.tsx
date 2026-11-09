@@ -3,7 +3,7 @@ import { Github, Star } from "lucide-react";
 import { STATUS_META } from "@/core/projects/labels";
 import type { Project } from "@/core/projects/types";
 import { Badge } from "@/components/ui/badge";
-import { formatRelative } from "@/lib/utils";
+import { cn, formatRelative } from "@/lib/utils";
 
 /**
  * Dense one-line project listing for dashboard panels, where a full card grid
@@ -19,16 +19,16 @@ export function ProjectRowList({
   empty: string;
 }) {
   if (projects.length === 0) {
-    return <p className="px-4 py-8 text-center text-[13px] text-faint">{empty}</p>;
+    return <p className="px-4 py-8 text-center text-[13px] text-faint break-words">{empty}</p>;
   }
 
   return (
-    <ul className="divide-y divide-[var(--border)]">
+    <ul className="divide-y divide-[var(--border)] min-w-0">
       {projects.map((project) => (
-        <li key={project.id}>
+        <li key={project.id} className="min-w-0">
           <Link
             href={`/projects/${project.id}`}
-            className="flex items-center gap-2.5 px-4 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
+            className="flex items-center gap-2.5 px-4 py-2.5 transition-colors hover:bg-[var(--bg-subtle)] min-h-[40px] md:min-h-0 min-w-0"
           >
             {project.source === "github" ? (
               <Github className="h-3.5 w-3.5 shrink-0 text-faint" strokeWidth={1.75} />
@@ -39,7 +39,7 @@ export function ProjectRowList({
               />
             )}
 
-            <span className="min-w-0 flex-1 truncate text-[13px] text-fg">
+            <span className="min-w-0 flex-1 break-words text-[13px] text-fg">
               {project.name}
             </span>
 
@@ -51,7 +51,7 @@ export function ProjectRowList({
               />
             ) : null}
 
-            <Badge className={STATUS_META[project.status].className}>
+            <Badge className={cn("shrink-0", STATUS_META[project.status].className)}>
               {STATUS_META[project.status].label}
             </Badge>
 
