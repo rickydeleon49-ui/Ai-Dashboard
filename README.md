@@ -415,14 +415,14 @@ skipped and why. Previewing never deletes anything.
 ## Terminal (desktop app)
 
 The desktop app includes a built-in terminal that opens in its own window from
-the menu (View > Terminal, Ctrl+`) or a project's "Terminal in app" button
-(starts in that project's folder). Shells offered (Windows: PowerShell, Git Bash
+the menu (View > Terminal, Ctrl+` on Windows and Linux, Cmd+` on Mac) or a
+project's "Terminal in app" button (starts in that project's folder). Shells offered (Windows: PowerShell, Git Bash
 when installed, Command Prompt; Mac/Linux: your login shell, zsh, bash).
 
 Each window supports up to 8 tabs. Quick buttons type `claude`, `agy` or `codex`
 into the active tab (the tools must be installed and on PATH). A usage strip
-shows today's use per tool. All shells close with the window or the app. The
-dashboard pages themselves cannot run commands.
+shows today's use per tool. All shells close with the window or the app (reloading
+the window ends them too). The dashboard pages themselves cannot run commands.
 
 ## Commands
 

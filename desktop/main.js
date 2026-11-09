@@ -15,6 +15,7 @@ const { app, BrowserWindow, Menu, shell, dialog, ipcMain, safeStorage, session }
 const { fork, spawn } = require("node:child_process");
 const { editorCandidates, terminalCandidates, launchFirst } = require("./launch");
 const { createOllamaSupervisor } = require("./ollama");
+const { listShells, shellEnv, createSessionManager, loadPty } = require("./pty-sessions");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
@@ -806,6 +807,12 @@ function buildMenu() {
         { role: "forceReload" },
         { role: "toggleDevTools" },
         { type: "separator" },
+        {
+          label: "Terminal",
+          accelerator: "CommandOrControl+`",
+          click: () => openTerminalWindow(),
+        },
+        { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
         { role: "zoomOut" },
@@ -944,7 +951,7 @@ function registerLocalAi() {
  *   semicolons is data and never syntax.
  */
 
-const ACTIONS = new Set(["folder", "reveal", "editor", "terminal"]);
+const ACTIONS = new Set(["folder", "reveal", "editor", "terminal", "app-terminal"]);
 
 /** Asks the bundled server for a project. Returns null when there is none. */
 async function fetchProject(id) {
@@ -1019,12 +1026,249 @@ function registerLocalActions() {
         : { ok: false, error: "No supported editor was found on this machine." };
     }
 
+    if (action === "app-terminal") {
+      return openProjectInAppTerminal(cwd);
+    }
+
     const terminals = terminalCandidates();
     const launched = await launchFirst(terminals, cwd, spawn);
     return launched
       ? { ok: true }
       : { ok: false, error: "No terminal application was found on this machine." };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Terminal window
+// ---------------------------------------------------------------------------
+
+/**
+ * One terminal window, owned by the main process.
+ *
+ * Shells are only ever started and driven through the handlers below, and every
+ * handler refuses a sender that is not the terminal window's own web contents,
+ * so the dashboard window (or any page it loads) cannot reach a shell.
+ */
+
+const TERMINAL_MISSING = "The terminal component is missing from this install.";
+const TERMINAL_SHELL_ID = /^[a-z-]{1,32}$/;
+const TERMINAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TERMINAL_TOOLS = new Set(["claude", "agy", "codex"]);
+const TERMINAL_EARLY_MAX = 64 * 1024;
+
+let terminalWindow = null;
+let terminalSessions = null;
+/** True once the page asked for its initial sessions and can take live events. */
+let terminalReady = false;
+/** Output and exits that happened before the page was ready. */
+let terminalQueue = [];
+/** Sessions opened for this window before the page was ready. */
+let terminalPending = [];
+/** Pids of every shell started, for the desktop test. */
+const terminalPids = [];
+
+function terminalWebContents() {
+  return terminalWindow && !terminalWindow.isDestroyed() ? terminalWindow.webContents : null;
+}
+
+function fromTerminal(event) {
+  const contents = terminalWebContents();
+  return Boolean(contents && event.sender === contents);
+}
+
+function sendToTerminal(channel, payload) {
+  const contents = terminalWebContents();
+  if (!contents) return;
+  if (terminalReady) {
+    contents.send(channel, payload);
+    return;
+  }
+  // The page is still loading: hold output (bounded per session) for its first ask.
+  if (channel === "terminal:data") {
+    const id = payload[0];
+    const held = terminalQueue.reduce(
+      (n, item) => (item.channel === channel && item.payload[0] === id ? n + item.payload[1].length : n),
+      0,
+    );
+    if (held + payload[1].length > TERMINAL_EARLY_MAX) return;
+  }
+  terminalQueue.push({ channel, payload });
+}
+
+/** The shell list and session manager, built on first use. */
+function getTerminal() {
+  if (terminalSessions) return terminalSessions;
+  const shells = listShells();
+  let pty;
+  try {
+    pty = loadPty();
+  } catch (error) {
+    console.error(`[terminal] node-pty could not be loaded: ${error.message}`);
+    return { shells, manager: null };
+  }
+  const recording = {
+    spawn: (...args) => {
+      const proc = pty.spawn(...args);
+      terminalPids.push(proc.pid);
+      return proc;
+    },
+  };
+  terminalSessions = {
+    shells,
+    manager: createSessionManager({
+      pty: recording,
+      shells,
+      env: shellEnv(process.env),
+      onData: (id, data) => sendToTerminal("terminal:data", [id, data]),
+      onExit: (id, code) => sendToTerminal("terminal:exit", [id, code]),
+    }),
+  };
+  return terminalSessions;
+}
+
+function killTerminalSessions() {
+  terminalSessions?.manager?.killAll();
+}
+
+function resetTerminalState() {
+  terminalReady = false;
+  terminalQueue = [];
+  terminalPending = [];
+}
+
+/** Opens the terminal window, or focuses it when it is already open. */
+function openTerminalWindow() {
+  if (terminalWebContents()) {
+    if (terminalWindow.isMinimized()) terminalWindow.restore();
+    terminalWindow.focus();
+    return terminalWindow;
+  }
+  getTerminal();
+  resetTerminalState();
+
+  const win = new BrowserWindow({
+    width: 900,
+    height: 560,
+    minWidth: 480,
+    minHeight: 320,
+    backgroundColor: "#08090b",
+    show: false,
+    title: "Terminal",
+    webPreferences: {
+      preload: path.join(__dirname, "terminal-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  terminalWindow = win;
+  win.once("ready-to-show", () => win.show());
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event) => event.preventDefault());
+  // A reload would orphan the running shells, so it starts over cleanly.
+  win.webContents.once("did-finish-load", () => {
+    win.webContents.on("did-start-loading", () => {
+      killTerminalSessions();
+      resetTerminalState();
+    });
+  });
+  win.on("closed", () => {
+    killTerminalSessions();
+    resetTerminalState();
+    if (terminalWindow === win) terminalWindow = null;
+  });
+  win.loadFile(path.join(__dirname, "terminal", "terminal.html"));
+  return win;
+}
+
+/** Starts a shell in a project folder and hands it to the terminal window. */
+function openProjectInAppTerminal(cwd) {
+  openTerminalWindow();
+  const { shells, manager } = getTerminal();
+  if (!manager) return { ok: false, error: TERMINAL_MISSING };
+  if (shells.length === 0) return { ok: false, error: "No shell was found on this machine." };
+  const result = manager.create({ shellId: shells[0].id, cwd, cols: 80, rows: 24 });
+  if (!result.ok) return { ok: false, error: result.error };
+  const opened = { id: result.id, title: result.title, cwd: result.cwd };
+  if (terminalReady) terminalWebContents()?.send("terminal:opened", opened);
+  else terminalPending.push(opened);
+  return { ok: true };
+}
+
+function registerTerminal() {
+  ipcMain.handle("terminal:shells", (event) => {
+    if (!fromTerminal(event)) return [];
+    return getTerminal().shells.map(({ id, label }) => ({ id, label }));
+  });
+
+  ipcMain.handle("terminal:initial", (event) => {
+    if (!fromTerminal(event)) return [];
+    const pending = terminalPending;
+    terminalPending = [];
+    // After the reply, so the page has the sessions before their output arrives.
+    // Stay "not ready" until the queue is out, so newer output cannot overtake it.
+    setImmediate(() => {
+      const contents = terminalWebContents();
+      const late = terminalPending;
+      const queue = terminalQueue;
+      terminalPending = [];
+      terminalQueue = [];
+      terminalReady = true;
+      if (!contents) return;
+      for (const opened of late) contents.send("terminal:opened", opened);
+      for (const item of queue) contents.send(item.channel, item.payload);
+    });
+    return pending;
+  });
+
+  ipcMain.handle("terminal:create", (event, request) => {
+    if (!fromTerminal(event)) return { ok: false, error: "Not allowed." };
+    const { shells, manager } = getTerminal();
+    if (!manager) return { ok: false, error: TERMINAL_MISSING };
+    const shellId = request?.shellId ?? shells[0]?.id;
+    if (typeof shellId !== "string" || !TERMINAL_SHELL_ID.test(shellId)) {
+      return { ok: false, error: "Unknown shell." };
+    }
+    // No folder from the page: a plain tab always starts in the home folder.
+    const result = manager.create({ shellId, cols: request?.cols, rows: request?.rows });
+    return result.ok ? { ok: true, id: result.id, title: result.title } : result;
+  });
+
+  ipcMain.on("terminal:write", (event, id, data) => {
+    if (!fromTerminal(event) || typeof id !== "string" || !TERMINAL_UUID.test(id)) return;
+    terminalSessions?.manager?.write(id, data);
+  });
+
+  ipcMain.handle("terminal:resize", (event, id, cols, rows) => {
+    if (!fromTerminal(event) || typeof id !== "string" || !TERMINAL_UUID.test(id)) return;
+    terminalSessions?.manager?.resize(id, cols, rows);
+  });
+
+  ipcMain.handle("terminal:kill", (event, id) => {
+    if (!fromTerminal(event) || typeof id !== "string" || !TERMINAL_UUID.test(id)) return;
+    terminalSessions?.manager?.kill(id);
+  });
+
+  ipcMain.handle("terminal:launch", (event, id, tool) => {
+    if (!fromTerminal(event) || typeof id !== "string" || !TERMINAL_UUID.test(id)) return false;
+    if (typeof tool !== "string" || !TERMINAL_TOOLS.has(tool)) return false;
+    return terminalSessions?.manager?.launch(id, tool) ?? false;
+  });
+
+  ipcMain.handle("terminal:usage", async (event) => {
+    if (!fromTerminal(event)) return null;
+    try {
+      const response = await internalFetch("/api/usage");
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+if (typeof app !== "undefined" && app && isTestEnv && !app.isPackaged) {
+  app.openTerminalForTesting = openTerminalWindow;
+  app.terminalPidsForTesting = () => terminalPids.slice();
 }
 
 // ---------------------------------------------------------------------------
@@ -1095,6 +1339,7 @@ if (app) {
       buildMenu();
       registerLocalActions();
       registerLocalAi();
+      registerTerminal();
       createWindow();
 
       // After the window, not before: the AI service coming up is not something
@@ -1114,6 +1359,7 @@ if (app) {
       quitting = true;
       stopServer();
       stopRunner();
+      killTerminalSessions();
       // Only ever stops an instance this application started. An Ollama that was
       // already running when Command Center opened is left alone.
       ollama?.stopIfOwned();
@@ -1133,6 +1379,7 @@ if (app) {
       quitting = true;
       stopServer();
       stopRunner();
+      killTerminalSessions();
       ollama?.stopIfOwned();
       if (runnerShutdownInProgress && !runnerShutdownDone) {
         event.preventDefault();

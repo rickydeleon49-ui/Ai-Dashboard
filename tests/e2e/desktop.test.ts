@@ -11,7 +11,7 @@
  * desktop:build`.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -25,6 +25,7 @@ const standaloneRunner = path.resolve(".next/standalone/runner.js");
 
 let app: ElectronApplication | null = null;
 let window: Page;
+let terminalPage: Page;
 let root = "";
 
 /**
@@ -508,6 +509,146 @@ describe("desktop shell", { skip: hasStandalone ? false : "no standalone build" 
     assert.equal(internalSuccess.status, 200, "internalFetch must attach the secret and return 200");
     assert.equal(internalSuccess.ok, true);
     assert.equal(internalSuccess.enabled, true);
+  });
+
+  /*
+   * The built-in terminal. It lives in its own window with its own preload; the
+   * dashboard window must never see that bridge, and closing the window must
+   * leave no shell behind.
+   */
+  it("keeps the terminal bridge out of the dashboard window", async () => {
+    const hasTerminal = await window.evaluate(() => "terminal" in globalThis);
+    assert.equal(hasTerminal, false, "the dashboard window must not have window.terminal");
+  });
+
+  it("refuses to open the in-app terminal for a project that does not exist", async () => {
+    const result = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { desktop: {
+        openLocal: (id: unknown, action: unknown) => Promise<{ ok: boolean; error?: string }>;
+      } }).desktop;
+      return bridge.openLocal("prj_doesnotexist", "app-terminal");
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /Unknown project/);
+    assert.equal(app!.windows().length, 1, "no terminal window should have opened");
+  });
+
+  it("opens the terminal window, lists shells without paths and runs a command", async () => {
+    const [terminal] = await Promise.all([
+      app!.waitForEvent("window", { timeout: 30_000 }),
+      app!.evaluate(({ app: electronApp }) => {
+        (electronApp as unknown as { openTerminalForTesting: () => void }).openTerminalForTesting();
+      }),
+    ]);
+    terminalPage = terminal;
+    await terminal.waitForSelector(".xterm-rows", { timeout: 30_000 });
+
+    const bridge = await terminal.evaluate(async () => {
+      const t = (globalThis as unknown as { terminal: Record<string, unknown> & { shells: () => Promise<unknown> } }).terminal;
+      return {
+        keys: Object.keys(t).sort(),
+        hasNode: typeof (globalThis as unknown as { require?: unknown }).require,
+        shells: (await t.shells()) as { id: string; label: string; file?: string }[],
+      };
+    });
+    assert.deepEqual(bridge.keys, [
+      "create", "initial", "kill", "launch", "onData", "onExit", "onOpened", "resize", "shells", "usage", "write",
+    ]);
+    assert.equal(bridge.hasNode, "undefined");
+    assert.ok(bridge.shells.length > 0, "at least one shell is offered");
+    for (const shell of bridge.shells) {
+      assert.deepEqual(Object.keys(shell).sort(), ["id", "label"], "shells expose an id and label only");
+      assert.match(shell.id, /^[a-z-]+$/);
+    }
+
+    // One default tab, and the first prompt was not lost.
+    assert.equal(await terminal.locator(".tab-item").count(), 1);
+    const rowsText = () => terminal.evaluate(() => document.querySelector(".xterm-rows")?.textContent ?? "");
+    let prompt = "";
+    for (let i = 0; i < 100 && prompt.trim().length === 0; i++) {
+      prompt = await rowsText();
+      if (prompt.trim().length === 0) await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(prompt.trim().length > 0, "the shell's first output (its prompt) never reached the tab");
+
+    await terminal.locator(".xterm").click();
+    await terminal.keyboard.type("echo trm-e2e");
+    await terminal.keyboard.press("Enter");
+    // Once for the typed command, once for the command's own output.
+    let text = "";
+    for (let i = 0; i < 100; i++) {
+      text = await rowsText();
+      if ((text.match(/trm-e2e/g) ?? []).length >= 2) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok((text.match(/trm-e2e/g) ?? []).length >= 2, `expected the echoed output in the terminal, got: ${text}`);
+  });
+
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err: unknown) {
+      return (err as { code?: string })?.code !== "ESRCH";
+    }
+  };
+
+  it("leaves no shell process behind when the terminal window closes", async () => {
+    const pids = await app!.evaluate(({ app: electronApp }) =>
+      (electronApp as unknown as { terminalPidsForTesting: () => number[] }).terminalPidsForTesting(),
+    );
+    assert.ok(pids.length > 0 && pids.every((pid) => pid > 0), "a shell process should have been started");
+    assert.ok(pids.some(alive), "the shell should be running before the window closes");
+
+    await terminalPage.close();
+    for (let i = 0; i < 100 && pids.some(alive); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(pids.filter(alive), [], "shell processes survived the window closing");
+  });
+
+  it("opens a project in the in-app terminal as a single tab in that folder", async () => {
+    const folder = path.join(root, "terminal-project");
+    mkdirSync(folder, { recursive: true });
+    const projectId = await window.evaluate(async (localPath) => {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Terminal project", localPath }),
+      });
+      return ((await res.json()) as { project: { id: string } }).project.id;
+    }, folder);
+
+    const before = await app!.evaluate(({ app: electronApp }) =>
+      (electronApp as unknown as { terminalPidsForTesting: () => number[] }).terminalPidsForTesting(),
+    );
+    const [terminal, result] = await Promise.all([
+      app!.waitForEvent("window", { timeout: 30_000 }),
+      window.evaluate(async (id) => {
+        const bridge = (globalThis as unknown as { desktop: {
+          openLocal: (id: string, action: string) => Promise<{ ok: boolean; error?: string }>;
+        } }).desktop;
+        return bridge.openLocal(id, "app-terminal");
+      }, projectId),
+    ]);
+    assert.deepEqual(result, { ok: true });
+    await terminal.waitForSelector(".xterm-rows", { timeout: 30_000 });
+    // Give a stray default tab the chance to appear before asserting there is none.
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal(await terminal.locator(".tab-item").count(), 1, "only the project's tab should exist");
+    assert.match((await terminal.locator(".tab-title").first().textContent()) ?? "", /terminal-project/);
+
+    const pids = await app!.evaluate(({ app: electronApp }) =>
+      (electronApp as unknown as { terminalPidsForTesting: () => number[] }).terminalPidsForTesting(),
+    );
+    assert.equal(pids.length, before.length + 1, "exactly one new shell was started");
+
+    await terminal.close();
+    const started = pids.slice(before.length);
+    for (let i = 0; i < 100 && started.some(alive); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(started.filter(alive), [], "the project's shell survived the window closing");
+
+    await window.evaluate(async (id) => {
+      await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    }, projectId);
   });
 
   // Last, so it covers everything the tests above did through the app. A real

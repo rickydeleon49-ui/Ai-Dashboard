@@ -14,6 +14,54 @@
   let availableShells = [];
   let resizeTimer = null;
 
+  // Output and exit events can arrive before create() resolves and tells us the
+  // session id. Hold them briefly per id so the first prompt is not lost.
+  const EARLY_MAX_BYTES = 64 * 1024;
+  const EARLY_TTL_MS = 5000;
+  const earlyData = new Map();
+  const earlyExit = new Map();
+
+  function holdEarly(id, data) {
+    let entry = earlyData.get(id);
+    if (!entry) {
+      entry = { chunks: [], bytes: 0, timer: setTimeout(() => earlyData.delete(id), EARLY_TTL_MS) };
+      earlyData.set(id, entry);
+    }
+    if (entry.bytes + data.length > EARLY_MAX_BYTES) return;
+    entry.chunks.push(data);
+    entry.bytes += data.length;
+  }
+
+  function holdExit(id, code) {
+    earlyExit.set(id, code);
+    setTimeout(() => earlyExit.delete(id), EARLY_TTL_MS);
+  }
+
+  function markExited(tab, exitCode) {
+    tab.running = false;
+    tab.titleEl.textContent = tab.title + " (exited)";
+    if (tab.term) {
+      tab.term.write("\r\n\x1b[2m[process exited with code " + exitCode + "]\x1b[0m\r\n");
+    }
+    updateQuickLaunch();
+  }
+
+  /** Called once a tab knows its session id: replays what arrived before that. */
+  function flushEarly(tab) {
+    const id = tab.sessionId;
+    const entry = earlyData.get(id);
+    if (entry) {
+      clearTimeout(entry.timer);
+      earlyData.delete(id);
+      if (tab.term) tab.term.write(entry.chunks.join(""));
+    }
+    if (earlyExit.has(id)) {
+      const code = earlyExit.get(id);
+      earlyExit.delete(id);
+      markExited(tab, code);
+    }
+  }
+
   const tabsListEl = document.getElementById("tabs-list");
   const newTabBtn = document.getElementById("new-tab-btn");
   const shellMenu = document.getElementById("shell-menu");
@@ -265,6 +313,7 @@
     tab.sessionId = res.id;
     tab.title = res.title || "Terminal";
     tab.titleEl.textContent = tab.title;
+    flushEarly(tab);
     tab.term.focus();
     updateQuickLaunch();
   }
@@ -276,24 +325,27 @@
     tab.title = title || "Terminal";
     tab.titleEl.textContent = tab.title;
     bridge.resize(sessionId, tab.cols, tab.rows).catch(() => {});
+    flushEarly(tab);
     tab.term.focus();
     updateQuickLaunch();
   }
 
   bridge.onData((id, data) => {
     const tab = tabs.find((t) => t.sessionId === id);
-    if (tab && tab.term) tab.term.write(data);
+    if (tab) {
+      if (tab.term) tab.term.write(data);
+    } else {
+      holdEarly(id, data);
+    }
   });
 
   bridge.onExit((id, exitCode) => {
     const tab = tabs.find((t) => t.sessionId === id);
-    if (!tab) return;
-    tab.running = false;
-    tab.titleEl.textContent = `${tab.title} (exited)`;
-    if (tab.term) {
-      tab.term.write(`\r\n\x1b[2m[process exited with code ${exitCode}]\x1b[0m\r\n`);
+    if (!tab) {
+      holdExit(id, exitCode);
+      return;
     }
-    updateQuickLaunch();
+    markExited(tab, exitCode);
   });
 
   bridge.onOpened(({ id, title }) => openExistingSession(id, title));
@@ -337,7 +389,22 @@
       availableShells = [];
     }
     renderShellMenu();
-    await createTab(availableShells[0]?.id);
+
+    if (window.TerminalUsage) {
+      window.TerminalUsage.mount(document.getElementById("usage-strip"), () => bridge.usage());
+    }
+
+    // Sessions main opened for this window (a project's "Terminal in app"
+    // button) come first. The default home-folder tab is only for a plain open.
+    let initial = [];
+    try {
+      const reply = await bridge.initial();
+      if (Array.isArray(reply)) initial = reply;
+    } catch {
+      initial = [];
+    }
+    for (const session of initial) openExistingSession(session.id, session.title);
+    if (initial.length === 0 && tabs.length === 0) await createTab(availableShells[0]?.id);
   }
 
   if (document.readyState === "loading") {
