@@ -49,8 +49,8 @@ export function KnowledgeDocumentFilters({
   const activeCategory = params.get("category") ?? "";
 
   return (
-    <div className="space-y-3">
-      <div className="relative min-w-52 max-w-md">
+    <div className="space-y-3 min-w-0">
+      <div className="relative min-w-52 max-w-md min-w-0">
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"
           strokeWidth={1.75}
@@ -60,14 +60,14 @@ export function KnowledgeDocumentFilters({
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search titles and content…"
           aria-label="Search knowledge base"
-          className="h-8 w-full rounded-md border border-line bg-[var(--bg-subtle)] pl-8 pr-8 text-[13px] text-fg placeholder:text-faint hover:border-[var(--border-strong)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]"
+          className="h-8 w-full rounded-md border border-line bg-[var(--bg-subtle)] pl-8 pr-8 text-[13px] text-fg placeholder:text-faint hover:border-[var(--border-strong)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)] min-h-[40px] md:min-h-0"
         />
         {search ? (
           <button
             type="button"
             aria-label="Clear search"
             onClick={() => onSearch("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-faint hover:text-muted"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-faint hover:text-muted min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center"
           >
             <X className="h-3.5 w-3.5" strokeWidth={2} />
           </button>
@@ -75,7 +75,7 @@ export function KnowledgeDocumentFilters({
       </div>
 
       {categories.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           {categories.map((category) => {
             const active = activeCategory === category.name;
             return (
@@ -84,13 +84,13 @@ export function KnowledgeDocumentFilters({
                 type="button"
                 onClick={() => setParam("category", active ? "" : category.name)}
                 className={cn(
-                  "rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset transition-colors",
+                  "inline-flex items-center rounded px-2 py-1 text-[11px] font-medium ring-1 ring-inset transition-colors min-h-[40px] md:min-h-0 md:px-1.5 md:py-0.5",
                   active
                     ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-[var(--accent)]/40"
                     : "bg-[var(--bg-subtle)] text-muted ring-[var(--border)] hover:text-fg",
                 )}
               >
-                {category.name}
+                <span className="break-words">{category.name}</span>
                 <span className="ml-1 tabular-nums text-faint">{category.count}</span>
               </button>
             );

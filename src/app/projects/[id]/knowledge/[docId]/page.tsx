@@ -8,7 +8,7 @@ import { MarkdownView } from "@/components/knowledge/markdown-view";
 import { knowledgeDocumentRepository, projectRepository } from "@/db/repositories";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import { resolveKnowledgePageAccess } from "@/core/knowledge/page-access";
-import { formatRelative } from "@/lib/utils";
+import { cn, formatRelative } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -50,13 +50,13 @@ export default async function KnowledgeDocumentPage({
 
   return (
     <div className="min-w-0 space-y-5">
-      <div className="space-y-1">
-        <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint">
+      <div className="space-y-1 min-w-0">
+        <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint min-w-0">
           <Link href="/projects" className="transition-colors hover:text-fg">
             Projects
           </Link>
           <span>/</span>
-          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg">
+          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg break-words">
             {project.name}
           </Link>
           <span>/</span>
@@ -64,31 +64,31 @@ export default async function KnowledgeDocumentPage({
             Knowledge
           </Link>
         </nav>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
           <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight text-fg">{document.title}</h1>
           {canEdit ? (
             <Link
               href={`/projects/${project.id}/knowledge/${document.id}/edit`}
-              className={buttonClasses("secondary", "md")}
+              className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
             >
               <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
               Edit
             </Link>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-1 min-w-0">
           {document.pinned ? (
             <span className="flex items-center gap-1 text-[11px] text-amber-400">
               <Pin className="h-3 w-3" strokeWidth={1.75} fill="currentColor" />
               Pinned
             </span>
           ) : null}
-          {document.category ? <Badge>{document.category}</Badge> : null}
+          {document.category ? <Badge className="break-words">{document.category}</Badge> : null}
           <span className="text-[11px] text-faint">Updated {formatRelative(document.updatedAt)}</span>
         </div>
       </div>
 
-      <article className="max-w-3xl rounded-xl border border-line bg-surface px-5 py-4">
+      <article className="max-w-3xl rounded-xl border border-line bg-surface px-5 py-4 min-w-0 overflow-x-auto">
         <MarkdownView source={document.content} />
       </article>
     </div>

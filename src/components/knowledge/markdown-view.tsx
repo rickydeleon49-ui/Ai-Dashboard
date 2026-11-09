@@ -178,7 +178,7 @@ export function MarkdownView({
   empty?: ReactNode;
 }): ReactElement {
   if (source.trim().length === 0) {
-    return <div className={cn("markdown-body", className)}>{empty ?? <p className="text-faint">No content yet.</p>}</div>;
+    return <div className={cn("markdown-body min-w-0", className)}>{empty ?? <p className="text-faint">No content yet.</p>}</div>;
   }
 
   let rendered: ReactElement;
@@ -205,7 +205,7 @@ export function MarkdownView({
   }
 
   return (
-    <div className={cn("markdown-body", className)} data-markdown-view="">
+    <div className={cn("markdown-body min-w-0", className)} data-markdown-view="">
       {rendered}
     </div>
   );

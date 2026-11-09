@@ -44,13 +44,13 @@ export function RescheduleDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-sm space-y-3 rounded-xl border border-line bg-[var(--bg-elevated)] p-4 shadow-xl"
+        className="w-full max-w-sm space-y-3 rounded-xl border border-line bg-[var(--bg-elevated)] p-4 shadow-xl min-w-0"
         onSubmit={(e) => {
           e.preventDefault();
           if (valid) onSave(value);
         }}
       >
-        <h2 id={titleId} className="text-sm font-semibold text-fg">
+        <h2 id={titleId} className="text-sm font-semibold text-fg break-words">
           Reschedule “{title}”
         </h2>
         <label className="flex flex-col gap-1 text-[12px] text-muted">
@@ -63,19 +63,19 @@ export function RescheduleDialog({
             max={MAX_DATE}
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+            className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
           />
         </label>
         {!valid && value !== "" ? (
-          <p role="alert" className="text-[12px] text-red-400">
+          <p role="alert" className="text-[12px] text-red-400 break-words">
             Enter a valid date between Jan 1, 1900 and Dec 31, 9999.
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+          <Button type="button" size="sm" variant="outline" onClick={onCancel} className="min-h-[40px] md:min-h-0">
             Cancel
           </Button>
-          <Button type="submit" size="sm" variant="primary" disabled={!valid || saving}>
+          <Button type="submit" size="sm" variant="primary" disabled={!valid || saving} className="min-h-[40px] md:min-h-0">
             Save
           </Button>
         </div>

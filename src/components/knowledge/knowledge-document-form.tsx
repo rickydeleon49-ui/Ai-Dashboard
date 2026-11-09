@@ -10,6 +10,7 @@ import { Field, Input } from "@/components/ui/field";
 import { MarkdownEditor } from "@/components/knowledge/markdown-editor";
 import { KNOWLEDGE_CONTENT_MAX } from "@/core/knowledge/markdown";
 import type { KnowledgeDocument } from "@/core/knowledge/types";
+import { cn } from "@/lib/utils";
 
 /**
  * A save failure the writer can act on. The typed text is never cleared, so
@@ -93,9 +94,9 @@ export function KnowledgeDocumentForm({
   }
 
   return (
-    <form onSubmit={submit} className="max-w-3xl space-y-4">
-      <Card>
-        <CardBody className="space-y-4">
+    <form onSubmit={submit} className="max-w-3xl space-y-4 min-w-0">
+      <Card className="min-w-0">
+        <CardBody className="space-y-4 min-w-0">
           <Field label="Title" hint="Required">
             <Input
               name="title"
@@ -105,6 +106,7 @@ export function KnowledgeDocumentForm({
               autoFocus={!editing}
               defaultValue={document?.title ?? ""}
               placeholder="Deploy runbook"
+              className="min-h-[40px] md:min-h-0"
             />
           </Field>
 
@@ -118,13 +120,13 @@ export function KnowledgeDocumentForm({
         </CardBody>
       </Card>
 
-      <Card>
-        <CardBody className="space-y-4">
+      <Card className="min-w-0">
+        <CardBody className="space-y-4 min-w-0">
           <Field label="Category" help="Groups documents in the list. Optional.">
-            <Input name="category" aria-label="Category" defaultValue={document?.category ?? ""} placeholder="runbooks" />
+            <Input name="category" aria-label="Category" defaultValue={document?.category ?? ""} placeholder="runbooks" className="min-h-[40px] md:min-h-0" />
           </Field>
 
-          <label className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-muted">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-muted min-h-[40px] md:min-h-0">
             <input
               type="checkbox"
               name="pinned"
@@ -139,18 +141,18 @@ export function KnowledgeDocumentForm({
       {error ? (
         <p
           role="alert"
-          className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-[13px] text-red-300"
+          className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-[13px] text-red-300 break-words"
         >
           {error}
         </p>
       ) : null}
 
-      <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" size="lg" disabled={busy}>
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <Button type="submit" variant="primary" size="lg" disabled={busy} className="min-h-[40px] md:min-h-0">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : null}
           {editing ? "Save changes" : "Save document"}
         </Button>
-        <Link href={`/projects/${projectId}/knowledge`} className={buttonClasses("ghost", "lg")}>
+        <Link href={`/projects/${projectId}/knowledge`} className={cn(buttonClasses("ghost", "lg"), "min-h-[40px] md:min-h-0")}>
           Cancel
         </Link>
       </div>
