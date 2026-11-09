@@ -18,8 +18,8 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
     return <EmptyState icon={LogIn} title="Sign-in required" description="Sign in to see this template." />;
   }
   return (
-    <div className="space-y-5">
-      <nav className="flex items-center gap-1.5 text-[12px] text-faint" aria-label="Breadcrumb">
+    <div className="min-w-0 space-y-5">
+      <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint min-w-0" aria-label="Breadcrumb">
         <Link href="/templates" className="transition-colors hover:text-fg">
           Templates
         </Link>

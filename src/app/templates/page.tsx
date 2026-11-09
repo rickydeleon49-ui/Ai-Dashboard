@@ -18,7 +18,7 @@ export default async function TemplatesPage() {
     return <EmptyState icon={LogIn} title="Sign-in required" description="Sign in to see templates." />;
   }
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="Templates"
         description="Reusable project structures. Preview a template for a start date, then create a real project from it."

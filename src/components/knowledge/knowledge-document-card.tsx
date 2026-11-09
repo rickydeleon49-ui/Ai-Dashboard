@@ -62,7 +62,7 @@ export function KnowledgeDocumentCard({
 
   return (
     <div className="min-w-0 rounded-xl border border-line bg-surface transition-colors hover:border-[var(--border-strong)]">
-      <div className="flex items-start gap-2.5 p-3.5">
+      <div className="flex items-start gap-2.5 p-3.5 min-w-0">
         {canEdit ? (
           <button
             type="button"
@@ -70,7 +70,7 @@ export function KnowledgeDocumentCard({
             aria-pressed={pinned}
             aria-label={pinned ? "Unpin document" : "Pin document"}
             className={cn(
-              "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
+              "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6",
               pinned
                 ? "text-amber-400 hover:bg-amber-400/10"
                 : "text-faint hover:bg-[var(--bg-subtle)] hover:text-muted",
@@ -95,7 +95,7 @@ export function KnowledgeDocumentCard({
           </h3>
 
           {expanded ? (
-            <MarkdownView source={document.content} className="mt-2" />
+            <MarkdownView source={document.content} className="mt-2 min-w-0 overflow-x-auto" />
           ) : summary ? (
             <p className="mt-1 line-clamp-2 break-words text-[12.5px] leading-relaxed text-muted">{summary}</p>
           ) : (
@@ -103,18 +103,18 @@ export function KnowledgeDocumentCard({
           )}
 
           <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            {document.category ? <Badge>{document.category}</Badge> : null}
+            {document.category ? <Badge className="break-words">{document.category}</Badge> : null}
             <span className="text-[11px] text-faint">{formatRelative(document.updatedAt)}</span>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-t border-line px-2.5 py-1.5">
+      <div className="flex flex-wrap items-center gap-1 border-t border-line px-2.5 py-1.5 min-w-0">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-faint transition-colors hover:text-fg"
+          className="flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-faint transition-colors hover:text-fg min-h-[40px] md:min-h-0"
         >
           <ChevronDown
             className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")}
@@ -127,7 +127,7 @@ export function KnowledgeDocumentCard({
           <>
             <Link
               href={`/projects/${projectId}/knowledge/${document.id}/edit`}
-              className="ml-auto flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-faint transition-colors hover:text-fg"
+              className="ml-auto flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-faint transition-colors hover:text-fg min-h-[40px] md:min-h-0"
             >
               <Pencil className="h-3 w-3" strokeWidth={1.75} />
               Edit
@@ -136,7 +136,7 @@ export function KnowledgeDocumentCard({
             <button
               type="button"
               onClick={remove}
-              className="flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-faint transition-colors hover:text-red-400"
+              className="flex items-center gap-1 rounded px-1.5 py-1 text-[11.5px] text-faint transition-colors hover:text-red-400 min-h-[40px] md:min-h-0"
             >
               <Trash2 className="h-3 w-3" strokeWidth={1.75} />
               {confirming ? "Confirm" : "Delete"}

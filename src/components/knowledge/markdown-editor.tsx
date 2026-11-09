@@ -74,7 +74,7 @@ export function MarkdownEditor({
       onClick={() => select(value, false)}
       onKeyDown={onTabKeyDown}
       className={cn(
-        "rounded px-2.5 py-1 text-[12px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+        "inline-flex items-center rounded px-2.5 py-1 text-[12px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] min-h-[40px] md:min-h-0",
         mode === value ? "bg-[var(--bg-hover)] text-fg" : "text-faint hover:text-muted",
       )}
     >
@@ -83,8 +83,8 @@ export function MarkdownEditor({
   );
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap items-end justify-between gap-2">
+    <div className="space-y-1.5 min-w-0">
+      <div className="flex flex-wrap items-end justify-between gap-2 min-w-0">
         <label htmlFor={textareaId} className="text-[12px] font-medium text-muted">
           {label}
         </label>
@@ -99,6 +99,7 @@ export function MarkdownEditor({
         id={`${id}-panel-write`}
         aria-labelledby={`${id}-tab-write`}
         hidden={mode !== "write"}
+        className="min-w-0"
       >
         <Textarea
           id={textareaId}
@@ -121,15 +122,15 @@ export function MarkdownEditor({
         aria-labelledby={`${id}-tab-preview`}
         hidden={mode !== "preview"}
         tabIndex={0}
-        className="min-h-40 rounded-md border border-line bg-[var(--bg-subtle)] px-3.5 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        className="min-h-40 rounded-md border border-line bg-[var(--bg-subtle)] px-3.5 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] min-w-0 overflow-x-auto"
       >
         {mode === "preview" ? (
           <MarkdownView source={value} empty={<p className="text-faint">Nothing to preview yet.</p>} />
         ) : null}
       </div>
 
-      <p id={countId} className={cn("flex flex-wrap justify-between gap-2 text-[11px]", over ? "text-red-400" : "text-faint")}>
-        <span>Markdown: headings, lists, tables, links, code and task lists. HTML is shown as text.</span>
+      <p id={countId} className={cn("flex flex-wrap justify-between gap-2 text-[11px] min-w-0", over ? "text-red-400" : "text-faint")}>
+        <span className="break-words">Markdown: headings, lists, tables, links, code and task lists. HTML is shown as text.</span>
         <span className="tabular-nums">
           {value.length.toLocaleString("en-US")} / {KNOWLEDGE_CONTENT_MAX.toLocaleString("en-US")}
           {over ? " — too long to save" : ""}

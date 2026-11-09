@@ -319,10 +319,10 @@ export function CalendarView({
   const anchorMonth = anchor ? parseDateOnly(anchor).month : 0;
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
       <section aria-label="Calendar" className="min-w-0 space-y-3">
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <div role="group" aria-label="View" className="flex gap-1">
             {(["month", "week"] as const).map((v) => (
               <button
@@ -332,7 +332,7 @@ export function CalendarView({
                 disabled={locked}
                 onClick={() => setView(v)}
                 className={cn(
-                  "h-7 rounded-md border px-2.5 text-[13px] font-medium capitalize transition-colors disabled:opacity-50",
+                  "inline-flex items-center justify-center h-7 rounded-md border px-2.5 text-[13px] font-medium capitalize transition-colors disabled:opacity-50 min-h-[40px] md:min-h-0",
                   view === v
                     ? "border-[var(--border-strong)] bg-[var(--bg-subtle)] text-fg underline underline-offset-4"
                     : "border-transparent text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",
@@ -343,34 +343,34 @@ export function CalendarView({
             ))}
           </div>
           <div className="flex items-center gap-1">
-            <Button type="button" size="icon" variant="ghost" aria-label={`Previous ${view}`} disabled={locked || !previousAnchor} onClick={() => navigate(-1)}>
+            <Button type="button" size="icon" variant="ghost" aria-label={`Previous ${view}`} disabled={locked || !previousAnchor} onClick={() => navigate(-1)} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={locked || !anchor} onClick={() => navigate("today")}>
+            <Button type="button" size="sm" variant="outline" disabled={locked || !anchor} onClick={() => navigate("today")} className="min-h-[40px] md:min-h-0">
               Today
             </Button>
-            <Button type="button" size="icon" variant="ghost" aria-label={`Next ${view}`} disabled={locked || !nextAnchor} onClick={() => navigate(1)}>
+            <Button type="button" size="icon" variant="ghost" aria-label={`Next ${view}`} disabled={locked || !nextAnchor} onClick={() => navigate(1)} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
-          <h2 className="text-sm font-semibold text-fg" aria-live="polite">
+          <h2 className="text-sm font-semibold text-fg break-words" aria-live="polite">
             {heading}
           </h2>
           {timeZone ? (
-            <p className="ml-auto text-[12px] text-faint" data-testid="calendar-time-zone">
+            <p className="ml-auto text-[12px] text-faint break-words" data-testid="calendar-time-zone">
               Today is based on your time zone: {timeZone}. Due dates are whole calendar days.
             </p>
           ) : null}
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-end gap-3 text-[12px]">
+        <div className="flex flex-wrap items-end gap-3 text-[12px] min-w-0">
           {accountsMode && workspaces.length > 0 ? (
-            <label className="flex flex-col gap-1 text-muted">
+            <label className="flex flex-col gap-1 text-muted min-w-0 w-full sm:w-auto">
               Workspace
               <select
                 aria-label="Workspace"
-                className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+                className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
                 value={workspaceId}
                 disabled={locked || Boolean(pending)}
                 onChange={(e) => changeWorkspace(e.target.value)}
@@ -383,11 +383,11 @@ export function CalendarView({
               </select>
             </label>
           ) : null}
-          <label className="flex flex-col gap-1 text-muted">
+          <label className="flex flex-col gap-1 text-muted min-w-0 w-full sm:w-auto">
             Project
             <select
               aria-label="Project"
-              className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+              className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
               value={filters.projectId}
               disabled={locked}
               onChange={(e) => setFilters((f) => ({ ...f, projectId: e.target.value }))}
@@ -416,11 +416,11 @@ export function CalendarView({
             />
           ) : null}
           {accountsMode ? (
-            <label className="flex flex-col gap-1 text-muted">
+            <label className="flex flex-col gap-1 text-muted min-w-0 w-full sm:w-auto">
               Assignee
               <select
                 aria-label="Assignee"
-                className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+                className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
                 value={filters.assignee}
                 disabled={locked}
                 onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))}
@@ -451,11 +451,11 @@ export function CalendarView({
               }}
             />
           ) : null}
-          <label className="flex flex-col gap-1 text-muted">
+          <label className="flex flex-col gap-1 text-muted min-w-0 w-full sm:w-auto">
             Status
             <select
               aria-label="Status"
-              className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+              className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
               value={filters.status}
               disabled={locked}
               onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
@@ -468,11 +468,11 @@ export function CalendarView({
               <option value="cancelled">Cancelled</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-muted">
+          <label className="flex flex-col gap-1 text-muted min-w-0 w-full sm:w-auto">
             Show
             <select
               aria-label="Show"
-              className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+              className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
               value={filters.kind}
               disabled={locked}
               onChange={(e) => setFilters((f) => ({ ...f, kind: e.target.value }))}
@@ -486,7 +486,7 @@ export function CalendarView({
 
         {/* Filter lists are bounded; say so rather than silently hiding options. */}
         {options?.projectsTruncated || (accountsMode && options?.membersTruncated) ? (
-          <div role="note" data-testid="calendar-filter-truncated" className="space-y-0.5 text-[12px] text-amber-400">
+          <div role="note" data-testid="calendar-filter-truncated" className="space-y-0.5 text-[12px] text-amber-400 break-words min-w-0">
             {options.projectsTruncated ? (
               <p>
                 The project list shows the first {options.projectLimit.toLocaleString("en-US")} projects (A–Z). Use Search
@@ -506,28 +506,28 @@ export function CalendarView({
         {pending ? (
           <div
             role="status"
-            className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-[var(--accent)] bg-[var(--bg-subtle)] px-3 py-2 text-[13px]"
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-[var(--accent)] bg-[var(--bg-subtle)] px-3 py-2 text-[13px] min-w-0"
           >
-            <span className="font-medium text-fg">
+            <span className="font-medium text-fg break-words">
               Pending: move “{pending.item.title}” from {shortLabel(pending.fromDate)} to {shortLabel(pending.toDate)}.
             </span>
-            <span className="ml-auto flex gap-2">
-              <Button type="button" size="sm" variant="primary" disabled={saving} onClick={() => persist(pending)}>
+            <span className="ml-auto flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="primary" disabled={saving} onClick={() => persist(pending)} className="min-h-[40px] md:min-h-0">
                 {saving ? "Saving…" : "Save"}
               </Button>
-              <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setPending(null)}>
+              <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setPending(null)} className="min-h-[40px] md:min-h-0">
                 Cancel
               </Button>
             </span>
           </div>
         ) : null}
         {saveError ? (
-          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-400">
-            <span>
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-400 min-w-0">
+            <span className="break-words">
               Couldn’t reschedule “{saveError.change.item.title}”: {saveError.message} It is still due{" "}
               {shortLabel(saveError.change.fromDate)}.
             </span>
-            <span className="ml-auto flex gap-2">
+            <span className="ml-auto flex flex-wrap gap-2">
               <Button
                 type="button"
                 size="sm"
@@ -536,133 +536,138 @@ export function CalendarView({
                   setPending(saveError.change);
                   void persist(saveError.change);
                 }}
+                className="min-h-[40px] md:min-h-0"
               >
                 Retry
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setSaveError(null)}>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setSaveError(null)} className="min-h-[40px] md:min-h-0">
                 Dismiss
               </Button>
             </span>
           </div>
         ) : null}
-        <p role="status" aria-live="polite" className="text-[12px] text-muted">
+        <p role="status" aria-live="polite" className="text-[12px] text-muted break-words">
           {notice}
         </p>
 
         {/* Grid */}
         {!visible || !current ? (
-          <p role="status" aria-busy="true" className="rounded-lg border border-line px-4 py-10 text-center text-[13px] text-muted">
+          <p role="status" aria-busy="true" className="rounded-lg border border-line px-4 py-10 text-center text-[13px] text-muted break-words">
             Loading calendar…
           </p>
         ) : current?.error ? (
-          <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-line px-4 py-10 text-center">
-            <p className="text-[13px] text-fg">Couldn’t load the calendar.</p>
-            <Button type="button" size="sm" onClick={() => setReloadToken((t) => t + 1)}>
+          <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-line px-4 py-10 text-center min-w-0">
+            <p className="text-[13px] text-fg break-words">Couldn’t load the calendar.</p>
+            <Button type="button" size="sm" onClick={() => setReloadToken((t) => t + 1)} className="min-h-[40px] md:min-h-0">
               <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
               Retry
             </Button>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 min-w-0">
             {current?.data?.truncated ? (
-              <p className="text-[12px] text-amber-400">Showing the first 1,000 items in this range. Narrow the filters to see the rest.</p>
+              <p className="text-[12px] text-amber-400 break-words">Showing the first 1,000 items in this range. Narrow the filters to see the rest.</p>
             ) : null}
             {current?.data && current.data.items.length === 0 && !pending ? (
-              <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[13px] text-muted">
+              <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[13px] text-muted break-words">
                 Nothing scheduled in this range.
               </p>
             ) : null}
-            <div className="grid grid-cols-7 gap-px text-[11px] font-medium uppercase tracking-wide text-faint" aria-hidden="true">
-              {WEEKDAYS.map((d) => (
-                <div key={d} className="px-2 py-1">
-                  {d}
+            <div className="overflow-x-auto min-w-0">
+              <div className="min-w-[640px] md:min-w-0">
+                <div className="grid grid-cols-7 gap-px text-[11px] font-medium uppercase tracking-wide text-faint" aria-hidden="true">
+                  {WEEKDAYS.map((d) => (
+                    <div key={d} className="px-2 py-1">
+                      {d}
+                    </div>
+                  ))}
                 </div>
-              ))}
+                <ol aria-label={`${heading} days`} className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-[var(--border)]">
+                  {visible.days.map((day) => {
+                    const items = byDay.get(day) ?? [];
+                    const outside = view === "month" && parseDateOnly(day).month !== anchorMonth;
+                    const isToday = day === today;
+                    return (
+                      <li
+                        key={day}
+                        data-day={day}
+                        aria-label={`${dayLabel(day)}${isToday ? ", today" : ""}, ${items.length} item${items.length === 1 ? "" : "s"}`}
+                        onDragOver={(e) => {
+                          if (canReschedule && !locked) e.preventDefault();
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          onDrop(day);
+                        }}
+                        className={cn(
+                          "flex flex-col gap-1 bg-[var(--bg)] p-1.5 min-w-0",
+                          view === "month" ? "min-h-28" : "min-h-72",
+                          outside && "bg-[var(--bg-subtle)]/60",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "self-start rounded px-1 text-[12px] tabular-nums",
+                            isToday ? "bg-[var(--accent)] font-semibold text-white" : outside ? "text-faint" : "text-muted",
+                          )}
+                        >
+                          {parseDateOnly(day).day}
+                          {isToday ? <span className="sr-only"> (today)</span> : null}
+                        </span>
+                        <ul className="flex flex-col gap-1 min-w-0">
+                          {items.map((item) => (
+                            <CalendarChip
+                              key={keyOf(item)}
+                              item={item}
+                              pending={Boolean(item.pending)}
+                              overdue={Boolean(today && item.date < today && !DONE.has(item.status) && !item.pending)}
+                              canReschedule={canReschedule}
+                              locked={locked || Boolean(pending && !item.pending)}
+                              onDragStart={() => {
+                                dragged.current = { item, date: item.pending ? (pending?.fromDate ?? null) : item.date };
+                              }}
+                              onReschedule={(el) =>
+                                setEditing({ item, date: item.pending ? (pending?.fromDate ?? null) : item.date, returnFocus: el })
+                              }
+                            />
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
             </div>
-            <ol aria-label={`${heading} days`} className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-[var(--border)]">
-              {visible.days.map((day) => {
-                const items = byDay.get(day) ?? [];
-                const outside = view === "month" && parseDateOnly(day).month !== anchorMonth;
-                const isToday = day === today;
-                return (
-                  <li
-                    key={day}
-                    data-day={day}
-                    aria-label={`${dayLabel(day)}${isToday ? ", today" : ""}, ${items.length} item${items.length === 1 ? "" : "s"}`}
-                    onDragOver={(e) => {
-                      if (canReschedule && !locked) e.preventDefault();
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      onDrop(day);
-                    }}
-                    className={cn(
-                      "flex flex-col gap-1 bg-[var(--bg)] p-1.5",
-                      view === "month" ? "min-h-28" : "min-h-72",
-                      outside && "bg-[var(--bg-subtle)]/60",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "self-start rounded px-1 text-[12px] tabular-nums",
-                        isToday ? "bg-[var(--accent)] font-semibold text-white" : outside ? "text-faint" : "text-muted",
-                      )}
-                    >
-                      {parseDateOnly(day).day}
-                      {isToday ? <span className="sr-only"> (today)</span> : null}
-                    </span>
-                    <ul className="flex flex-col gap-1">
-                      {items.map((item) => (
-                        <CalendarChip
-                          key={keyOf(item)}
-                          item={item}
-                          pending={Boolean(item.pending)}
-                          overdue={Boolean(today && item.date < today && !DONE.has(item.status) && !item.pending)}
-                          canReschedule={canReschedule}
-                          locked={locked || Boolean(pending && !item.pending)}
-                          onDragStart={() => {
-                            dragged.current = { item, date: item.pending ? (pending?.fromDate ?? null) : item.date };
-                          }}
-                          onReschedule={(el) =>
-                            setEditing({ item, date: item.pending ? (pending?.fromDate ?? null) : item.date, returnFocus: el })
-                          }
-                        />
-                      ))}
-                    </ul>
-                  </li>
-                );
-              })}
-            </ol>
           </div>
         )}
       </section>
 
       {/* Unscheduled panel */}
-      <aside aria-labelledby="unscheduled-heading" className="space-y-2">
-        <h2 id="unscheduled-heading" className="text-sm font-semibold text-fg">
+      <aside aria-labelledby="unscheduled-heading" className="space-y-2 min-w-0">
+        <h2 id="unscheduled-heading" className="text-sm font-semibold text-fg break-words">
           Unscheduled tasks
         </h2>
-        <p className="text-[12px] text-muted">
+        <p className="text-[12px] text-muted break-words">
           {canReschedule ? "Drag a task onto a day, or use Schedule." : "Tasks in this workspace without a due date."}
         </p>
         {!currentUnscheduled ? (
-          <p role="status" aria-busy="true" className="text-[13px] text-muted">
+          <p role="status" aria-busy="true" className="text-[13px] text-muted break-words">
             Loading unscheduled tasks…
           </p>
         ) : currentUnscheduled.error ? (
-          <div role="alert" className="space-y-2 text-[13px]">
-            <p className="text-fg">Couldn’t load unscheduled tasks.</p>
-            <Button type="button" size="sm" onClick={() => setReloadToken((t) => t + 1)}>
+          <div role="alert" className="space-y-2 text-[13px] min-w-0">
+            <p className="text-fg break-words">Couldn’t load unscheduled tasks.</p>
+            <Button type="button" size="sm" onClick={() => setReloadToken((t) => t + 1)} className="min-h-[40px] md:min-h-0">
               Retry
             </Button>
           </div>
         ) : currentUnscheduled.items.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[13px] text-muted">
+          <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[13px] text-muted break-words">
             Every task has a due date.
           </p>
         ) : (
           <>
-            <ul aria-label="Unscheduled tasks" className="space-y-1">
+            <ul aria-label="Unscheduled tasks" className="space-y-1 min-w-0">
               {currentUnscheduled.items
                 .filter((t) => !(pending && keyOf(pending.item) === keyOf(t)))
                 .map((task) => (
@@ -673,7 +678,7 @@ export function CalendarView({
                       e.dataTransfer.setData("text/plain", keyOf(task));
                       dragged.current = { item: task, date: null };
                     }}
-                    className="flex items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)]/40 px-2 py-1.5 text-[12px]"
+                    className="flex items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)]/40 px-2 py-1.5 text-[12px] min-w-0"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-fg">{task.title}</span>
@@ -687,6 +692,7 @@ export function CalendarView({
                         disabled={locked || Boolean(pending)}
                         aria-label={`Schedule ${task.title}`}
                         onClick={(e) => setEditing({ item: task, date: null, returnFocus: e.currentTarget })}
+                        className="min-h-[40px] md:min-h-0"
                       >
                         Schedule
                       </Button>
@@ -695,11 +701,11 @@ export function CalendarView({
                 ))}
             </ul>
             {currentUnscheduled.nextCursor ? (
-              <Button type="button" size="sm" variant="outline" disabled={loadingMore} onClick={loadMore}>
+              <Button type="button" size="sm" variant="outline" disabled={loadingMore} onClick={loadMore} className="min-h-[40px] md:min-h-0">
                 {loadingMore ? "Loading…" : "Load more"}
               </Button>
             ) : (
-              <p className="text-[12px] text-faint">End of unscheduled tasks</p>
+              <p className="text-[12px] text-faint break-words">End of unscheduled tasks</p>
             )}
           </>
         )}
@@ -758,7 +764,7 @@ function CalendarChip({
         onDragStart();
       }}
       className={cn(
-        "group rounded border px-1.5 py-1 text-[12px] leading-tight",
+        "group rounded border px-1.5 py-1 text-[12px] leading-tight min-w-0",
         pending
           ? "border-dashed border-[var(--accent)] bg-[var(--bg-subtle)]"
           : isMilestone
@@ -767,7 +773,7 @@ function CalendarChip({
         canReschedule && !locked && "cursor-grab",
       )}
     >
-      <div className="flex items-start gap-1">
+      <div className="flex items-start gap-1 min-w-0">
         {isMilestone ? (
           <Diamond className="mt-0.5 h-3 w-3 shrink-0 text-muted" aria-hidden="true" />
         ) : (
@@ -796,7 +802,7 @@ function CalendarChip({
           disabled={locked}
           onClick={(e) => onReschedule(e.currentTarget)}
           aria-label={`Reschedule ${item.title}`}
-          className="mt-0.5 text-[11px] text-muted underline-offset-2 hover:text-fg hover:underline focus-visible:underline disabled:opacity-50"
+          className="mt-0.5 text-[11px] text-muted underline-offset-2 hover:text-fg hover:underline focus-visible:underline disabled:opacity-50 min-h-[40px] md:min-h-0 flex items-center"
         >
           Reschedule
         </button>
