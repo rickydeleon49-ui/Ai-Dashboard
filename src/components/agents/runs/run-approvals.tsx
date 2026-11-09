@@ -58,6 +58,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
     decision: "approve" | "reject";
   } | null>(null);
   const [decisionError, setDecisionError] = React.useState<string | null>(null);
+  const [reauthRequired, setReauthRequired] = React.useState(false);
 
   const loadApprovals = React.useCallback(async () => {
     try {
@@ -177,6 +178,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
     if (decisionRunning) return;
     setDecisionRunning({ id: approvalId, decision });
     setDecisionError(null);
+    setReauthRequired(false);
 
     try {
       const res = await fetch(
@@ -190,6 +192,10 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
 
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (res.status === 401 && data.error === "reauth_required") {
+          setReauthRequired(true);
+          return;
+        }
         throw new Error(
           data.error || `Failed to ${decision} approval (${res.status})`,
         );
@@ -217,6 +223,20 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
             className="rounded-md border border-red-500/30 bg-red-500/10 p-2 text-[12px] font-medium text-red-400"
           >
             {fetchError}
+          </p>
+        ) : null}
+
+        {reauthRequired ? (
+          <p
+            role="alert"
+            className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[12px] font-medium text-amber-400"
+          >
+            <a
+              className="underline"
+              href={`/login?reauth=1&next=${encodeURIComponent(`/agents/runs/${runId}`)}`}
+            >
+              Sign in again to approve
+            </a>
           </p>
         ) : null}
 

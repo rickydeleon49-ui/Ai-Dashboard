@@ -1,5 +1,7 @@
+import { validateStartupConfig } from "../selfhost/startup";
+
 /**
- * Desktop-only availability gate for the Agent Workflow Control Center.
+ * Desktop and self-hosted availability gate for the Agent Workflow Control Center.
  *
  * §2.2: A server that launches CLI processes against filesystem paths amounts to
  * remote code execution if reachable by anyone else. Agent features must remain
@@ -42,7 +44,10 @@ export function isDesktopModeEnv(
 /**
  * Determines whether agent runs are enabled in the current environment.
  *
- * True ONLY when all of the following hold:
+ * Self-hosted: true only when AGENT_HOST_MODE is exactly "self-hosted" and
+ * validateStartupConfig(env) passes.
+ *
+ * Desktop: true ONLY when all of the following hold:
  * - env.DASHBOARD_LOCAL === "1"
  * - env.DESKTOP_INTERNAL_SECRET is a non-empty, non-whitespace string
  * - Not in accounts mode (AUTH_MODE !== "accounts")
@@ -54,6 +59,14 @@ export function isDesktopModeEnv(
 export function isAgentRunsEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): boolean {
+  // Self-hosted (AW.5): the runner talks to the server only through the database
+  // intent table (no HTTP link), so no shared secret is needed.
+  // Enabled only when the whole start-up validation passes; any other value of
+  // AGENT_HOST_MODE fails closed.
+  if (env.AGENT_HOST_MODE !== undefined) {
+    return env.AGENT_HOST_MODE === "self-hosted" && validateStartupConfig(env).valid;
+  }
+
   if (env.DASHBOARD_LOCAL !== "1") {
     return false;
   }
