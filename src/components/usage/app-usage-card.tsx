@@ -26,27 +26,27 @@ export function AppUsageCard({ app }: { app: AppUsageSummary | null | undefined 
   if (providers.length === 0 && advisorCalls === 0) return null;
 
   return (
-    <Card aria-label="This app usage">
-      <CardHeader>
-        <CardTitle>This app</CardTitle>
+    <Card aria-label="This app usage" className="min-w-0">
+      <CardHeader className="min-w-0">
+        <CardTitle className="break-words">This app</CardTitle>
       </CardHeader>
-      <CardBody className="space-y-4">
+      <CardBody className="min-w-0 space-y-4">
         {providers.map(([provider, p]) => {
           const topModels = Object.entries(p.byModel)
             .sort((a, b) => tokens(b[1]) - tokens(a[1]) || b[1].calls - a[1].calls)
             .slice(0, 3);
           return (
-            <div key={provider} className="space-y-1 text-[13px] text-muted">
-              <p className="flex justify-between gap-2">
-                <span className="font-medium text-fg">{PROVIDER_LABEL[provider] ?? provider}</span>
-                <span className={NUM}>
+            <div key={provider} className="min-w-0 space-y-1 text-[13px] text-muted">
+              <p className="flex flex-wrap justify-between gap-1 break-words">
+                <span className="font-medium text-fg break-words">{PROVIDER_LABEL[provider] ?? provider}</span>
+                <span className={cn(NUM, "whitespace-nowrap")}>
                   {p.today.calls.toLocaleString("en-US")} replies today ·{" "}
                   {p.last7Days.calls.toLocaleString("en-US")} in 7 days
                 </span>
               </p>
-              <p className="flex justify-between gap-2">
+              <p className="flex flex-wrap justify-between gap-1 break-words">
                 <span>Tokens (7 days)</span>
-                <span className={NUM}>
+                <span className={cn(NUM, "whitespace-nowrap")}>
                   <span className="text-fg">{formatCompact(tokens(p.last7Days))}</span>
                   {p.last7Days.tokensUnknown > 0 ? (
                     <span className="text-faint">
@@ -57,16 +57,18 @@ export function AppUsageCard({ app }: { app: AppUsageSummary | null | undefined 
                 </span>
               </p>
               {topModels.length > 0 ? (
-                <ul className="text-[12px]">
-                  {topModels.map(([model, b]) => (
-                    <li key={model} className="flex justify-between gap-2">
-                      <span className="truncate">{model}</span>
-                      <span className={NUM}>
-                        {b.calls.toLocaleString("en-US")} replies · {formatCompact(tokens(b))}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="overflow-x-auto min-w-0">
+                  <ul className="text-[12px] min-w-0 space-y-0.5">
+                    {topModels.map(([model, b]) => (
+                      <li key={model} className="flex justify-between gap-2 min-w-0">
+                        <span className="break-words min-w-0">{model}</span>
+                        <span className={cn(NUM, "whitespace-nowrap shrink-0")}>
+                          {b.calls.toLocaleString("en-US")} replies · {formatCompact(tokens(b))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </div>
           );
@@ -75,19 +77,19 @@ export function AppUsageCard({ app }: { app: AppUsageSummary | null | undefined 
         {advisorCalls > 0 ? (
           <div
             className={cn(
-              "space-y-1 text-[13px] text-muted",
+              "min-w-0 space-y-1 text-[13px] text-muted",
               providers.length > 0 && "border-t border-line pt-3",
             )}
           >
-            <p className="flex justify-between gap-2">
-              <span className="font-medium text-fg">LM Studio advisor</span>
-              <span className={NUM}>
+            <p className="flex flex-wrap justify-between gap-1 break-words">
+              <span className="font-medium text-fg break-words">LM Studio advisor</span>
+              <span className={cn(NUM, "whitespace-nowrap")}>
                 {app.advisor.today.calls.toLocaleString("en-US")} calls today ·{" "}
                 {advisorCalls.toLocaleString("en-US")} in 7 days
               </span>
             </p>
             {app.advisor.last7Days.failed > 0 ? (
-              <p className={cn("text-red-500", NUM)}>
+              <p className={cn("text-red-500 break-words", NUM)}>
                 {app.advisor.today.failed > 0
                   ? `${app.advisor.today.failed.toLocaleString("en-US")} failed today · `
                   : ""}

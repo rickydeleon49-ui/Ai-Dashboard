@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
+import { requireRecentSignIn } from "@/core/auth/operator-routes";
+import { isSelfHostedMode } from "@/lib/auth-mode";
 import {
   ApprovalError,
   approvalDecisionSchema,
@@ -16,6 +18,12 @@ type RouteContext = { params: Promise<{ id: string; approvalId: string }> };
 export async function POST(request: NextRequest, context: RouteContext) {
   if (!isAgentRunsEnabled()) {
     return new NextResponse(null, { status: 404 });
+  }
+
+  // Self-hosted: deciding an approval needs a sign-in within the last 5 minutes.
+  if (isSelfHostedMode()) {
+    const denied = await requireRecentSignIn(request);
+    if (denied) return denied;
   }
 
   ensureDatabaseReady();

@@ -80,7 +80,7 @@ export function ThemeToggle() {
           title={option.label}
           onClick={() => choose(option.value)}
           className={cn(
-            "flex h-6 w-6 items-center justify-center rounded transition-colors",
+            "flex h-6 w-6 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded transition-colors",
             mounted && theme === option.value
               ? "bg-[var(--bg-hover)] text-fg"
               : "text-faint hover:text-muted",

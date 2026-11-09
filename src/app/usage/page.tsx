@@ -11,7 +11,7 @@ export default function UsagePage() {
   if (!isAgentRunsEnabled()) notFound();
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         title="Usage"
         description="How much of each AI you are using, from the tracker files."

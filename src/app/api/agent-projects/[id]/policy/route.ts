@@ -4,6 +4,8 @@ import { db } from "@/db/client";
 import { ensureDatabaseReady } from "@/db/bootstrap";
 import { projects } from "@/db/schema";
 import { isAgentRunsEnabled } from "@/core/agents/availability";
+import { requireRecentSignIn } from "@/core/auth/operator-routes";
+import { isSelfHostedMode } from "@/lib/auth-mode";
 import { getPolicy, PolicyError, savePolicy } from "@/core/agents/policy";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +41,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function PUT(request: NextRequest, context: RouteContext) {
   if (!isAgentRunsEnabled()) {
     return new NextResponse(null, { status: 404 });
+  }
+  // Self-hosted: policy changes need a sign-in within the last 5 minutes.
+  if (isSelfHostedMode()) {
+    const denied = await requireRecentSignIn(request);
+    if (denied) return denied;
   }
   ensureDatabaseReady();
 

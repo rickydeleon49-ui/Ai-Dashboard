@@ -9,6 +9,7 @@ import { projectRepository } from "@/db/repositories";
 import { buildProjectQuery } from "@/core/projects/query";
 import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import type { SearchParams } from "@/lib/routing";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "All Projects" };
@@ -24,7 +25,7 @@ export default async function ProjectsPage({
     // accounts mode, and sign-in always creates a personal workspace.
     // Shown defensively rather than crashing.
     return (
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5">
         <PageHeader title="Project Library" />
         <EmptyState icon={FolderGit2} title="Sign-in required" description="Sign in to see your projects." />
       </div>
@@ -44,12 +45,12 @@ export default async function ProjectsPage({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="Project Library"
         description="Every project you work on — GitHub, uploaded and manual — in one searchable place."
         actions={
-          <Link href="/projects/new" className={buttonClasses("primary", "md")}>
+          <Link href="/projects/new" className={cn(buttonClasses("primary", "md"), "min-h-[40px] md:min-h-0")}>
             New project
           </Link>
         }
@@ -57,8 +58,8 @@ export default async function ProjectsPage({
 
       <ProjectFilters tags={tags} />
 
-      <div className="flex items-center justify-between text-[12px] text-faint">
-        <span>
+      <div className="flex items-center justify-between text-[12px] text-faint min-w-0">
+        <span className="break-words">
           {projects.length} {projects.length === 1 ? "project" : "projects"}
           {filtered ? " matching filters" : ""}
         </span>
@@ -75,11 +76,11 @@ export default async function ProjectsPage({
           }
           action={
             filtered ? (
-              <Link href="/projects" className={buttonClasses("secondary", "lg")}>
+              <Link href="/projects" className={cn(buttonClasses("secondary", "lg"), "min-h-[40px] md:min-h-0")}>
                 Clear filters
               </Link>
             ) : (
-              <Link href="/projects/new" className={buttonClasses("primary", "lg")}>
+              <Link href="/projects/new" className={cn(buttonClasses("primary", "lg"), "min-h-[40px] md:min-h-0")}>
                 New project
               </Link>
             )

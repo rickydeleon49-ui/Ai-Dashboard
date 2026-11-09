@@ -204,14 +204,14 @@ export function RunComments({
   }, [files, selectedFile]);
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-w-0">
+      <CardHeader className="flex-wrap items-center justify-between gap-2">
         <CardTitle>Comments</CardTitle>
         <Badge aria-live="polite">
           {comments.length} comment{comments.length === 1 ? "" : "s"}
         </Badge>
       </CardHeader>
-      <CardBody className="space-y-4">
+      <CardBody className="min-w-0 space-y-4">
         {error ? (
           <p className="rounded-md border border-red-500/30 bg-red-500/10 p-2 text-[12px] text-red-400">
             {error}
@@ -231,16 +231,17 @@ export function RunComments({
               {grouped.general.map((c) => (
                 <li
                   key={c.id}
-                  className="rounded-md border border-line bg-[var(--bg-subtle)] p-3"
+                  className="min-w-0 rounded-md border border-line bg-[var(--bg-subtle)] p-3"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="whitespace-pre-wrap text-[13px] text-fg">{c.body}</p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <p className="whitespace-pre-wrap break-words text-[13px] text-fg">{c.body}</p>
                       <span className="text-[11px] text-faint">{c.createdAt}</span>
                     </div>
                     <Button
                       size="sm"
                       variant="danger"
+                      className="self-start sm:self-auto min-h-[40px] md:min-h-0"
                       disabled={deletingId === c.id}
                       onClick={() => handleDeleteComment(c.id)}
                       aria-label="Delete comment"
@@ -255,7 +256,7 @@ export function RunComments({
         ) : null}
 
         {Array.from(grouped.byFile.entries()).map(([filePath, lineMap]) => (
-          <div key={filePath} className="space-y-2">
+          <div key={filePath} className="min-w-0 space-y-2">
             <h3 className="break-all text-[12px] font-semibold text-muted">
               {filePath}
             </h3>
@@ -264,22 +265,23 @@ export function RunComments({
                 fileComments.map((c) => (
                   <li
                     key={c.id}
-                    className="rounded-md border border-line bg-[var(--bg-subtle)] p-3"
+                    className="min-w-0 rounded-md border border-line bg-[var(--bg-subtle)] p-3"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[12px] font-medium text-fg">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="break-all font-mono text-[12px] font-medium text-fg">
                             {filePath}
                             {c.line !== null ? `:${c.line}` : ""}
                           </span>
                           <span className="text-[11px] text-faint">{c.createdAt}</span>
                         </div>
-                        <p className="whitespace-pre-wrap text-[13px] text-fg">{c.body}</p>
+                        <p className="whitespace-pre-wrap break-words text-[13px] text-fg">{c.body}</p>
                       </div>
                       <Button
                         size="sm"
                         variant="danger"
+                        className="self-start sm:self-auto min-h-[40px] md:min-h-0"
                         disabled={deletingId === c.id}
                         onClick={() => handleDeleteComment(c.id)}
                         aria-label={`Delete comment on ${filePath}${c.line !== null ? `:${c.line}` : ""}`}
@@ -297,7 +299,7 @@ export function RunComments({
         {readOnlyNote ? (
           <p className="border-t border-line pt-3 text-[12px] text-muted">{readOnlyNote}</p>
         ) : (
-        <form onSubmit={handleAddComment} className="space-y-3 border-t border-line pt-3">
+        <form onSubmit={handleAddComment} className="min-w-0 space-y-3 border-t border-line pt-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="sm:col-span-2">
               <label htmlFor="comment-file-select" className="mb-1 block text-[12px] font-medium text-muted">
@@ -349,13 +351,14 @@ export function RunComments({
             />
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-[11px] text-faint">
               {body.length}/4000 characters
             </span>
             <Button
               type="submit"
               variant="primary"
+              className="w-full sm:w-auto min-h-[40px] md:min-h-0"
               disabled={submitting || body.trim().length === 0}
             >
               {submitting ? "Adding..." : "Add"}

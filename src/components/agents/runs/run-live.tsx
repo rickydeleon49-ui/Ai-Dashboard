@@ -50,7 +50,7 @@ import {
 
 const TerminalView = dynamic(() => import("./terminal-view"), {
   ssr: false,
-  loading: () => <div className="h-80 rounded-md border border-line bg-[var(--bg-subtle)]" />,
+  loading: () => <div className="h-80 w-full max-w-full rounded-md border border-line bg-[var(--bg-subtle)]" />,
 });
 
 const RECONNECT_MS = 2000;
@@ -99,7 +99,7 @@ function PatchBlock({
 
   return (
     <details
-      className="rounded-md border border-line bg-[var(--bg-subtle)]"
+      className="min-w-0 rounded-md border border-line bg-[var(--bg-subtle)]"
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
       <summary className="cursor-pointer break-all px-2 py-1 text-[12px] text-fg">
@@ -110,7 +110,7 @@ function PatchBlock({
         note ? (
           <p className="px-2 pb-2 text-[12px] text-muted">{note}</p>
         ) : (
-          <pre className="max-h-96 overflow-auto whitespace-pre px-2 pb-2 font-mono text-[12px]">
+          <pre className="max-h-96 overflow-x-auto whitespace-pre px-2 pb-2 font-mono text-[12px]">
             {lines.map((l, i) => {
               const lineNum = lineNumbers[i] ?? null;
               const count = lineNum !== null ? commentsByLine?.get(lineNum)?.length ?? 0 : 0;
@@ -306,29 +306,40 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
+    <div className="min-w-0 space-y-4">
+      <Card className="min-w-0">
+        <CardHeader className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Status</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge aria-live="polite">{status}</Badge>
             <span className="text-[11px] text-faint">stream: {connection}</span>
             {!terminal ? (
-              <Button variant="danger" size="sm" onClick={stop} disabled={stopState === "sending" || stopState === "sent"}>
+              <Button
+                variant="danger"
+                size="sm"
+                className="min-h-[40px] md:min-h-0"
+                onClick={stop}
+                disabled={stopState === "sending" || stopState === "sent"}
+              >
                 {stopState === "sent" ? "Stopping..." : "Stop"}
               </Button>
             ) : null}
             {resumable ? (
-              <Button size="sm" onClick={resume} disabled={resumeState === "sending" || resumeState === "sent"}>
+              <Button
+                size="sm"
+                className="min-h-[40px] md:min-h-0"
+                onClick={resume}
+                disabled={resumeState === "sending" || resumeState === "sent"}
+              >
                 {resumeState === "sent" ? "Resuming..." : "Resume"}
               </Button>
             ) : null}
           </div>
         </CardHeader>
-        <CardBody>
-          {stopError ? <p className="mb-2 text-[12px] text-red-400">{stopError}</p> : null}
+        <CardBody className="min-w-0">
+          {stopError ? <p className="mb-2 text-[12px] text-red-400 break-words">{stopError}</p> : null}
           {resumeError ? (
-            <p role="alert" className="mb-2 text-[12px] text-red-400">
+            <p role="alert" className="mb-2 text-[12px] text-red-400 break-words">
               {resumeError}
             </p>
           ) : null}
@@ -353,40 +364,40 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
       </Card>
 
       {outcome ? (
-        <Card>
-          <CardHeader>
+        <Card className="min-w-0">
+          <CardHeader className="flex-wrap items-center justify-between gap-2">
             <CardTitle>Final verdict</CardTitle>
             <Badge className={outcome.status === "succeeded" ? "text-green-400" : "text-red-400"}>
               {outcome.status}
             </Badge>
           </CardHeader>
-          <CardBody className="space-y-2">
+          <CardBody className="min-w-0 space-y-2">
             <ul className="space-y-1 text-[13px]">
               {verdictFacts(outcome, requiredChecks).map((f) => (
-                <li key={f.label}>
+                <li key={f.label} className="break-words">
                   <span className={f.ok ? "text-green-400" : "text-red-400"}>{f.ok ? "Pass" : "Fail"}</span>{" "}
                   <span className="text-fg">{f.label}</span> <span className="text-muted">({f.detail})</span>
                 </li>
               ))}
             </ul>
             {outcome.missing.length > 0 ? (
-              <p className="text-[12px] text-muted">Missing: {outcome.missing.join("; ")}</p>
+              <p className="text-[12px] text-muted break-words">Missing: {outcome.missing.join("; ")}</p>
             ) : null}
-            {outcome.error ? <p className="text-[12px] text-red-400">Error: {outcome.error}</p> : null}
+            {outcome.error ? <p className="text-[12px] text-red-400 break-words">Error: {outcome.error}</p> : null}
           </CardBody>
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader>
+      <Card className="min-w-0">
+        <CardHeader className="flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Live output</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="agent-filter">
               Filter by agent
             </label>
             <Select
               id="agent-filter"
-              className="w-36"
+              className="w-36 min-h-[40px] md:min-h-0"
               value={filter}
               onChange={(e) => setFilter(e.target.value as AgentFilter)}
             >
@@ -397,19 +408,19 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
                 </option>
               ))}
             </Select>
-            <Button size="sm" onClick={copyLog}>
+            <Button size="sm" className="min-h-[40px] md:min-h-0" onClick={copyLog}>
               {copied ? "Copied" : "Copy log"}
             </Button>
           </div>
         </CardHeader>
-        <CardBody className="space-y-3">
+        <CardBody className="min-w-0 space-y-3">
           <TerminalView events={visible} resetKey={filter} />
-          <details>
-            <summary className="cursor-pointer text-[12px] text-muted">Plain-text log (screen reader friendly)</summary>
+          <details className="min-w-0">
+            <summary className="cursor-pointer text-[12px] text-muted py-1">Plain-text log (screen reader friendly)</summary>
             <pre
               role="log"
               aria-label="Run log"
-              className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-[var(--bg-subtle)] p-2 text-[12px] text-fg"
+              className="mt-2 max-h-80 overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-line bg-[var(--bg-subtle)] p-2 text-[12px] text-fg"
             >
               {plain || "No output yet."}
             </pre>
@@ -418,12 +429,12 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
       </Card>
 
       {plan ? (
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Plan</CardTitle>
           </CardHeader>
-          <CardBody className="space-y-2 text-[13px]">
-            <p className="whitespace-pre-wrap text-fg">{plan.task}</p>
+          <CardBody className="min-w-0 space-y-2 text-[13px]">
+            <p className="whitespace-pre-wrap break-words text-fg">{plan.task}</p>
             {plan.scopePaths.length > 0 ? (
               <div>
                 <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">Scope</h3>
@@ -441,13 +452,13 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
                 <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">Acceptance</h3>
                 <ul className="list-disc pl-5">
                   {plan.acceptance.map((a, i) => (
-                    <li key={i}>{a}</li>
+                    <li key={i} className="break-words">{a}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
             {plan.checks.length > 0 ? (
-              <p className="text-[12px] text-muted">Advisory checks: {plan.checks.join(", ")}</p>
+              <p className="text-[12px] text-muted break-words">Advisory checks: {plan.checks.join(", ")}</p>
             ) : null}
           </CardBody>
         </Card>
@@ -461,6 +472,7 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
               size="sm"
               variant={r === round ? "primary" : undefined}
               aria-pressed={r === round}
+              className="min-h-[40px] md:min-h-0"
               onClick={() => setPickedRound(r)}
             >
               {roundLabel(r)}
@@ -469,18 +481,18 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
         </div>
       ) : null}
 
-      <Card>
-        <CardHeader>
+      <Card className="min-w-0">
+        <CardHeader className="flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Changed files</CardTitle>
           {diff ? (
-            <span className="text-[11px] text-faint">
+            <span className="text-[11px] text-faint break-all">
               {diff.totals.files} file(s), +{diff.totals.additions} -{diff.totals.deletions}
             </span>
           ) : null}
         </CardHeader>
-        <CardBody>
+        <CardBody className="min-w-0">
           {diff ? (
-            <pre className="max-h-96 overflow-auto whitespace-pre rounded-md border border-line bg-[var(--bg-subtle)] p-2 text-[12px] text-fg">
+            <pre className="max-h-96 overflow-x-auto whitespace-pre rounded-md border border-line bg-[var(--bg-subtle)] p-2 text-[12px] text-fg">
               {diffToText(diff)}
             </pre>
           ) : (
@@ -520,29 +532,29 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
 
       <RunApprovals runId={runId} finished={status === "succeeded" || status === "failed" || status === "stopped"} />
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Checks</CardTitle>
         </CardHeader>
-        <CardBody>
+        <CardBody className="min-w-0">
           {checks.length === 0 ? (
             <p className="text-[13px] text-muted">No check results yet.</p>
           ) : (
             <ul className="space-y-2">
               {checks.map((c, i) => (
-                <li key={`${c.name}-${i}`}>
-                  <details>
-                    <summary className="cursor-pointer text-[13px]">
+                <li key={`${c.name}-${i}`} className="min-w-0">
+                  <details className="min-w-0">
+                    <summary className="cursor-pointer text-[13px] break-words py-1">
                       <span className={!c.timedOut && c.exitCode === 0 ? "text-green-400" : "text-red-400"}>
                         {!c.timedOut && c.exitCode === 0 ? "Pass" : "Fail"}
                       </span>{" "}
-                      {c.name}{" "}
+                      <span className="break-all">{c.name}</span>{" "}
                       <span className="text-muted">
                         ({c.timedOut ? "timed out" : `exit ${c.exitCode ?? "none"}`}
                         {c.durationMs !== null ? `, ${Math.round(c.durationMs / 100) / 10}s` : ""})
                       </span>
                     </summary>
-                    <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-[var(--bg-subtle)] p-2 text-[12px]">
+                    <pre className="mt-1 max-h-60 overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-line bg-[var(--bg-subtle)] p-2 text-[12px]">
                       {c.output || "(no output)"}
                     </pre>
                   </details>
@@ -554,12 +566,12 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
       </Card>
 
       {review ? (
-        <Card>
-          <CardHeader>
+        <Card className="min-w-0">
+          <CardHeader className="flex-wrap items-center justify-between gap-2">
             <CardTitle>Review</CardTitle>
             <Badge>{review.verdict.replace("_", " ")}</Badge>
           </CardHeader>
-          <CardBody>
+          <CardBody className="min-w-0">
             {review.findings.length === 0 ? (
               <p className="text-[13px] text-muted">No findings.</p>
             ) : (
@@ -575,17 +587,17 @@ export function RunLive({ runId, initialStatus, initialOutcome, requiredChecks, 
                       </h3>
                       <ul className="space-y-1">
                         {list.map((f, i) => (
-                          <li key={i}>
+                          <li key={i} className="break-words">
                             <span className="font-medium">{f.severity}</span>
                             {f.path ? (
-                              <span className="text-muted">
+                              <span className="break-all text-muted">
                                 {" "}
                                 {f.path}
                                 {f.line ? `:${f.line}` : ""}
                               </span>
                             ) : null}{" "}
-                            {f.message}
-                            {f.actionable ? <span className="ml-2 text-[11px] text-[var(--accent)]">actionable</span> : null}
+                            <span>{f.message}</span>
+                            {f.actionable ? <span className="ml-2 inline-block text-[11px] text-[var(--accent)]">actionable</span> : null}
                           </li>
                         ))}
                       </ul>

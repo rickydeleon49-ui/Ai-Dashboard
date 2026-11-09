@@ -1,2 +1,3 @@
 # agy stream fixtures must stay byte-exact (LF) like real CLI output, also on Windows checkouts
 tests/fixtures/agy/*.jsonl -text
+*.sh text eol=lf

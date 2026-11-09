@@ -31,6 +31,9 @@ One codebase ships to three targets:
 | **Desktop** (primary) | Electron window wrapping the bundled Next.js server on `127.0.0.1:<random>` | OS user-data directory | none — not network reachable |
 | **Web, single-password** (optional) | The same app served by `next start`, e.g. on Railway | `./data`, or a mounted volume | HTTP Basic via `DASHBOARD_PASSWORD` |
 | **Web, hosted accounts** (optional, `AUTH_MODE=accounts`) | The same app, real per-user sign-in and workspaces | Postgres (`DATABASE_URL`) | Auth.js session (GitHub OAuth or email magic link) |
+| **Self-hosted** (optional, `AGENT_HOST_MODE=self-hosted`) | Headless server on your own hardware, Tailscale HTTPS | `./data` (SQLite) | Operator password file + signed cookie |
+
+Self-hosted mode (`AGENT_HOST_MODE=self-hosted`) runs headless on dedicated hardware using an operator password file and signed cookie. Every route is guarded, approvals need a sign-in within 5 minutes, and the runner talks to the server only through the database (see [docs/SELF_HOSTED.md](SELF_HOSTED.md)).
 
 The application is primarily TypeScript/JavaScript across `src/` and `desktop/`, with
 ten runtime dependencies.
@@ -187,6 +190,12 @@ see ARCHITECTURE.md §7b).
   get ported for real in a later phase. Knowledge base needed no new
   `proxy.ts` entry at all — every route is nested under `/projects`/
   `/api/projects`, which the allowlist already covers.
+
+---
+
+## 2c. Self-hosted mode (opt-in, `AGENT_HOST_MODE=self-hosted`)
+
+Self-hosted mode (`AGENT_HOST_MODE=self-hosted`) runs headless on dedicated hardware with an operator password file and signed cookie. Every route is guarded, approvals need a sign-in within 5 minutes, and the runner talks to the server only through the database (see [docs/SELF_HOSTED.md](SELF_HOSTED.md)).
 
 ---
 
@@ -403,6 +412,8 @@ own routes; only an explicit allowlist of pages/routes is reachable at all
 (§2b, §11); and every mutating Projects route re-derives the caller's role
 from `workspace_member` fresh (`requireRole()`) rather than trusting session
 or cookie state. Full reasoning in ARCHITECTURE.md §7b.
+
+**Self-hosted mode (`AGENT_HOST_MODE=self-hosted`).** Authentication is backed by an operator password file and signed cookie, with every route guarded (see [docs/SELF_HOSTED.md](SELF_HOSTED.md)). Approvals need a sign-in within 5 minutes, and the runner talks to the server only through the database.
 
 **Renderer isolation.** `contextIsolation: true`, `sandbox: true`,
 `nodeIntegration: false`. The preload bridge exposes a minimal surface, outbound

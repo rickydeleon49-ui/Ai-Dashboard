@@ -1,7 +1,15 @@
-import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
+import {
+  NextResponse,
+  type NextRequest,
+  type NextFetchEvent,
+} from "next/server";
 import type { NextAuthRequest } from "next-auth";
 import { safeEqual } from "@/lib/safe-equal";
-import { isAccountsMode } from "@/lib/auth-mode";
+import { isAccountsMode, isSelfHostedMode } from "@/lib/auth-mode";
+import { validateStartupConfig } from "@/core/selfhost/startup";
+import { readOperatorFile } from "@/core/selfhost/operator-store";
+import { OPERATOR_COOKIE, verifyOperatorSession } from "@/core/auth/operator";
+import { requireRecentSignIn } from "@/core/auth/operator-routes";
 
 /**
  * Access control for the whole application.
@@ -68,7 +76,10 @@ function setupRequired(): NextResponse {
 
   return new NextResponse(html, {
     status: 503,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
   });
 }
 
@@ -138,7 +149,10 @@ function accountsNotConfigured(): NextResponse {
 
   return new NextResponse(html, {
     status: 503,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
   });
 }
 
@@ -155,7 +169,10 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
     );
   }
   const signInUrl = new URL("/api/auth/signin", request.url);
-  signInUrl.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
+  signInUrl.searchParams.set(
+    "callbackUrl",
+    request.nextUrl.pathname + request.nextUrl.search,
+  );
   return NextResponse.redirect(signInUrl);
 }
 
@@ -230,7 +247,9 @@ function isAllowedInAccountsMode(pathname: string): boolean {
   const allowed = pathname.startsWith("/api/")
     ? ACCOUNTS_MODE_ALLOWED_API_PATHS
     : ACCOUNTS_MODE_ALLOWED_PAGES;
-  return allowed.some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  return allowed.some(
+    (base) => pathname === base || pathname.startsWith(`${base}/`),
+  );
 }
 
 /** Shown for a page or API route this deployment doesn't expose in accounts mode. */
@@ -282,20 +301,25 @@ async function handleAccountsMode(request: NextRequest, event: NextFetchEvent) {
   // wrapper takes a different internal branch than the plain-config case
   // its docs example shows — one that resolves to the actual handler
   // asynchronously instead of returning it outright.
-  const gate = await auth(async (req: NextAuthRequest, _event: NextFetchEvent) => {
-    if (isAuthRoute(req.nextUrl.pathname)) {
-      return MUTATING.has(req.method) && isCrossSite(req) ? forbidden() : NextResponse.next();
-    }
-    if (!req.auth) return unauthenticatedResponse(req);
+  const gate = await auth(
+    async (req: NextAuthRequest, _event: NextFetchEvent) => {
+      if (isAuthRoute(req.nextUrl.pathname)) {
+        return MUTATING.has(req.method) && isCrossSite(req)
+          ? forbidden()
+          : NextResponse.next();
+      }
+      if (!req.auth) return unauthenticatedResponse(req);
 
-    // Checked after authentication so an unauthenticated caller learns
-    // nothing about which requests would otherwise have been accepted —
-    // same reasoning as the CSRF check just below.
-    if (!isAllowedInAccountsMode(req.nextUrl.pathname)) return notFoundInAccountsMode(req);
+      // Checked after authentication so an unauthenticated caller learns
+      // nothing about which requests would otherwise have been accepted —
+      // same reasoning as the CSRF check just below.
+      if (!isAllowedInAccountsMode(req.nextUrl.pathname))
+        return notFoundInAccountsMode(req);
 
-    if (MUTATING.has(req.method) && isCrossSite(req)) return forbidden();
-    return NextResponse.next();
-  });
+      if (MUTATING.has(req.method) && isCrossSite(req)) return forbidden();
+      return NextResponse.next();
+    },
+  );
   return gate(request, event);
 }
 
@@ -345,23 +369,148 @@ function desktopUnauthorized(request: NextRequest): NextResponse {
   });
 }
 
-export function validateStartupConfig(): { valid: boolean; error?: string } {
-  if (process.env.DASHBOARD_LOCAL === "1" || process.env.DESKTOP_INTERNAL_SECRET) {
-    if (process.env.AUTH_MODE === "accounts" || Boolean(process.env.DATABASE_URL)) {
-      return {
-        valid: false,
-        error: "Desktop local mode cannot be used with AUTH_MODE=accounts or DATABASE_URL.",
-      };
-    }
-    if (Boolean(process.env.DASHBOARD_PASSWORD?.trim())) {
-      return {
-        valid: false,
-        error: "Desktop local mode cannot be used with DASHBOARD_PASSWORD.",
-      };
+/** Shown in self-hosted mode until the operator password has been set on the machine. */
+function operatorNotConfigured(): NextResponse {
+  const html = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign-in not set up</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    color-scheme: dark light;
+    --bg: #08090b;
+    --card: #0d0f12;
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #ededef;
+    --muted: #8b8d98;
+    --ring: rgba(110, 86, 207, 0.55);
+    --code-bg: #16191f;
+    --code-border: rgba(255, 255, 255, 0.14);
+    --code-text: #b9a7ff;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f4f6;
+      --card: #ffffff;
+      --border: rgba(0, 0, 0, 0.12);
+      --text: #1a1a1e;
+      --muted: #60626c;
+      --ring: rgba(110, 86, 207, 0.4);
+      --code-bg: #ededf0;
+      --code-border: rgba(0, 0, 0, 0.12);
+      --code-text: #5b45b0;
+      --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     }
   }
-  return { valid: true };
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 16px;
+  }
+  main {
+    width: 100%;
+    max-width: 32rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+  }
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 .75rem;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  p {
+    color: var(--muted);
+    margin: 0 0 .75rem;
+  }
+  p:last-child {
+    margin-bottom: 0;
+  }
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 4px;
+    padding: .15em .4em;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: .9em;
+    color: var(--code-text);
+  }
+</style>
+<main>
+  <h1>Operator sign-in is not set up</h1>
+  <p>Run <code>npm run operator:password</code> on the machine that runs Command Center to
+     choose the operator password, then reload this page.</p>
+</main>
+</html>`;
+  return new NextResponse(html, {
+    status: 503,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }
+
+function signInRequired(request: NextRequest): NextResponse {
+  const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "sign_in_required" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const loginUrl = new URL("/login", request.url);
+  loginUrl.searchParams.set("next", pathname + search);
+  const response = NextResponse.redirect(loginUrl);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+/**
+ * Self-hosted mode: every matched route (pages, API, the agent event stream)
+ * needs a valid operator session. Only the login page and the login call are open.
+ */
+async function handleSelfHostedMode(
+  request: NextRequest,
+): Promise<NextResponse> {
+  const record = readOperatorFile();
+  if (!record) return operatorNotConfigured();
+
+  const { pathname } = request.nextUrl;
+  const method = request.method;
+  if (MUTATING.has(method) && isCrossSite(request)) return forbidden();
+
+  const open =
+    ((method === "GET" || method === "HEAD") && pathname === "/login") ||
+    (method === "POST" && pathname === "/api/operator/login");
+  if (open) return NextResponse.next();
+
+  const session = await verifyOperatorSession(
+    request.cookies.get(OPERATOR_COOKIE)?.value,
+    Date.now(),
+    record.sessionKey,
+  );
+  if (!session) return signInRequired(request);
+  return NextResponse.next();
+}
+
+export { validateStartupConfig, requireRecentSignIn };
 
 export async function proxy(request: NextRequest, event: NextFetchEvent) {
   // 1. Hosted accounts mode takes strict precedence over any local variables or secrets.
@@ -385,9 +534,13 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     const supplied = decoded.slice(decoded.indexOf(":") + 1);
     if (!safeEqual(supplied, password)) return unauthorized();
 
-    if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
+    if (MUTATING.has(request.method) && isCrossSite(request))
+      return forbidden();
     return NextResponse.next();
   }
+
+  // 2b. Self-hosted mode: a single operator signs in with a password set on the machine.
+  if (isSelfHostedMode()) return handleSelfHostedMode(request);
 
   // 3. Desktop shell mode authenticated via per-launch cryptographic secret.
   // Requires DESKTOP_INTERNAL_SECRET and constant-time match on x-dashboard-desktop-secret.
@@ -414,7 +567,8 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
       return desktopUnauthorized(request);
     }
 
-    if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
+    if (MUTATING.has(request.method) && isCrossSite(request))
+      return forbidden();
     return NextResponse.next();
   }
 

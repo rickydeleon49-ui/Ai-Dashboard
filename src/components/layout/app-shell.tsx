@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, Menu, Plus, X } from "lucide-react";
 import { SidebarBrand, SidebarNav } from "./sidebar";
@@ -9,6 +9,7 @@ import { CommandPalette, type PaletteProject } from "./command-palette";
 import { InboxButton } from "@/components/notifications/inbox-button";
 import { buttonClasses } from "@/components/ui/button";
 import type { ProjectStats } from "@/core/projects/types";
+import { cn } from "@/lib/utils";
 
 /**
  * Application chrome: fixed sidebar on desktop, slide-over drawer on mobile,
@@ -33,6 +34,26 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+
+  // Close the mobile drawer on Escape.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDrawerOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerOpen]);
+
+  // Focus the drawer when opened.
+  useEffect(() => {
+    if (drawerOpen) {
+      drawerRef.current?.focus();
+    }
+  }, [drawerOpen]);
 
   return (
     <div className="min-h-dvh">
@@ -58,16 +79,22 @@ export function AppShell({
         >
           <div className="absolute inset-0 bg-black/60 animate-fade-in" />
           <aside
-            className="absolute inset-y-0 left-0 flex w-[var(--sidebar-width)] flex-col border-r border-line bg-[var(--bg-elevated)] animate-fade-in"
+            id="mobile-navigation-drawer"
+            ref={drawerRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation drawer"
+            className="absolute inset-y-0 left-0 flex w-[var(--sidebar-width)] flex-col border-r border-line bg-[var(--bg-elevated)] animate-fade-in focus:outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-line pr-2">
-              <SidebarBrand />
+              <SidebarBrand onNavigate={() => setDrawerOpen(false)} />
               <button
                 type="button"
                 aria-label="Close navigation"
                 onClick={() => setDrawerOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-[var(--bg-subtle)]"
+                className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-8 md:w-8 items-center justify-center rounded-md text-muted hover:bg-[var(--bg-subtle)]"
               >
                 <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
@@ -85,13 +112,15 @@ export function AppShell({
         </div>
       ) : null}
 
-      <div className="lg:pl-[var(--sidebar-width)]">
+      <div className="min-w-0 lg:pl-[var(--sidebar-width)]">
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-[color-mix(in_srgb,var(--bg)_82%,transparent)] px-4 backdrop-blur-md sm:px-6">
           <button
             type="button"
             aria-label="Open navigation"
-            onClick={() => setDrawerOpen(true)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-[var(--bg-subtle)] lg:hidden"
+            aria-expanded={drawerOpen}
+            aria-controls="mobile-navigation-drawer"
+            onClick={() => setDrawerOpen((prev) => !prev)}
+            className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-8 md:w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-[var(--bg-subtle)] lg:hidden"
           >
             <Menu className="h-4 w-4" strokeWidth={1.75} />
           </button>
@@ -117,7 +146,7 @@ export function AppShell({
                   : "Notifications"
               }
               title="Notifications"
-              className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
+              className="relative flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-8 md:w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
             >
               <Bell className="h-4 w-4" strokeWidth={1.75} />
               {unreadNotifications > 0 ? (
@@ -126,13 +155,16 @@ export function AppShell({
             </Link>
           )}
 
-          <Link href="/projects/new" className={buttonClasses("primary", "md")}>
+          <Link
+            href="/projects/new"
+            className={cn(buttonClasses("primary", "md"), "min-h-[40px] md:min-h-0")}
+          >
             <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />
             <span className="hidden sm:inline">New Project</span>
           </Link>
         </header>
 
-        <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
+        <main className="mx-auto w-full max-w-[1400px] min-w-0 px-4 py-6 sm:px-6 sm:py-8">
           {children}
         </main>
       </div>
