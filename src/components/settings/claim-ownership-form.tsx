@@ -44,7 +44,7 @@ export function ClaimOwnershipForm() {
 
   if (claimed) {
     return (
-      <p className="text-[13px] text-fg">
+      <p className="text-[13px] text-fg break-words">
         Claimed {claimed.projectsImported} project{claimed.projectsImported === 1 ? "" : "s"} into
         your personal workspace.
       </p>
@@ -52,8 +52,8 @@ export function ClaimOwnershipForm() {
   }
 
   return (
-    <form onSubmit={claim} className="space-y-3">
-      <p className="text-[12px] leading-relaxed text-muted">
+    <form onSubmit={claim} className="space-y-3 min-w-0">
+      <p className="text-[12px] leading-relaxed text-muted break-words">
         This deployment has existing single-password data. Enter its dashboard password once to
         import it into your own workspace — this can only be done by one account, one time.
       </p>
@@ -63,13 +63,19 @@ export function ClaimOwnershipForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete="off"
+          className="min-h-[40px] md:min-h-0"
         />
       </Field>
-      <Button type="submit" variant="primary" disabled={busy || !password}>
+      <Button
+        type="submit"
+        variant="primary"
+        className="min-h-[40px] md:min-h-0"
+        disabled={busy || !password}
+      >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
         Claim this deployment&rsquo;s data
       </Button>
-      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[12px] text-red-400 break-words">{error}</p> : null}
     </form>
   );
 }
