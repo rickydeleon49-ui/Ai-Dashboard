@@ -266,6 +266,8 @@ behind it.
 default is fail-safe: production with no password set serves a setup notice
 rather than the dashboard, so forgetting cannot silently publish the library.
 
+**Self-hosted.** Self-hosted mode (`AGENT_HOST_MODE=self-hosted`) runs headless with an operator password file and signed cookie where every route is guarded, approvals need a sign-in within 5 minutes, and the runner talks to the server only through the database (see [docs/SELF_HOSTED.md](SELF_HOSTED.md)).
+
 ### Why hosted mode also needs a same-origin check
 
 HTTP Basic credentials are *ambient* — once the browser holds them it attaches
@@ -315,6 +317,10 @@ middleware (never trust `proxy.ts` alone — see this section's own opening):
    `LOCAL_WORKSPACE_ID` and `resolveWorkspaceId`'s `null` return are how the
    same route handlers serve desktop/single-password mode and accounts mode
    without branching on `AUTH_MODE` themselves.
+
+### Self-hosted mode (`AGENT_HOST_MODE=self-hosted`)
+
+A headless single-operator deployment shape: self-hosted mode (`AGENT_HOST_MODE=self-hosted`) uses an operator password file and a signed cookie with every route guarded. Sensitive approvals need a sign-in within 5 minutes, and the runner talks to the server only through the database (see [docs/SELF_HOSTED.md](SELF_HOSTED.md)).
 
 ### Renderer isolation
 
@@ -409,7 +415,7 @@ if reachable over a network, so agent workflows stay strictly desktop-only.
 a non-empty `DESKTOP_INTERNAL_SECRET` is present, `AUTH_MODE` is not `accounts`,
 `DASHBOARD_PASSWORD` is unset, and no `DATABASE_URL` is configured (SQLite only).
 When any condition fails, every agent page (`/agents`, `/settings/agents`) and API
-route under `/api/agent-runs/` immediately returns 404.
+route under `/api/agent-runs/` immediately returns 404. In self-hosted mode (`AGENT_HOST_MODE=self-hosted`), the gate permits agent runs authenticated via the operator password file and signed cookie: every route is guarded, approvals need a sign-in within 5 minutes, and the runner talks to the server only through the database (see [docs/SELF_HOSTED.md](SELF_HOSTED.md)).
 
 **Process layout.** The Electron main process forks a dedicated runner process
 (`runner/index.ts` in development, bundled `runner.js` in production) beside the Next.js

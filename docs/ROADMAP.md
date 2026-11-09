@@ -639,10 +639,12 @@ Each release ships as one or more PRs (batches of rounds), each opened from the 
 - **Next eligible task from the dashboard's own task board** (open, unblocked by dependencies, not already in a run); the run links back to the task and posts its outcome to the task's activity
 - Opt-in links for dependency folders into worktrees; an approval-gated draft PR built from facts the runner recorded; worktree retention for dismissed runs
 
-### Release AW.5 (candidate) — Self-hosted on your own machine
+### Release AW.5 — Self-hosted on your own machine
+
+Status (8 Nov 2026): built and tested on the PC; acceptance on the always-on machine pending.
 
 - Run the server and the runner headless on an always-on machine you own, such as a mini PC, so runs no longer depend on the desktop app being open
-- A separate opt-in mode with real operator authentication, private-interface binding (LAN or Tailscale) and TLS. It is never combined with accounts mode or Railway.
+- A separate opt-in mode with real operator authentication, private-interface binding (LAN or Tailscale) and TLS (tailscale serve, server binds 127.0.0.1). It is never combined with accounts mode or Railway.
 - Requirements are in §2.2 of the design note; this is scheduled once the mini PC is available
 - Run list and run detail usable on a phone over Tailscale; approvals from the phone require the operator login again
 
