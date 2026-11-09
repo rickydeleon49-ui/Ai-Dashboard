@@ -190,10 +190,10 @@ export function MyWorkList({
   }, [singleProjectIdForSelection]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0">
       {!isViewer && tasks.length > 0 ? (
-        <div className="flex items-center justify-between gap-2 px-1">
-          <label className="flex cursor-pointer items-center gap-2 select-none text-[12.5px] text-faint hover:text-fg">
+        <div className="flex items-center justify-between gap-2 px-1 min-w-0">
+          <label className="flex cursor-pointer items-center gap-2 select-none text-[12.5px] text-faint hover:text-fg min-h-[40px] md:min-h-0">
             <input
               type="checkbox"
               aria-label="Select all visible tasks"
@@ -211,7 +211,7 @@ export function MyWorkList({
         </div>
       ) : null}
 
-      <div className="space-y-2">
+      <div className="space-y-2 min-w-0">
         {tasks.map((task) => (
           <MyWorkRow
             key={task.id}
@@ -298,8 +298,8 @@ function MyWorkRow({
   const overdue = isOverdue(task);
 
   return (
-    <div className="rounded-lg border border-line bg-surface">
-      <div className="flex items-center gap-2 px-2.5 py-2">
+    <div className="rounded-lg border border-line bg-surface min-w-0">
+      <div className="flex items-center gap-2 px-2.5 py-2 overflow-x-auto min-w-0">
         {!isViewer && onToggleSelect ? (
           <input
             type="checkbox"
@@ -315,7 +315,7 @@ function MyWorkRow({
           disabled={saving || isViewer}
           aria-label={`Status for ${task.title}`}
           onChange={(e) => changeStatus(e.target.value)}
-          className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
+          className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 w-[8.5rem] shrink-0 text-[12px]"
         >
           {TASK_STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -327,7 +327,7 @@ function MyWorkRow({
         <Link
           href={`/projects/${task.projectId}/tasks`}
           className={cn(
-            "min-w-0 flex-1 truncate text-[13px] text-fg transition-colors hover:text-[var(--accent-text)]",
+            "min-w-0 flex-1 truncate text-[13px] text-fg transition-colors hover:text-[var(--accent-text)] min-h-[40px] md:min-h-0 inline-flex items-center",
             DONE_STATUSES.has(task.status) && "text-faint line-through",
           )}
         >

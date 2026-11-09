@@ -384,10 +384,10 @@ export function WorkspaceMembers({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       {/* Top Search & Filter Bar */}
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between min-w-0">
+        <div className="relative flex-1 min-w-0">
           <Search
             className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"
             aria-hidden="true"
@@ -397,14 +397,14 @@ export function WorkspaceMembers({
             placeholder="Search by name or email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 text-[12.5px]"
+            className="pl-8 text-[12.5px] min-h-[40px] md:min-h-0"
             aria-label="Search members"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center"
               aria-label="Clear search"
             >
               <X className="h-3 w-3" />
@@ -427,7 +427,7 @@ export function WorkspaceMembers({
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="h-8 text-[12.5px]"
+              className="min-h-[40px] md:min-h-0 md:h-8 text-[12.5px]"
               aria-label="Filter members by status"
             >
               <option value="active">Active only</option>
@@ -443,14 +443,14 @@ export function WorkspaceMembers({
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-[12.5px] text-red-300"
+          className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-[12.5px] text-red-300 min-w-0 break-words"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
-          <div className="flex-1">{error}</div>
+          <div className="flex-1 min-w-0 break-words">{error}</div>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-red-400 hover:text-red-200"
+            className="text-red-400 hover:text-red-200 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center shrink-0"
             aria-label="Dismiss error"
           >
             <X className="h-3.5 w-3.5" />
@@ -459,7 +459,7 @@ export function WorkspaceMembers({
       )}
 
       {/* Members List */}
-      <div className="rounded-lg border border-line bg-[var(--bg-subtle)] overflow-hidden">
+      <div className="rounded-lg border border-line bg-[var(--bg-subtle)] overflow-x-auto min-w-0">
         {loading ? (
           <div className="flex items-center justify-center p-8 text-faint">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -486,7 +486,7 @@ export function WorkspaceMembers({
               return (
                 <li
                   key={member.id}
-                  className="flex flex-col gap-3 p-3 transition-colors hover:bg-[var(--bg-hover)] sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 p-3 transition-colors hover:bg-[var(--bg-hover)] sm:flex-row sm:items-center sm:justify-between min-w-0"
                 >
                   {/* Member Avatar & Details */}
                   <div className="flex items-center gap-3 min-w-0">
@@ -507,18 +507,18 @@ export function WorkspaceMembers({
                     )}
 
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <p className="truncate text-[13px] font-medium text-fg">
                           {member.name || member.email}
                         </p>
                         {isSelf && (
-                          <span className="rounded bg-[var(--border)] px-1.5 py-0.2 text-[10.5px] font-medium text-muted">
+                          <span className="shrink-0 rounded bg-[var(--border)] px-1.5 py-0.2 text-[10.5px] font-medium text-muted">
                             You
                           </span>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-muted">
-                        <span className="truncate">{member.email}</span>
+                        <span className="break-all">{member.email}</span>
                         <span>·</span>
                         <span>
                           Joined{" "}
@@ -533,7 +533,7 @@ export function WorkspaceMembers({
                   </div>
 
                   {/* Status, Role & Action Controls */}
-                  <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-center">
+                  <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-center">
                     <StatusBadge status={member.status} />
 
                     {/* Role selector for editable members, or static RoleBadge */}
@@ -549,7 +549,7 @@ export function WorkspaceMembers({
                           onChange={(e) =>
                             handleRoleChange(member, e.target.value as WorkspaceRole)
                           }
-                          className="h-7 text-[12px] py-0 pr-6"
+                          className="min-h-[40px] md:min-h-0 md:h-7 text-[12px] py-0 pr-6"
                         >
                           {assignableRoles.map((r) => (
                             <option key={r} value={r}>
@@ -573,7 +573,7 @@ export function WorkspaceMembers({
                             onClick={() => handleStatusChange(member, "suspended")}
                             title={`Suspend ${member.name || member.email}`}
                             aria-label={`Suspend ${member.name || member.email}`}
-                            className="h-7 px-2 text-[11.5px]"
+                            className="min-h-[40px] md:min-h-0 md:h-7 px-2 text-[11.5px]"
                           >
                             {modifying ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -590,7 +590,7 @@ export function WorkspaceMembers({
                             onClick={() => handleStatusChange(member, "active")}
                             title={`Reinstate ${member.name || member.email}`}
                             aria-label={`Reinstate ${member.name || member.email}`}
-                            className="h-7 px-2 text-[11.5px]"
+                            className="min-h-[40px] md:min-h-0 md:h-7 px-2 text-[11.5px]"
                           >
                             {modifying ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -609,7 +609,7 @@ export function WorkspaceMembers({
                           onClick={(e) => openRemoveDialog(member, e.currentTarget)}
                           title={`Remove ${member.name || member.email}`}
                           aria-label={`Remove ${member.name || member.email}`}
-                          className="h-7 px-2 text-[11.5px]"
+                          className="min-h-[40px] md:min-h-0 md:h-7 px-2 text-[11.5px]"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           <span className="hidden md:inline">Remove</span>
@@ -626,19 +626,19 @@ export function WorkspaceMembers({
 
       {/* Pagination Controls */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-2 pt-1 text-[12.5px] text-muted">
-          <p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1 text-[12.5px] text-muted min-w-0">
+          <p className="break-words">
             Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of{" "}
             <span className="font-medium text-fg">{total}</span> members
           </p>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Button
               variant="outline"
               size="sm"
               disabled={page <= 1 || loading}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               aria-label="Previous page"
-              className="h-7 px-2"
+              className="min-h-[40px] md:min-h-0 md:h-7 px-2"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
               <span>Previous</span>
@@ -652,7 +652,7 @@ export function WorkspaceMembers({
               disabled={page >= totalPages || loading}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               aria-label="Next page"
-              className="h-7 px-2"
+              className="min-h-[40px] md:min-h-0 md:h-7 px-2"
             >
               <span>Next</span>
               <ChevronRight className="h-3.5 w-3.5" />
@@ -673,27 +673,27 @@ export function WorkspaceMembers({
           }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-150"
         >
-          <div className="w-full max-w-md rounded-xl border border-line bg-[var(--bg-subtle)] p-5 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2 text-fg">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
+          <div className="w-full max-w-md rounded-xl border border-line bg-[var(--bg-subtle)] p-5 shadow-2xl space-y-4 min-w-0">
+            <div className="flex items-start justify-between gap-3 min-w-0">
+              <div className="flex items-center gap-2 text-fg min-w-0">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </div>
-                <h3 id="remove-dialog-title" className="text-[15px] font-semibold">
+                <h3 id="remove-dialog-title" className="text-[15px] font-semibold break-words">
                   Remove Workspace Member
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={closeRemoveDialog}
-                className="rounded text-faint hover:text-fg p-1"
+                className="rounded text-faint hover:text-fg p-1 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center shrink-0"
                 aria-label="Close dialog"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <p id="remove-dialog-description" className="text-[13px] leading-relaxed text-muted">
+            <p id="remove-dialog-description" className="text-[13px] leading-relaxed text-muted break-words">
               Are you sure you want to remove{" "}
               <strong className="text-fg font-medium">
                 {memberToRemove.name || memberToRemove.email}
@@ -705,14 +705,14 @@ export function WorkspaceMembers({
             {removeDialogError && (
               <div
                 role="alert"
-                className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-2.5 text-[12px] text-red-300"
+                className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-2.5 text-[12px] text-red-300 min-w-0 break-words"
               >
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-                <span>{removeDialogError}</span>
+                <span className="break-words">{removeDialogError}</span>
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
+            <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
               <Button
                 ref={cancelButtonRef}
                 type="button"
@@ -720,6 +720,7 @@ export function WorkspaceMembers({
                 size="md"
                 disabled={removing}
                 onClick={closeRemoveDialog}
+                className="min-h-[40px] md:min-h-0"
               >
                 Cancel
               </Button>
@@ -729,7 +730,7 @@ export function WorkspaceMembers({
                 size="md"
                 disabled={removing}
                 onClick={handleConfirmRemove}
-                className="bg-red-500/15 hover:bg-red-500/25"
+                className="bg-red-500/15 hover:bg-red-500/25 min-h-[40px] md:min-h-0"
               >
                 {removing && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 <span>Remove Member</span>

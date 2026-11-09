@@ -65,11 +65,11 @@ export function GitHubClientIdForm({
   }
 
   return (
-    <form onSubmit={save} className="space-y-3">
+    <form onSubmit={save} className="space-y-3 min-w-0">
       {clientId ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2 min-w-0">
           <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" strokeWidth={2} />
-          <span className="min-w-0 text-[12.5px] text-fg">
+          <span className="min-w-0 break-all text-[12.5px] text-fg">
             <span className="font-mono text-[11.5px]">{clientId}</span>
             <span className="ml-1.5 text-faint">
               {source === "environment" ? "from GITHUB_CLIENT_ID" : "saved here"}
@@ -80,7 +80,7 @@ export function GitHubClientIdForm({
               type="button"
               size="sm"
               variant="danger"
-              className="ml-auto"
+              className="ml-auto min-h-[40px] md:min-h-0"
               onClick={clear}
               disabled={busy}
             >
@@ -106,24 +106,30 @@ export function GitHubClientIdForm({
           autoComplete="off"
           spellCheck={false}
           placeholder="Ov23li… or Iv1.…"
-          className="font-mono text-[12px]"
+          className="font-mono text-[12px] min-h-[40px] md:min-h-0"
         />
       </Field>
 
-      {error ? <p className="text-[11.5px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[11.5px] text-red-400 break-words">{error}</p> : null}
 
-      <Button type="submit" variant="primary" size="sm" disabled={busy || !value.trim()}>
+      <Button
+        type="submit"
+        variant="primary"
+        size="sm"
+        className="min-h-[40px] md:min-h-0"
+        disabled={busy || !value.trim()}
+      >
         {busy ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} /> : null}
         Save Client ID
       </Button>
 
-      <p className="text-[11.5px] leading-relaxed text-faint">
+      <p className="text-[11.5px] leading-relaxed text-faint break-words">
         Create an OAuth app at{" "}
         <a
           href="https://github.com/settings/developers"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[var(--accent-text)] hover:underline"
+          className="text-[var(--accent-text)] hover:underline break-all"
         >
           github.com/settings/developers
         </a>

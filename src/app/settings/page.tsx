@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Bot, Boxes, Cpu, Database, Download, Github, LogIn, Palette, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -143,14 +144,14 @@ export default async function SettingsPage() {
     : (await import("@/core/github/device-flow")).getClientIdSource();
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="Settings"
         description="How this dashboard is configured and where its data lives."
       />
 
       {/* items-start so a tall card does not stretch its neighbour. */}
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2 min-w-0">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-1.5">
@@ -158,10 +159,10 @@ export default async function SettingsPage() {
               Appearance
             </CardTitle>
           </CardHeader>
-          <CardBody className="flex items-center justify-between gap-3">
-            <div>
+          <CardBody className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between min-w-0">
+            <div className="min-w-0">
               <p className="text-[13px] text-fg">Color theme</p>
-              <p className="text-[12px] text-muted">
+              <p className="text-[12px] text-muted break-words">
                 Dark by default. System follows your OS preference.
               </p>
             </div>
@@ -177,11 +178,11 @@ export default async function SettingsPage() {
                 GitHub
               </CardTitle>
             </CardHeader>
-            <CardBody className="space-y-3">
+            <CardBody className="space-y-3 min-w-0">
               <Row label="Status" value={github.connected ? "Connected" : "Not connected"} />
               <Row label="Mode" value={github.mode} />
               {github.account ? <Row label="Account" value={`@${github.account.login}`} /> : null}
-              <p className="text-[12px] leading-relaxed text-muted">{github.detail}</p>
+              <p className="text-[12px] leading-relaxed text-muted break-words">{github.detail}</p>
 
               {canConnect ? (
                 <div className="border-t border-line pt-3">
@@ -195,8 +196,8 @@ export default async function SettingsPage() {
                 </div>
               )}
 
-              <details className="border-t border-line pt-3">
-                <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
+              <details className="border-t border-line pt-3 min-w-0">
+                <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 flex items-center">
                   {canConnect
                     ? "Use a personal access token instead"
                     : "Connect with a personal access token"}
@@ -210,8 +211,8 @@ export default async function SettingsPage() {
               </details>
 
               {canConnect ? (
-                <details className="border-t border-line pt-3">
-                  <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg">
+                <details className="border-t border-line pt-3 min-w-0">
+                  <summary className="cursor-pointer text-[12.5px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 flex items-center">
                     OAuth app
                   </summary>
                   <div className="pt-3">
@@ -296,10 +297,10 @@ export default async function SettingsPage() {
                 Storage
               </CardTitle>
             </CardHeader>
-            <CardBody className="space-y-2">
+            <CardBody className="space-y-2 min-w-0">
               <Row label="Database" value={resolveDatabasePath()} mono />
               <Row label="Uploads" value={resolveUploadsDir()} mono />
-              <p className="pt-1 text-[12px] leading-relaxed text-muted">
+              <p className="pt-1 text-[12px] leading-relaxed text-muted break-words">
                 Both are set by <code className="font-mono">DATABASE_PATH</code> and{" "}
                 <code className="font-mono">UPLOADS_DIR</code>. On Railway, point them at a
                 mounted volume so your data survives redeploys.
@@ -316,7 +317,7 @@ export default async function SettingsPage() {
                 Application
               </CardTitle>
             </CardHeader>
-            <CardBody>
+            <CardBody className="min-w-0">
               <UpdateCheck version={APP_VERSION} />
             </CardBody>
           </Card>
@@ -330,14 +331,14 @@ export default async function SettingsPage() {
                 Agent Workflow
               </CardTitle>
             </CardHeader>
-            <CardBody className="space-y-3">
-              <p className="text-[12px] leading-relaxed text-muted">
+            <CardBody className="space-y-3 min-w-0">
+              <p className="text-[12px] leading-relaxed text-muted break-words">
                 Configure workspace roots, isolated worktree roots, and inspect CLI provider readiness for autonomous agent runs.
               </p>
               <div>
                 <Link
                   href="/settings/agents"
-                  className={buttonClasses("secondary", "sm")}
+                  className={cn(buttonClasses("secondary", "sm"), "min-h-[40px] md:min-h-0")}
                 >
                   Configure Agent Settings
                 </Link>
@@ -350,7 +351,7 @@ export default async function SettingsPage() {
           <CardHeader>
             <CardTitle>Library</CardTitle>
           </CardHeader>
-          <CardBody className="space-y-2">
+          <CardBody className="space-y-2 min-w-0">
             <Row label="Projects" value={String(stats.total)} />
             <Row label="Archived" value={String(stats.archived)} />
             <Row label="GitHub" value={String(stats.github)} />
@@ -374,10 +375,10 @@ function Row({
   mono?: boolean;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-4">
+    <div className="flex items-baseline justify-between gap-4 min-w-0">
       <span className="shrink-0 text-[12.5px] text-muted">{label}</span>
       <span
-        className={`min-w-0 truncate text-right text-[12.5px] text-fg ${mono ? "font-mono text-[11.5px]" : ""}`}
+        className={`min-w-0 break-all md:truncate text-right text-[12.5px] text-fg ${mono ? "font-mono text-[11.5px]" : ""}`}
         title={value}
       >
         {value}

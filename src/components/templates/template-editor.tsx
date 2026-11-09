@@ -79,13 +79,13 @@ function RowControls({
 }) {
   return (
     <div className="flex shrink-0 gap-1">
-      <Button type="button" size="icon" variant="ghost" aria-label={`Move ${label} up`} disabled={disabled || index === 0} onClick={() => onMove(-1)}>
+      <Button type="button" size="icon" variant="ghost" aria-label={`Move ${label} up`} disabled={disabled || index === 0} onClick={() => onMove(-1)} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
         <ArrowUp className="h-3.5 w-3.5" aria-hidden />
       </Button>
-      <Button type="button" size="icon" variant="ghost" aria-label={`Move ${label} down`} disabled={disabled || index === count - 1} onClick={() => onMove(1)}>
+      <Button type="button" size="icon" variant="ghost" aria-label={`Move ${label} down`} disabled={disabled || index === count - 1} onClick={() => onMove(1)} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
         <ArrowDown className="h-3.5 w-3.5" aria-hidden />
       </Button>
-      <Button type="button" size="icon" variant="ghost" aria-label={`Remove ${label}`} disabled={disabled} onClick={onRemove}>
+      <Button type="button" size="icon" variant="ghost" aria-label={`Remove ${label}`} disabled={disabled} onClick={onRemove} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
         <Trash2 className="h-3.5 w-3.5" aria-hidden />
       </Button>
     </div>
@@ -95,10 +95,10 @@ function RowControls({
 function Issues({ issues }: { issues: TemplateIssue[] }) {
   if (issues.length === 0) return null;
   return (
-    <ul role="alert" className="space-y-1 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-[12px] text-red-300" data-testid="template-issues">
+    <ul role="alert" className="space-y-1 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-[12px] text-red-300 min-w-0 break-words" data-testid="template-issues">
       {issues.map((i, n) => (
-        <li key={n}>
-          <span className="font-mono text-[11px]">{i.path}</span>: {i.message}
+        <li key={n} className="break-words">
+          <span className="font-mono text-[11px] break-all">{i.path}</span>: {i.message}
         </li>
       ))}
     </ul>
@@ -190,68 +190,68 @@ export function TemplateEditor({ templateId }: { templateId: string }) {
   }
 
   return (
-    <div className="space-y-6" data-testid="template-editor">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-fg">{saved!.name}</h1>
-          <p className="text-[12px] text-faint" data-testid="template-mode">
+    <div className="space-y-6 min-w-0" data-testid="template-editor">
+      <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-fg break-words">{saved!.name}</h1>
+          <p className="text-[12px] text-faint break-words" data-testid="template-mode">
             {canEdit ? "Editing a template. Changes are not saved until you choose Save template." : "Viewing a template (read-only)."}
           </p>
         </div>
         {canEdit ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             {dirty ? <span className="text-[12px] text-amber-300">Unsaved changes</span> : null}
-            <Button type="button" variant="primary" disabled={!dirty || saving} onClick={save}>
+            <Button type="button" variant="primary" disabled={!dirty || saving} onClick={save} className="min-h-[40px] md:min-h-0">
               {saving ? "Saving…" : "Save template"}
             </Button>
             {confirmDelete ? (
-              <span className="flex items-center gap-2 text-[12px]" role="group" aria-label="Confirm delete">
-                Delete this template? Projects created from it are kept.
-                <Button type="button" size="sm" variant="danger" onClick={remove}>Delete</Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+              <span className="flex flex-wrap items-center gap-2 text-[12px] min-w-0" role="group" aria-label="Confirm delete">
+                <span className="break-words">Delete this template? Projects created from it are kept.</span>
+                <Button type="button" size="sm" variant="danger" onClick={remove} className="min-h-[40px] md:min-h-0">Delete</Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setConfirmDelete(false)} className="min-h-[40px] md:min-h-0">Cancel</Button>
               </span>
             ) : (
-              <Button type="button" variant="danger" onClick={() => setConfirmDelete(true)}>Delete template</Button>
+              <Button type="button" variant="danger" onClick={() => setConfirmDelete(true)} className="min-h-[40px] md:min-h-0">Delete template</Button>
             )}
           </div>
         ) : null}
       </div>
-      {notice ? <p role="status" className="text-[12px] text-emerald-300">{notice}</p> : null}
+      {notice ? <p role="status" className="text-[12px] text-emerald-300 break-words">{notice}</p> : null}
       <Issues issues={saveIssues} />
 
-      <fieldset disabled={locked} className="space-y-6">
-        <section aria-labelledby="tpl-details" className="grid gap-3 rounded-lg border border-line p-4 md:grid-cols-2">
-          <h2 id="tpl-details" className="text-sm font-semibold text-fg md:col-span-2">Template and project defaults</h2>
-          <Labeled label="Template name"><Input value={d.name} maxLength={160} onChange={(e) => update({ name: e.target.value })} /></Labeled>
-          <Labeled label="Template description"><Input value={d.description ?? ""} maxLength={2000} onChange={(e) => update({ description: e.target.value || null })} /></Labeled>
-          <Labeled label="Project name"><Input value={d.project.name} maxLength={160} onChange={(e) => update({ project: { ...d.project, name: e.target.value } })} /></Labeled>
-          <Labeled label="Project description"><Input value={d.project.description ?? ""} maxLength={2000} onChange={(e) => update({ project: { ...d.project, description: e.target.value || null } })} /></Labeled>
-          <Labeled label="Project type">
-            <Select value={d.project.type} onChange={(e) => update({ project: { ...d.project, type: e.target.value as TemplateContent["project"]["type"] } })}>
+      <fieldset disabled={locked} className="space-y-6 min-w-0">
+        <section aria-labelledby="tpl-details" className="grid grid-cols-1 gap-3 rounded-lg border border-line p-4 md:grid-cols-2 min-w-0">
+          <h2 id="tpl-details" className="text-sm font-semibold text-fg md:col-span-2 break-words">Template and project defaults</h2>
+          <Labeled label="Template name" className="min-w-0"><Input value={d.name} maxLength={160} onChange={(e) => update({ name: e.target.value })} className="min-h-[40px] md:min-h-0" /></Labeled>
+          <Labeled label="Template description" className="min-w-0"><Input value={d.description ?? ""} maxLength={2000} onChange={(e) => update({ description: e.target.value || null })} className="min-h-[40px] md:min-h-0" /></Labeled>
+          <Labeled label="Project name" className="min-w-0"><Input value={d.project.name} maxLength={160} onChange={(e) => update({ project: { ...d.project, name: e.target.value } })} className="min-h-[40px] md:min-h-0" /></Labeled>
+          <Labeled label="Project description" className="min-w-0"><Input value={d.project.description ?? ""} maxLength={2000} onChange={(e) => update({ project: { ...d.project, description: e.target.value || null } })} className="min-h-[40px] md:min-h-0" /></Labeled>
+          <Labeled label="Project type" className="min-w-0">
+            <Select value={d.project.type} onChange={(e) => update({ project: { ...d.project, type: e.target.value as TemplateContent["project"]["type"] } })} className="min-h-[40px] md:min-h-0">
               {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Labeled>
-          <Labeled label="Project status">
-            <Select value={d.project.status} onChange={(e) => update({ project: { ...d.project, status: e.target.value as TemplateContent["project"]["status"] } })}>
+          <Labeled label="Project status" className="min-w-0">
+            <Select value={d.project.status} onChange={(e) => update({ project: { ...d.project, status: e.target.value as TemplateContent["project"]["status"] } })} className="min-h-[40px] md:min-h-0">
               {TEMPLATE_PROJECT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </Select>
           </Labeled>
         </section>
 
-        <section aria-labelledby="tpl-milestones" className="space-y-3 rounded-lg border border-line p-4">
-          <div className="flex items-center justify-between">
-            <h2 id="tpl-milestones" className="text-sm font-semibold text-fg">Milestones ({d.milestones.length})</h2>
-            <Button type="button" size="sm" variant="outline" onClick={() => update({ milestones: [...d.milestones, { key: nextKey("m", d.milestones.map((m) => m.key)), title: "", description: null, targetOffset: null }] })}>
+        <section aria-labelledby="tpl-milestones" className="space-y-3 rounded-lg border border-line p-4 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+            <h2 id="tpl-milestones" className="text-sm font-semibold text-fg break-words">Milestones ({d.milestones.length})</h2>
+            <Button type="button" size="sm" variant="outline" className="min-h-[40px] md:min-h-0" onClick={() => update({ milestones: [...d.milestones, { key: nextKey("m", d.milestones.map((m) => m.key)), title: "", description: null, targetOffset: null }] })}>
               <Plus className="h-3.5 w-3.5" aria-hidden /> Add milestone
             </Button>
           </div>
           {d.milestones.map((m, i) => (
-            <div key={m.key} className="flex flex-wrap items-end gap-2 border-t border-line/60 pt-3" data-testid={`milestone-row-${i}`}>
+            <div key={m.key} className="flex flex-wrap items-end gap-2 border-t border-line/60 pt-3 min-w-0" data-testid={`milestone-row-${i}`}>
               <Labeled label={`Milestone ${i + 1} title`} className="min-w-48 flex-1">
-                <Input value={m.title} maxLength={200} onChange={(e) => update({ milestones: d.milestones.map((x) => (x.key === m.key ? { ...x, title: e.target.value } : x)) })} />
+                <Input value={m.title} maxLength={200} onChange={(e) => update({ milestones: d.milestones.map((x) => (x.key === m.key ? { ...x, title: e.target.value } : x)) })} className="min-h-[40px] md:min-h-0" />
               </Labeled>
-              <Labeled label="Target: days after start" className="w-40">
-                <Input type="number" min={0} max={3650} value={m.targetOffset ?? ""} onChange={(e) => update({ milestones: d.milestones.map((x) => (x.key === m.key ? { ...x, targetOffset: offsetValue(e.target.value) } : x)) })} />
+              <Labeled label="Target: days after start" className="w-full sm:w-40 md:w-40 min-w-0">
+                <Input type="number" min={0} max={3650} value={m.targetOffset ?? ""} onChange={(e) => update({ milestones: d.milestones.map((x) => (x.key === m.key ? { ...x, targetOffset: offsetValue(e.target.value) } : x)) })} className="min-h-[40px] md:min-h-0" />
               </Labeled>
               <RowControls
                 label={`milestone ${m.title || i + 1}`}
@@ -265,40 +265,41 @@ export function TemplateEditor({ templateId }: { templateId: string }) {
           ))}
         </section>
 
-        <section aria-labelledby="tpl-tasks" className="space-y-3 rounded-lg border border-line p-4">
-          <div className="flex items-center justify-between">
-            <h2 id="tpl-tasks" className="text-sm font-semibold text-fg">Tasks ({d.tasks.length})</h2>
-            <Button type="button" size="sm" variant="outline" onClick={() => update({ tasks: [...d.tasks, { key: nextKey("t", d.tasks.map((t) => t.key)), title: "", description: null, priority: "medium", dueOffset: null, milestoneKey: null, parentKey: null }] })}>
+        <section aria-labelledby="tpl-tasks" className="space-y-3 rounded-lg border border-line p-4 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+            <h2 id="tpl-tasks" className="text-sm font-semibold text-fg break-words">Tasks ({d.tasks.length})</h2>
+            <Button type="button" size="sm" variant="outline" className="min-h-[40px] md:min-h-0" onClick={() => update({ tasks: [...d.tasks, { key: nextKey("t", d.tasks.map((t) => t.key)), title: "", description: null, priority: "medium", dueOffset: null, milestoneKey: null, parentKey: null }] })}>
               <Plus className="h-3.5 w-3.5" aria-hidden /> Add task
             </Button>
           </div>
           {d.tasks.map((t, i) => {
             const items = d.checklist.map((c, index) => ({ c, index })).filter((x) => x.c.taskKey === t.key);
             return (
-              <div key={t.key} className={`space-y-2 border-t border-line/60 pt-3 ${t.parentKey ? "ml-6 border-l pl-3" : ""}`} data-testid={`task-row-${i}`}>
-                <div className="flex flex-wrap items-end gap-2">
+              <div key={t.key} className={`space-y-2 border-t border-line/60 pt-3 min-w-0 ${t.parentKey ? "ml-3 sm:ml-6 border-l pl-3" : ""}`} data-testid={`task-row-${i}`}>
+                <div className="flex flex-wrap items-end gap-2 min-w-0">
                   <Labeled label={`Task ${i + 1} title`} className="min-w-48 flex-1">
-                    <Input value={t.title} maxLength={200} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, title: e.target.value } : x)) })} />
+                    <Input value={t.title} maxLength={200} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, title: e.target.value } : x)) })} className="min-h-[40px] md:min-h-0" />
                   </Labeled>
-                  <Labeled label="Priority" className="w-28">
-                    <Select value={t.priority} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, priority: e.target.value as typeof t.priority } : x)) })}>
+                  <Labeled label="Priority" className="w-full sm:w-28 md:w-28 min-w-0">
+                    <Select value={t.priority} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, priority: e.target.value as typeof t.priority } : x)) })} className="min-h-[40px] md:min-h-0">
                       {TASK_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
                     </Select>
                   </Labeled>
-                  <Labeled label="Due: days after start" className="w-36">
-                    <Input type="number" min={0} max={3650} value={t.dueOffset ?? ""} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, dueOffset: offsetValue(e.target.value) } : x)) })} />
+                  <Labeled label="Due: days after start" className="w-full sm:w-36 md:w-36 min-w-0">
+                    <Input type="number" min={0} max={3650} value={t.dueOffset ?? ""} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, dueOffset: offsetValue(e.target.value) } : x)) })} className="min-h-[40px] md:min-h-0" />
                   </Labeled>
-                  <Labeled label="Milestone" className="w-40">
-                    <Select value={t.milestoneKey ?? ""} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, milestoneKey: e.target.value || null } : x)) })}>
+                  <Labeled label="Milestone" className="w-full sm:w-40 md:w-40 min-w-0">
+                    <Select value={t.milestoneKey ?? ""} onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, milestoneKey: e.target.value || null } : x)) })} className="min-h-[40px] md:min-h-0">
                       <option value="">None</option>
                       {d.milestones.map((m) => <option key={m.key} value={m.key}>{m.title || "untitled milestone"}</option>)}
                     </Select>
                   </Labeled>
-                  <Labeled label="Subtask of" className="w-40">
+                  <Labeled label="Subtask of" className="w-full sm:w-40 md:w-40 min-w-0">
                     <Select
                       value={t.parentKey ?? ""}
                       disabled={locked || hasChildren(t.key)}
                       onChange={(e) => update({ tasks: d.tasks.map((x) => (x.key === t.key ? { ...x, parentKey: e.target.value || null } : x)) })}
+                      className="min-h-[40px] md:min-h-0"
                     >
                       <option value="">None (top level)</option>
                       {d.tasks.filter((p) => p.key !== t.key && p.parentKey === null).map((p) => <option key={p.key} value={p.key}>{p.title || "untitled task"}</option>)}
@@ -306,18 +307,18 @@ export function TemplateEditor({ templateId }: { templateId: string }) {
                   </Labeled>
                   <RowControls label={`task ${t.title || i + 1}`} index={i} count={d.tasks.length} disabled={locked} onMove={(delta) => update({ tasks: move(d.tasks, i, delta) })} onRemove={() => removeTask(t.key)} />
                 </div>
-                <div className="space-y-1 pl-1">
+                <div className="space-y-1 pl-1 min-w-0">
                   {items.map(({ c, index }, n) => (
-                    <div key={index} className="flex items-end gap-2">
-                      <Labeled label={`Checklist item ${n + 1} for ${t.title || "task"}`} className="flex-1">
-                        <Input value={c.text} maxLength={500} onChange={(e) => update({ checklist: d.checklist.map((x, j) => (j === index ? { ...x, text: e.target.value } : x)) })} />
+                    <div key={index} className="flex flex-wrap sm:flex-nowrap items-end gap-2 min-w-0">
+                      <Labeled label={`Checklist item ${n + 1} for ${t.title || "task"}`} className="flex-1 min-w-0">
+                        <Input value={c.text} maxLength={500} onChange={(e) => update({ checklist: d.checklist.map((x, j) => (j === index ? { ...x, text: e.target.value } : x)) })} className="min-h-[40px] md:min-h-0" />
                       </Labeled>
-                      <Button type="button" size="icon" variant="ghost" aria-label={`Remove checklist item ${n + 1} from ${t.title || "task"}`} onClick={() => update({ checklist: d.checklist.filter((_, j) => j !== index) })}>
+                      <Button type="button" size="icon" variant="ghost" aria-label={`Remove checklist item ${n + 1} from ${t.title || "task"}`} onClick={() => update({ checklist: d.checklist.filter((_, j) => j !== index) })} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
                         <Trash2 className="h-3.5 w-3.5" aria-hidden />
                       </Button>
                     </div>
                   ))}
-                  <Button type="button" size="sm" variant="ghost" onClick={() => update({ checklist: [...d.checklist, { taskKey: t.key, text: "" }] })}>
+                  <Button type="button" size="sm" variant="ghost" className="min-h-[40px] md:min-h-0" onClick={() => update({ checklist: [...d.checklist, { taskKey: t.key, text: "" }] })}>
                     <Plus className="h-3.5 w-3.5" aria-hidden /> Add checklist item to {t.title || `task ${i + 1}`}
                   </Button>
                 </div>
@@ -326,57 +327,57 @@ export function TemplateEditor({ templateId }: { templateId: string }) {
           })}
         </section>
 
-        <section aria-labelledby="tpl-deps" className="space-y-3 rounded-lg border border-line p-4">
-          <div className="flex items-center justify-between">
-            <h2 id="tpl-deps" className="text-sm font-semibold text-fg">Dependencies ({d.dependencies.length})</h2>
-            <Button type="button" size="sm" variant="outline" disabled={locked || d.tasks.length < 2} onClick={() => update({ dependencies: [...d.dependencies, { taskKey: d.tasks[1]!.key, dependsOnKey: d.tasks[0]!.key }] })}>
+        <section aria-labelledby="tpl-deps" className="space-y-3 rounded-lg border border-line p-4 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+            <h2 id="tpl-deps" className="text-sm font-semibold text-fg break-words">Dependencies ({d.dependencies.length})</h2>
+            <Button type="button" size="sm" variant="outline" className="min-h-[40px] md:min-h-0" disabled={locked || d.tasks.length < 2} onClick={() => update({ dependencies: [...d.dependencies, { taskKey: d.tasks[1]!.key, dependsOnKey: d.tasks[0]!.key }] })}>
               <Plus className="h-3.5 w-3.5" aria-hidden /> Add dependency
             </Button>
           </div>
-          <p className="text-[11px] text-faint">“A depends on B” means A cannot be finished until B is. Cycles are rejected when you save.</p>
+          <p className="text-[11px] text-faint break-words">“A depends on B” means A cannot be finished until B is. Cycles are rejected when you save.</p>
           {d.dependencies.map((dep, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2">
-              <Labeled label={`Dependency ${i + 1}: task`} className="min-w-40 flex-1">
-                <Select value={dep.taskKey} onChange={(e) => update({ dependencies: d.dependencies.map((x, j) => (j === i ? { ...x, taskKey: e.target.value } : x)) })}>
+            <div key={i} className="flex flex-wrap items-end gap-2 min-w-0">
+              <Labeled label={`Dependency ${i + 1}: task`} className="w-full sm:min-w-40 sm:flex-1 md:w-auto md:min-w-40 md:flex-1 min-w-0">
+                <Select value={dep.taskKey} onChange={(e) => update({ dependencies: d.dependencies.map((x, j) => (j === i ? { ...x, taskKey: e.target.value } : x)) })} className="min-h-[40px] md:min-h-0">
                   {d.tasks.map((t) => <option key={t.key} value={t.key}>{t.title || "untitled task"}</option>)}
                 </Select>
               </Labeled>
               <span className="pb-2 text-[12px] text-muted">depends on</span>
-              <Labeled label={`Dependency ${i + 1}: depends on`} className="min-w-40 flex-1">
-                <Select value={dep.dependsOnKey} onChange={(e) => update({ dependencies: d.dependencies.map((x, j) => (j === i ? { ...x, dependsOnKey: e.target.value } : x)) })}>
+              <Labeled label={`Dependency ${i + 1}: depends on`} className="w-full sm:min-w-40 sm:flex-1 md:w-auto md:min-w-40 md:flex-1 min-w-0">
+                <Select value={dep.dependsOnKey} onChange={(e) => update({ dependencies: d.dependencies.map((x, j) => (j === i ? { ...x, dependsOnKey: e.target.value } : x)) })} className="min-h-[40px] md:min-h-0">
                   {d.tasks.map((t) => <option key={t.key} value={t.key}>{t.title || "untitled task"}</option>)}
                 </Select>
               </Labeled>
-              <Button type="button" size="icon" variant="ghost" aria-label={`Remove dependency ${i + 1}`} onClick={() => update({ dependencies: d.dependencies.filter((_, j) => j !== i) })}>
+              <Button type="button" size="icon" variant="ghost" aria-label={`Remove dependency ${i + 1}`} onClick={() => update({ dependencies: d.dependencies.filter((_, j) => j !== i) })} className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0">
                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
               </Button>
             </div>
           ))}
         </section>
 
-        <section aria-labelledby="tpl-docs" className="space-y-3 rounded-lg border border-line p-4">
-          <div className="flex items-center justify-between">
-            <h2 id="tpl-docs" className="text-sm font-semibold text-fg">Knowledge documents ({d.documents.length})</h2>
-            <Button type="button" size="sm" variant="outline" onClick={() => update({ documents: [...d.documents, { title: "", content: "", category: null, pinned: false }] })}>
+        <section aria-labelledby="tpl-docs" className="space-y-3 rounded-lg border border-line p-4 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+            <h2 id="tpl-docs" className="text-sm font-semibold text-fg break-words">Knowledge documents ({d.documents.length})</h2>
+            <Button type="button" size="sm" variant="outline" className="min-h-[40px] md:min-h-0" onClick={() => update({ documents: [...d.documents, { title: "", content: "", category: null, pinned: false }] })}>
               <Plus className="h-3.5 w-3.5" aria-hidden /> Add document
             </Button>
           </div>
           {d.documents.map((doc, i) => (
-            <div key={i} className="space-y-2 border-t border-line/60 pt-3">
-              <div className="flex flex-wrap items-end gap-2">
+            <div key={i} className="space-y-2 border-t border-line/60 pt-3 min-w-0">
+              <div className="flex flex-wrap items-end gap-2 min-w-0">
                 <Labeled label={`Document ${i + 1} title`} className="min-w-48 flex-1">
-                  <Input value={doc.title} maxLength={200} onChange={(e) => update({ documents: d.documents.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) })} />
+                  <Input value={doc.title} maxLength={200} onChange={(e) => update({ documents: d.documents.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) })} className="min-h-[40px] md:min-h-0" />
                 </Labeled>
-                <Labeled label="Category" className="w-40">
-                  <Input value={doc.category ?? ""} maxLength={120} onChange={(e) => update({ documents: d.documents.map((x, j) => (j === i ? { ...x, category: e.target.value || null } : x)) })} />
+                <Labeled label="Category" className="w-full sm:w-40 md:w-40 min-w-0">
+                  <Input value={doc.category ?? ""} maxLength={120} onChange={(e) => update({ documents: d.documents.map((x, j) => (j === i ? { ...x, category: e.target.value || null } : x)) })} className="min-h-[40px] md:min-h-0" />
                 </Labeled>
-                <label className="flex items-center gap-2 pb-2 text-[12px] text-muted">
+                <label className="flex items-center gap-2 pb-2 text-[12px] text-muted min-h-[40px] md:min-h-0">
                   <input type="checkbox" checked={doc.pinned} onChange={(e) => update({ documents: d.documents.map((x, j) => (j === i ? { ...x, pinned: e.target.checked } : x)) })} />
                   Pinned
                 </label>
                 <RowControls label={`document ${doc.title || i + 1}`} index={i} count={d.documents.length} disabled={locked} onMove={(delta) => update({ documents: move(d.documents, i, delta) })} onRemove={() => update({ documents: d.documents.filter((_, j) => j !== i) })} />
               </div>
-              <Labeled label={`Document ${i + 1} content`}>
+              <Labeled label={`Document ${i + 1} content`} className="min-w-0">
                 <Textarea value={doc.content} maxLength={50_000} onChange={(e) => update({ documents: d.documents.map((x, j) => (j === i ? { ...x, content: e.target.value } : x)) })} />
               </Labeled>
             </div>
@@ -453,48 +454,48 @@ function ApplyPanel({
   }
 
   return (
-    <section aria-labelledby="tpl-apply" className="space-y-4 rounded-lg border border-[var(--accent)]/40 p-4" data-testid="template-apply">
-      <div>
-        <h2 id="tpl-apply" className="text-sm font-semibold text-fg">Create a project from this template</h2>
-        <p className="text-[12px] text-faint">Preview first — previewing never creates anything. Dates are calculated from the start date you choose.</p>
+    <section aria-labelledby="tpl-apply" className="space-y-4 rounded-lg border border-[var(--accent)]/40 p-4 min-w-0" data-testid="template-apply">
+      <div className="min-w-0">
+        <h2 id="tpl-apply" className="text-sm font-semibold text-fg break-words">Create a project from this template</h2>
+        <p className="text-[12px] text-faint break-words">Preview first — previewing never creates anything. Dates are calculated from the start date you choose.</p>
       </div>
-      {dirty ? <p className="text-[12px] text-amber-300">Save your changes first: the preview and the project use the saved template.</p> : null}
-      <div className="flex flex-wrap items-end gap-2">
-        <Labeled label="Project start date" className="w-44">
-          <Input type="date" min="1900-01-01" max="9999-12-31" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+      {dirty ? <p className="text-[12px] text-amber-300 break-words">Save your changes first: the preview and the project use the saved template.</p> : null}
+      <div className="flex flex-wrap items-end gap-2 min-w-0">
+        <Labeled label="Project start date" className="w-full sm:w-44 md:w-44 min-w-0">
+          <Input type="date" min="1900-01-01" max="9999-12-31" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="min-h-[40px] md:min-h-0" />
         </Labeled>
         <Labeled label="New project name" className="min-w-48 flex-1">
-          <Input value={name} maxLength={160} onChange={(e) => setName(e.target.value)} />
+          <Input value={name} maxLength={160} onChange={(e) => setName(e.target.value)} className="min-h-[40px] md:min-h-0" />
         </Labeled>
-        <Button type="button" variant="outline" disabled={!validDate || !name.trim() || dirty || loadingPreview} onClick={runPreview}>
+        <Button type="button" variant="outline" disabled={!validDate || !name.trim() || dirty || loadingPreview} onClick={runPreview} className="min-h-[40px] md:min-h-0">
           {loadingPreview ? "Previewing…" : "Preview project"}
         </Button>
       </div>
-      {previewError ? <p role="alert" className="text-[12px] text-red-400">{previewError}</p> : null}
+      {previewError ? <p role="alert" className="text-[12px] text-red-400 break-words">{previewError}</p> : null}
 
       {current ? (
-        <div className="space-y-3 rounded-md border border-line bg-[var(--bg-subtle)] p-3" data-testid="template-preview">
-          <p className="text-[12px] font-medium text-amber-200">Preview only — nothing has been created yet.</p>
-          <p className="text-[13px] text-fg">
+        <div className="space-y-3 rounded-md border border-line bg-[var(--bg-subtle)] p-3 min-w-0 overflow-x-auto" data-testid="template-preview">
+          <p className="text-[12px] font-medium text-amber-200 break-words">Preview only — nothing has been created yet.</p>
+          <p className="text-[13px] text-fg break-words">
             <span className="font-semibold">{current.projectName}</span>, starting {current.startDate}
           </p>
-          <p className="text-[12px] text-muted" data-testid="preview-counts">
+          <p className="text-[12px] text-muted break-words" data-testid="preview-counts">
             {current.counts.milestones} milestones · {current.counts.tasks} tasks ({current.counts.subtasks} subtasks) · {current.counts.dependencies} dependencies · {current.counts.checklist} checklist items · {current.counts.documents} documents · {current.counts.records} records in total
           </p>
           {current.milestones.length > 0 ? (
-            <div>
+            <div className="min-w-0">
               <h3 className="text-[12px] font-semibold text-muted">Milestones</h3>
-              <ul className="text-[12px]">
-                {current.milestones.map((m) => <li key={m.key}>{m.title} — {m.targetDate ?? "no target date"}</li>)}
+              <ul className="text-[12px] min-w-0">
+                {current.milestones.map((m) => <li key={m.key} className="break-words">{m.title} — {m.targetDate ?? "no target date"}</li>)}
               </ul>
             </div>
           ) : null}
           {current.tasks.length > 0 ? (
-            <div>
+            <div className="min-w-0">
               <h3 className="text-[12px] font-semibold text-muted">Tasks</h3>
-              <ul className="text-[12px]" aria-label="Preview tasks">
+              <ul className="text-[12px] min-w-0" aria-label="Preview tasks">
                 {current.tasks.map((t) => (
-                  <li key={t.key} className={t.parentKey ? "ml-5" : ""}>
+                  <li key={t.key} className={`break-words ${t.parentKey ? "ml-3 sm:ml-5" : ""}`}>
                     {t.parentKey ? "↳ " : ""}
                     {t.title} — {t.dueDate ? `due ${t.dueDate}` : "no due date"} · {t.priority}
                     {t.checklistCount > 0 ? ` · ${t.checklistCount} checklist items` : ""}
@@ -505,28 +506,28 @@ function ApplyPanel({
             </div>
           ) : null}
           {current.documents.length > 0 ? (
-            <div>
+            <div className="min-w-0">
               <h3 className="text-[12px] font-semibold text-muted">Knowledge documents</h3>
-              <ul className="text-[12px]">
-                {current.documents.map((doc, i) => <li key={i}>{doc.title}{doc.category ? ` (${doc.category})` : ""}{doc.pinned ? " · pinned" : ""}</li>)}
+              <ul className="text-[12px] min-w-0">
+                {current.documents.map((doc, i) => <li key={i} className="break-words">{doc.title}{doc.category ? ` (${doc.category})` : ""}{doc.pinned ? " · pinned" : ""}</li>)}
               </ul>
             </div>
           ) : null}
-          <ul className="text-[11px] text-faint">{current.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+          <ul className="text-[11px] text-faint min-w-0">{current.warnings.map((w) => <li key={w} className="break-words">{w}</li>)}</ul>
           <Issues issues={current.errors} />
           {canApply ? (
-            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-              <Button type="button" variant="primary" disabled={applying || current.errors.length > 0 || dirty} onClick={createProject}>
+            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3 min-w-0">
+              <Button type="button" variant="primary" disabled={applying || current.errors.length > 0 || dirty} onClick={createProject} className="min-h-[40px] md:min-h-0">
                 {applying ? "Creating project…" : applyError?.retryable ? "Retry creating project" : `Create project “${current.projectName}”`}
               </Button>
-              <span className="text-[11px] text-faint">This creates a real project in your workspace.</span>
+              <span className="text-[11px] text-faint break-words">This creates a real project in your workspace.</span>
             </div>
           ) : (
-            <p className="text-[12px] text-faint">Creating projects from templates needs the member role.</p>
+            <p className="text-[12px] text-faint break-words">Creating projects from templates needs the member role.</p>
           )}
           {applyError ? (
-            <div role="alert" className="space-y-1 text-[12px] text-red-400">
-              <p>{applyError.message}</p>
+            <div role="alert" className="space-y-1 text-[12px] text-red-400 break-words">
+              <p className="break-words">{applyError.message}</p>
               <Issues issues={applyError.issues} />
             </div>
           ) : null}

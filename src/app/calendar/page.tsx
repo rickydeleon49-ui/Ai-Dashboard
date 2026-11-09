@@ -28,7 +28,7 @@ export default async function CalendarPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="Calendar"
         description="Task and milestone due dates. Drag an item to a new day, or use Reschedule, then Save."

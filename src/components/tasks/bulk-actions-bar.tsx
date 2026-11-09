@@ -461,7 +461,7 @@ export function BulkActionsBar({
     <div
       role="region"
       aria-label="Bulk actions toolbar"
-      className="sticky bottom-4 z-30 mx-auto w-full max-w-5xl rounded-xl border border-line bg-surface/95 p-3.5 shadow-2xl backdrop-blur-md transition-all"
+      className="sticky bottom-4 z-30 mx-auto w-full max-w-5xl rounded-xl border border-line bg-surface/95 p-3.5 shadow-2xl backdrop-blur-md transition-all min-w-0"
     >
       {/* Outcome notification banner */}
       {outcome && (
@@ -469,7 +469,7 @@ export function BulkActionsBar({
           role="status"
           aria-live="polite"
           className={cn(
-            "mb-3 rounded-lg border p-2.5 text-xs transition-colors",
+            "mb-3 rounded-lg border p-2.5 text-xs transition-colors min-w-0",
             outcome.failed === 0
               ? "border-emerald-500/30 bg-emerald-500/10 text-fg"
               : outcome.succeeded > 0
@@ -477,14 +477,14 @@ export function BulkActionsBar({
               : "border-red-500/30 bg-red-500/10 text-fg",
           )}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
               {outcome.failed === 0 ? (
                 <Check className="h-4 w-4 shrink-0 text-emerald-400" />
               ) : (
                 <AlertCircle className="h-4 w-4 shrink-0" />
               )}
-              <span>{formatOutcomeMessage(outcome)}</span>
+              <span className="break-words">{formatOutcomeMessage(outcome)}</span>
             </div>
             <div className="flex items-center gap-2">
               {hasRetryableFailures && (
@@ -494,7 +494,7 @@ export function BulkActionsBar({
                   size="sm"
                   onClick={() => void executeBulkUpdate(retryableFailedIds)}
                   disabled={saving}
-                  className="h-6 px-2 text-[11px] font-medium"
+                  className="h-6 min-h-[40px] md:min-h-0 md:h-6 px-2 text-[11px] font-medium"
                 >
                   Retry retryable failures
                 </Button>
@@ -502,7 +502,7 @@ export function BulkActionsBar({
               <button
                 type="button"
                 onClick={() => setOutcome(null)}
-                className="rounded p-0.5 text-faint hover:text-fg"
+                className="rounded p-0.5 text-faint hover:text-fg min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center"
                 aria-label="Dismiss message"
               >
                 <X className="h-3.5 w-3.5" />
@@ -511,9 +511,9 @@ export function BulkActionsBar({
           </div>
 
           {outcome.failedItems.length > 0 && (
-            <div className="mt-2 space-y-1 border-t border-line/40 pt-2 text-[11.5px]">
+            <div className="mt-2 space-y-1 border-t border-line/40 pt-2 text-[11.5px] min-w-0">
               <p className="font-semibold">Failed tasks (retained in selection):</p>
-              <ul className="max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4">
+              <ul className="max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4 min-w-0">
                 {outcome.failedItems.map((item) => (
                   <li key={item.taskId} className="truncate">
                     <span className="font-medium text-fg">{item.title}</span>: {item.error}
@@ -526,9 +526,9 @@ export function BulkActionsBar({
       )}
 
       {selectedCount > 0 && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between min-w-0">
           {/* Count and Clear Selection */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             <span
               className="inline-flex items-center rounded-md bg-[var(--bg-subtle)] px-2 py-1 text-[12px] font-semibold text-fg"
               aria-live="polite"
@@ -544,7 +544,7 @@ export function BulkActionsBar({
                 setOutcome(null);
               }}
               disabled={saving}
-              className="h-7 text-[12px]"
+              className="h-7 min-h-[40px] md:min-h-0 md:h-7 text-[12px]"
             >
               Clear
             </Button>
@@ -552,14 +552,14 @@ export function BulkActionsBar({
 
           {/* Action controls */}
           {!isViewer && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
               {/* Status */}
               <Select
                 aria-label="Bulk update status"
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
                 disabled={saving}
-                className="h-7 w-[7.5rem] text-[12px]"
+                className="h-7 min-h-[40px] md:min-h-0 md:h-7 w-[7.5rem] text-[12px]"
               >
                 <option value="">Status...</option>
                 {TASK_STATUSES.map((s) => (
@@ -575,7 +575,7 @@ export function BulkActionsBar({
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
                 disabled={saving}
-                className="h-7 w-[7.5rem] text-[12px]"
+                className="h-7 min-h-[40px] md:min-h-0 md:h-7 w-[7.5rem] text-[12px]"
               >
                 <option value="">Priority...</option>
                 {TASK_PRIORITIES.map((p) => (
@@ -596,7 +596,7 @@ export function BulkActionsBar({
                   singleProjectIdForSelection === null ||
                   Boolean(milestoneError)
                 }
-                className="h-7 w-[8.5rem] text-[12px]"
+                className="h-7 min-h-[40px] md:min-h-0 md:h-7 w-[8.5rem] text-[12px]"
               >
                 <option value="">
                   {milestonesLoading
@@ -642,7 +642,7 @@ export function BulkActionsBar({
                       setAssigneePickerOpen((prev) => !prev);
                     }}
                     className={cn(
-                      "flex h-7 w-[9rem] items-center justify-between rounded-md border border-line bg-surface px-2 text-[12px] text-fg transition-colors",
+                      "flex h-7 min-h-[40px] md:min-h-0 md:h-7 w-[9rem] items-center justify-between rounded-md border border-line bg-surface px-2 text-[12px] text-fg transition-colors",
                       "hover:border-[var(--border-strong)] focus:border-accent focus:outline-none",
                       saving && "opacity-50 cursor-not-allowed",
                       assigneeId && "font-medium text-fg",
@@ -676,7 +676,7 @@ export function BulkActionsBar({
                             if (workspaceId) setAssigneeLoading(true);
                           }}
                           placeholder="Search active members..."
-                          className="h-6.5 w-full rounded border border-line bg-[var(--bg-subtle)] pl-7 pr-2 text-[11.5px] text-fg placeholder:text-faint focus:border-accent focus:outline-none"
+                          className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 w-full rounded border border-line bg-[var(--bg-subtle)] pl-7 pr-2 text-[11.5px] text-fg placeholder:text-faint focus:border-accent focus:outline-none"
                         />
                       </div>
 
@@ -692,7 +692,7 @@ export function BulkActionsBar({
                             setAssigneeSearch("");
                           }}
                           className={cn(
-                            "flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11.5px] transition-colors",
+                            "flex w-full min-h-[40px] md:min-h-0 items-center justify-between rounded px-2 py-1 text-left text-[11.5px] transition-colors",
                             assigneeId === ""
                               ? "bg-[var(--accent-soft)] font-medium text-[var(--accent-text)]"
                               : "text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",
@@ -713,7 +713,7 @@ export function BulkActionsBar({
                             setAssigneeSearch("");
                           }}
                           className={cn(
-                            "flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11.5px] transition-colors",
+                            "flex w-full min-h-[40px] md:min-h-0 items-center justify-between rounded px-2 py-1 text-left text-[11.5px] transition-colors",
                             assigneeId === "__clear__"
                               ? "bg-[var(--accent-soft)] font-medium text-[var(--accent-text)]"
                               : "text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",
@@ -748,7 +748,7 @@ export function BulkActionsBar({
                                   setAssigneeSearch("");
                                 }}
                                 className={cn(
-                                  "flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11.5px] transition-colors",
+                                  "flex w-full min-h-[40px] md:min-h-0 items-center justify-between rounded px-2 py-1 text-left text-[11.5px] transition-colors",
                                   isSelected
                                     ? "bg-[var(--accent-soft)] font-medium text-[var(--accent-text)]"
                                     : "text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",
@@ -783,7 +783,7 @@ export function BulkActionsBar({
                   }}
                   disabled={saving || clearDueDate}
                   className={cn(
-                    "h-7 rounded-md border border-line bg-surface px-2 text-[12px] text-fg transition-colors focus:border-accent focus:outline-none",
+                    "h-7 min-h-[40px] md:min-h-0 md:h-7 rounded-md border border-line bg-surface px-2 text-[12px] text-fg transition-colors focus:border-accent focus:outline-none",
                     clearDueDate && "opacity-50",
                   )}
                 />
@@ -796,7 +796,7 @@ export function BulkActionsBar({
                     if (!clearDueDate) setDueDate("");
                   }}
                   disabled={saving}
-                  className="h-7 text-[11px]"
+                  className="h-7 min-h-[40px] md:min-h-0 md:h-7 text-[11px]"
                   title="Clear due date across selected tasks"
                 >
                   Clear date
@@ -815,7 +815,7 @@ export function BulkActionsBar({
                     size="sm"
                     disabled={saving}
                     onClick={() => void executeBulkUpdate()}
-                    className="h-6.5 text-[11px]"
+                    className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 text-[11px]"
                   >
                     Confirm
                   </Button>
@@ -825,7 +825,7 @@ export function BulkActionsBar({
                     size="sm"
                     disabled={saving}
                     onClick={() => setShowConfirm(false)}
-                    className="h-6.5 text-[11px]"
+                    className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 text-[11px]"
                   >
                     Cancel
                   </Button>
@@ -837,7 +837,7 @@ export function BulkActionsBar({
                   size="sm"
                   disabled={!hasChanges || saving}
                   onClick={handleApplyClick}
-                  className="h-7 text-[12px]"
+                  className="h-7 min-h-[40px] md:min-h-0 md:h-7 text-[12px]"
                 >
                   {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                   Apply changes

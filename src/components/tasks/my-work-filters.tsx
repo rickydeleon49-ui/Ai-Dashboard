@@ -39,13 +39,13 @@ export function MyWorkFilters({
   const activeCount = ["status", "priority", "project", "assignment"].filter((key) => params.get(key)).length;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 min-w-0">
       {accountsMode ? (
         <Select
           aria-label="Filter by assignment"
           value={params.get("assignment") ?? "to_me"}
           onChange={(e) => setParam("assignment", e.target.value)}
-          className="w-auto min-w-36"
+          className="w-auto min-w-36 min-h-[40px] md:min-h-0"
         >
           <option value="to_me">Assigned to me</option>
           <option value="by_me">Assigned by me</option>
@@ -58,7 +58,7 @@ export function MyWorkFilters({
         aria-label="Filter by status"
         value={params.get("status") ?? "all"}
         onChange={(e) => setParam("status", e.target.value)}
-        className="w-auto min-w-28"
+        className="w-auto min-w-28 min-h-[40px] md:min-h-0"
       >
         <option value="all">All statuses</option>
         {TASK_STATUSES.map((status) => (
@@ -72,7 +72,7 @@ export function MyWorkFilters({
         aria-label="Filter by priority"
         value={params.get("priority") ?? "all"}
         onChange={(e) => setParam("priority", e.target.value)}
-        className="w-auto min-w-28"
+        className="w-auto min-w-28 min-h-[40px] md:min-h-0"
       >
         <option value="all">All priorities</option>
         {TASK_PRIORITIES.map((priority) => (
@@ -86,7 +86,7 @@ export function MyWorkFilters({
         aria-label="Filter by project"
         value={params.get("project") ?? "all"}
         onChange={(e) => setParam("project", e.target.value)}
-        className="w-auto min-w-32"
+        className="w-auto min-w-32 min-h-[40px] md:min-h-0"
       >
         <option value="all">All projects</option>
         {projects.map((project) => (
@@ -100,7 +100,7 @@ export function MyWorkFilters({
         <button
           type="button"
           onClick={() => push(new URLSearchParams())}
-          className="h-8 rounded-md px-2 text-[12.5px] text-faint transition-colors hover:text-fg"
+          className="h-8 min-h-[40px] md:min-h-0 md:h-8 rounded-md px-2 text-[12.5px] text-faint transition-colors hover:text-fg inline-flex items-center"
         >
           Clear
         </button>

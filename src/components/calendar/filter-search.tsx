@@ -141,7 +141,7 @@ export function FilterSearch({
           : `Type part of a name to find ${noun} not listed above.`;
 
   return (
-    <div className="flex w-56 flex-col gap-1" data-testid={`filter-search-${type}`}>
+    <div className="flex w-full sm:w-56 md:w-56 flex-col gap-1 min-w-0" data-testid={`filter-search-${type}`}>
       <label htmlFor={inputId} className="text-muted">
         Search {noun}
       </label>
@@ -175,13 +175,13 @@ export function FilterSearch({
             run(text);
           }
         }}
-        className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+        className="h-8 rounded-md border border-line bg-surface px-2 text-[13px] text-fg min-h-[40px] md:min-h-0"
       />
-      <p id={statusId} role="status" aria-live="polite" aria-busy={view.status === "loading"} className="text-[11px] text-faint">
+      <p id={statusId} role="status" aria-live="polite" aria-busy={view.status === "loading"} className="text-[11px] text-faint break-words">
         {message}
       </p>
       {view.status === "error" ? (
-        <Button type="button" size="sm" variant="outline" onClick={() => run(view.q)}>
+        <Button type="button" size="sm" variant="outline" onClick={() => run(view.q)} className="min-h-[40px] md:min-h-0">
           Retry search
         </Button>
       ) : null}
@@ -193,7 +193,7 @@ export function FilterSearch({
                 type="button"
                 disabled={disabled}
                 onClick={() => onSelect({ id: r.id, name: r.name ?? fallbackName })}
-                className="w-full rounded px-1.5 py-1 text-left text-[12px] text-fg hover:bg-[var(--bg-subtle)] focus-visible:bg-[var(--bg-subtle)] disabled:opacity-50"
+                className="w-full rounded px-1.5 py-1 text-left text-[12px] text-fg hover:bg-[var(--bg-subtle)] focus-visible:bg-[var(--bg-subtle)] disabled:opacity-50 min-h-[40px] md:min-h-0 flex items-center break-words"
               >
                 {r.name ?? fallbackName}
               </button>
@@ -204,7 +204,7 @@ export function FilterSearch({
         <ul id={listId} aria-label={`Matching ${noun}`} hidden />
       )}
       {view.status === "ready" && view.nextCursor ? (
-        <Button type="button" size="sm" variant="ghost" disabled={loadingMore} onClick={loadMore}>
+        <Button type="button" size="sm" variant="ghost" disabled={loadingMore} onClick={loadMore} className="min-h-[40px] md:min-h-0">
           {loadingMore ? "Loading…" : "More matches"}
         </Button>
       ) : null}

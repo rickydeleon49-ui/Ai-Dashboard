@@ -166,9 +166,9 @@ export function TimelineView({
   const next = anchor ? shiftTimeline(zoom, anchor, 1) : null;
 
   return (
-    <div className="space-y-4" data-testid="timeline">
-      <div className="flex flex-wrap items-end gap-3">
-        <div role="group" aria-label="Zoom" className="flex gap-1">
+    <div className="space-y-4 min-w-0" data-testid="timeline">
+      <div className="flex flex-wrap items-end gap-3 min-w-0">
+        <div role="group" aria-label="Zoom" className="flex flex-wrap gap-1">
           {(["week", "month", "quarter"] as const).map((z) => (
             <Button
               key={z}
@@ -176,24 +176,32 @@ export function TimelineView({
               size="sm"
               variant={z === zoom ? "primary" : "outline"}
               aria-pressed={z === zoom}
+              className="min-h-[40px] md:min-h-0"
               onClick={() => setZoom(z)}
             >
               {ZOOM_LABEL[z]}
             </Button>
           ))}
         </div>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           <Button
             type="button"
             size="sm"
             variant="outline"
             aria-label={`Previous ${zoom}`}
             disabled={!previous}
+            className="min-h-[40px] md:min-h-0"
             onClick={() => previous && setAnchorOverride(previous)}
           >
             Previous
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setAnchorOverride(null)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-[40px] md:min-h-0"
+            onClick={() => setAnchorOverride(null)}
+          >
             Today
           </Button>
           <Button
@@ -202,20 +210,21 @@ export function TimelineView({
             variant="outline"
             aria-label={`Next ${zoom}`}
             disabled={!next}
+            className="min-h-[40px] md:min-h-0"
             onClick={() => next && setAnchorOverride(next)}
           >
             Next
           </Button>
         </div>
-        <label className="flex items-center gap-2 text-[13px] text-muted">
+        <label className="flex items-center gap-2 text-[13px] text-muted min-h-[40px] md:min-h-0 cursor-pointer">
           <input type="checkbox" checked={showLines} onChange={(e) => setShowLines(e.target.checked)} />
           Show dependency lines
         </label>
-        <h2 className="ml-auto text-sm font-semibold text-fg" aria-live="polite" data-testid="timeline-range">
+        <h2 className="ml-auto text-sm font-semibold text-fg break-words" aria-live="polite" data-testid="timeline-range">
           {data ? rangeTitle(data.zoom, data.from, data.to, data.anchor) : ""}
         </h2>
       </div>
-      <p className="text-[12px] text-faint">
+      <p className="text-[12px] text-faint break-words">
         Read-only. Tasks are shown on their due date; start dates are not recorded yet. Today is based on your time zone
         {timeZone ? `: ${timeZone}` : ""}.
       </p>
@@ -228,12 +237,12 @@ export function TimelineView({
         current.error === "failed" ? (
           <div role="alert" className="flex items-center gap-3 text-[13px] text-red-400">
             {current.message}
-            <Button type="button" size="sm" variant="outline" onClick={() => setReloadToken((t) => t + 1)}>
+            <Button type="button" size="sm" variant="outline" className="min-h-[40px] md:min-h-0" onClick={() => setReloadToken((t) => t + 1)}>
               Retry
             </Button>
           </div>
         ) : (
-          <div role="alert" className="rounded-lg border border-line p-4 text-[13px] text-muted" data-testid="timeline-unavailable">
+          <div role="alert" className="rounded-lg border border-line p-4 text-[13px] text-muted break-words" data-testid="timeline-unavailable">
             {current.error === "not_found"
               ? "This project isn’t available in your current workspace."
               : current.message}
@@ -305,20 +314,20 @@ function TimelineBody({
   ].filter((x): x is string => Boolean(x));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 min-w-0">
       {truncations.length > 0 ? (
-        <div role="note" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] text-amber-200" data-testid="timeline-truncated">
+        <div role="note" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] text-amber-200 break-words" data-testid="timeline-truncated">
           <p className="font-medium">Some work isn’t shown: {truncations.join("; ")}.</p>
           <p>Switch to a narrower zoom (Month or Week) to see everything in a shorter range.</p>
         </div>
       ) : null}
 
       {data.items.length === 0 ? (
-        <p className="rounded-lg border border-line p-4 text-[13px] text-muted" data-testid="timeline-empty">
+        <p className="rounded-lg border border-line p-4 text-[13px] text-muted break-words" data-testid="timeline-empty">
           Nothing is scheduled in this range. Use Previous, Next or a wider zoom, or see the undated work below.
         </p>
       ) : (
-        <div className="flex overflow-hidden rounded-lg border border-line" data-testid="timeline-chart">
+        <div className="flex overflow-hidden rounded-lg border border-line min-w-0" data-testid="timeline-chart">
           <div className="w-56 shrink-0 border-r border-line bg-[var(--bg-elevated)]">
             <div className="flex h-12 items-end border-b border-line px-2 pb-1 text-[11px] font-medium text-faint">Item</div>
             <ul aria-label="Timeline items">
@@ -541,7 +550,7 @@ function TimelineTable({
 }) {
   if (items.length === 0) return null;
   return (
-    <div className="overflow-x-auto rounded-lg border border-line">
+    <div className="overflow-x-auto rounded-lg border border-line min-w-0">
       <table className="w-full min-w-[720px] text-left text-[12px]" data-testid={testId}>
         <caption className="px-3 py-2 text-left text-[12px] font-medium text-muted">{caption}</caption>
         <thead className="border-b border-line text-faint">
@@ -561,7 +570,7 @@ function TimelineTable({
           {items.map((item) => (
             <tr key={item.id} className="border-b border-line/60 align-top" data-row={item.id}>
               <th scope="row" className="px-3 py-1.5 font-normal">
-                <Link href={itemHref(data.projectId, item)} className={`text-fg hover:underline ${item.status === "cancelled" ? "line-through" : ""}`}>
+                <Link href={itemHref(data.projectId, item)} className={`text-fg hover:underline min-h-[40px] md:min-h-0 inline-flex items-center ${item.status === "cancelled" ? "line-through" : ""}`}>
                   {item.title}
                 </Link>
               </th>

@@ -10,6 +10,7 @@ import { resolveWorkspaceIdForPage } from "@/core/workspaces/current-workspace";
 import { resolveKnowledgePageAccess } from "@/core/knowledge/page-access";
 import { summarizeMarkdown } from "@/core/knowledge/markdown";
 import type { SearchParams } from "@/lib/routing";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -76,25 +77,25 @@ export default async function ProjectKnowledgePage({
   const pendingLabel = index ? `${index.pending} older ${index.pending === 1 ? "document" : "documents"}` : "";
 
   return (
-    <div className="space-y-5">
-      <div className="space-y-1">
-        <nav className="flex items-center gap-1.5 text-[12px] text-faint">
+    <div className="space-y-5 min-w-0">
+      <div className="space-y-1 min-w-0">
+        <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint min-w-0">
           <Link href="/projects" className="transition-colors hover:text-fg">
             Projects
           </Link>
           <span>/</span>
-          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg">
+          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg break-words">
             {project.name}
           </Link>
           <span>/</span>
           <span className="text-muted">Knowledge</span>
         </nav>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-fg">{project.name}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-fg break-words min-w-0">{project.name}</h1>
           {canEdit ? (
             <Link
               href={`/projects/${project.id}/knowledge/new`}
-              className={buttonClasses("primary", "md")}
+              className={cn(buttonClasses("primary", "md"), "min-h-[40px] md:min-h-0")}
             >
               New document
             </Link>
@@ -108,12 +109,12 @@ export default async function ProjectKnowledgePage({
         <div
           role="status"
           data-testid="knowledge-search-pending"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-200"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-200 min-w-0"
         >
-          <p>
+          <p className="break-words min-w-0">
             Search is still indexing {pendingLabel} in this project, so these results may be missing matches.
           </p>
-          <Link href={continueHref} className={buttonClasses("secondary", "md")}>
+          <Link href={continueHref} className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}>
             Continue indexing
           </Link>
         </div>
@@ -132,11 +133,11 @@ export default async function ProjectKnowledgePage({
           }
           action={
             filtered ? (
-              <Link href={`/projects/${project.id}/knowledge`} className={buttonClasses("secondary", "lg")}>
+              <Link href={`/projects/${project.id}/knowledge`} className={cn(buttonClasses("secondary", "lg"), "min-h-[40px] md:min-h-0")}>
                 Clear filters
               </Link>
             ) : canEdit ? (
-              <Link href={`/projects/${project.id}/knowledge/new`} className={buttonClasses("primary", "lg")}>
+              <Link href={`/projects/${project.id}/knowledge/new`} className={cn(buttonClasses("primary", "lg"), "min-h-[40px] md:min-h-0")}>
                 New document
               </Link>
             ) : undefined
@@ -144,10 +145,10 @@ export default async function ProjectKnowledgePage({
         />
       ) : (
         <>
-          <p className="text-[12px] text-faint">
+          <p className="text-[12px] text-faint break-words">
             {documents.length} {documents.length === 1 ? "document" : "documents"}
           </p>
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-1 lg:grid-cols-2 min-w-0">
             {documents.map((document) => (
               <KnowledgeDocumentCard
                 key={document.id}

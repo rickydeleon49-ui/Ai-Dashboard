@@ -26,7 +26,7 @@ export default async function AgentSettingsPage() {
   const retentionDays = await getRetentionDays();
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         title="Agent Settings"
         description="Configure workspace roots, worktrees, and inspect CLI provider readiness for autonomous agent runs."

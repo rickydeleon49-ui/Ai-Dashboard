@@ -11,7 +11,7 @@ export default async function NotificationsPage() {
   const notifications = await listNotifications();
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         title="Notifications"
         description="What your automations found while you were away."
@@ -24,7 +24,9 @@ export default async function NotificationsPage() {
           description="Automations post here when they find something worth your attention — a stalled project, new repositories, or a run that failed."
         />
       ) : (
-        <NotificationList notifications={notifications} />
+        <div className="min-w-0 overflow-x-auto">
+          <NotificationList notifications={notifications} />
+        </div>
       )}
     </div>
   );

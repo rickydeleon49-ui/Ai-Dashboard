@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, ExternalLink, Github, Loader2 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /**
  * Connects a GitHub account with the OAuth device flow.
@@ -163,16 +164,16 @@ export function GitHubConnect({ connected }: { connected: boolean }) {
 
   if (phase === "waiting" && started) {
     return (
-      <div className="space-y-2.5 rounded-md border border-line bg-[var(--bg-subtle)] p-3">
-        <p className="text-[12.5px] text-muted">
+      <div className="space-y-2.5 rounded-md border border-line bg-[var(--bg-subtle)] p-3 min-w-0">
+        <p className="text-[12.5px] text-muted break-words">
           Enter this code on GitHub to finish connecting:
         </p>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <code className="rounded-md border border-line bg-[var(--bg-elevated)] px-2.5 py-1.5 font-mono text-[15px] tracking-[0.2em] text-fg">
             {started.userCode}
           </code>
-          <Button type="button" size="sm" onClick={copyCode}>
+          <Button type="button" size="sm" className="min-h-[40px] md:min-h-0" onClick={copyCode}>
             {copied ? (
               <Check className="h-3 w-3 text-emerald-400" strokeWidth={2} />
             ) : (
@@ -184,7 +185,7 @@ export function GitHubConnect({ connected }: { connected: boolean }) {
             href={started.verificationUri}
             target="_blank"
             rel="noopener noreferrer"
-            className={buttonClasses("secondary", "sm")}
+            className={cn(buttonClasses("secondary", "sm"), "min-h-[40px] md:min-h-0")}
           >
             <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
             Open GitHub
@@ -200,15 +201,20 @@ export function GitHubConnect({ connected }: { connected: boolean }) {
   }
 
   return (
-    <div className="space-y-2">
-      <Button type="button" variant={connected ? "secondary" : "primary"} onClick={connect}>
+    <div className="space-y-2 min-w-0">
+      <Button
+        type="button"
+        variant={connected ? "secondary" : "primary"}
+        className="min-h-[40px] md:min-h-0"
+        onClick={connect}
+      >
         <Github className="h-3.5 w-3.5" strokeWidth={1.75} />
         {connected ? "Reconnect with GitHub" : "Connect with GitHub"}
       </Button>
 
       {message ? (
         <p
-          className={`text-[11.5px] leading-relaxed ${
+          className={`text-[11.5px] leading-relaxed break-words ${
             phase === "error" ? "text-red-400" : "text-emerald-400"
           }`}
         >

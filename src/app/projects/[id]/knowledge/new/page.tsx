@@ -48,14 +48,14 @@ export default async function NewKnowledgeDocumentPage({
   }
 
   return (
-    <div className="space-y-5">
-      <div className="space-y-1">
-        <nav className="flex items-center gap-1.5 text-[12px] text-faint">
+    <div className="space-y-5 min-w-0">
+      <div className="space-y-1 min-w-0">
+        <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint min-w-0">
           <Link href="/projects" className="transition-colors hover:text-fg">
             Projects
           </Link>
           <span>/</span>
-          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg">
+          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg break-words">
             {project.name}
           </Link>
           <span>/</span>
@@ -65,7 +65,7 @@ export default async function NewKnowledgeDocumentPage({
           <span>/</span>
           <span className="text-muted">New</span>
         </nav>
-        <h1 className="text-xl font-semibold tracking-tight text-fg">New document</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-fg break-words">New document</h1>
       </div>
       <KnowledgeDocumentForm projectId={project.id} />
     </div>
