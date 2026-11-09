@@ -25,13 +25,16 @@ export default async function AgentRunPage({
   if (!run) notFound();
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         title="Agent run"
         description={
           <>
-            <span className="line-clamp-3 whitespace-pre-wrap">{run.request?.task}</span>
-            <Link href="/agents" className="mt-1 inline-block text-[var(--accent)] hover:underline">
+            <span className="line-clamp-3 whitespace-pre-wrap break-words">{run.request?.task}</span>
+            <Link
+              href="/agents"
+              className="mt-1 inline-flex min-h-[40px] items-center text-[var(--accent)] hover:underline md:min-h-0"
+            >
               Back to runs
             </Link>
           </>

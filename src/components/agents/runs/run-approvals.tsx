@@ -206,11 +206,11 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
   };
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Approvals</CardTitle>
       </CardHeader>
-      <CardBody className="space-y-4">
+      <CardBody className="min-w-0 space-y-4">
         {fetchError ? (
           <p
             role="alert"
@@ -241,7 +241,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
         {/* Request form */}
         <form
           onSubmit={handleRequestPreview}
-          className="space-y-3 rounded-lg border border-line bg-[var(--bg-subtle)] p-3"
+          className="min-w-0 space-y-3 rounded-lg border border-line bg-[var(--bg-subtle)] p-3"
           aria-label="Request approval form"
         >
           <div>
@@ -358,6 +358,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
             <Button
               type="submit"
               variant="primary"
+              className="w-full sm:w-auto min-h-[40px] md:min-h-0"
               disabled={formSubmitting || hasOpenSameKind}
             >
               {formSubmitting ? "Requesting..." : "Preview"}
@@ -386,10 +387,10 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
               return (
                 <li
                   key={approval.id}
-                  className="space-y-2 rounded-md border border-line bg-[var(--bg-subtle)] p-3"
+                  className="min-w-0 space-y-2 rounded-md border border-line bg-[var(--bg-subtle)] p-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold text-fg">
                         {KIND_LABELS[approval.kind] ?? approval.kind}
                       </span>
@@ -405,7 +406,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                   {lines.length > 0 ? (
                     <div className="space-y-1">
                       {lines.map((line, idx) => (
-                        <p key={idx} className="text-[13px] text-fg">
+                        <p key={idx} className="break-words text-[13px] text-fg">
                           {line}
                         </p>
                       ))}
@@ -415,11 +416,11 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                   {approval.kind === "draft_pr" &&
                   typeof approval.preview["body"] === "string" &&
                   approval.preview["body"] ? (
-                    <details className="text-[12px] text-muted">
-                      <summary className="cursor-pointer font-medium select-none hover:text-fg">
+                    <details className="min-w-0 text-[12px] text-muted">
+                      <summary className="cursor-pointer font-medium select-none hover:text-fg py-1">
                         PR body
                       </summary>
-                      <pre className="mt-1 whitespace-pre-wrap rounded border border-line bg-[var(--bg-hover)] p-2 font-mono text-[11px] text-fg">
+                      <pre className="mt-1 max-h-60 overflow-x-auto whitespace-pre-wrap break-words rounded border border-line bg-[var(--bg-hover)] p-2 font-mono text-[11px] text-fg">
                         {approval.preview["body"] as string}
                       </pre>
                     </details>
@@ -428,8 +429,8 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                   {approval.kind === "apply_back" &&
                   Array.isArray(approval.preview["entries"]) &&
                   approval.preview["entries"].length > 0 ? (
-                    <details className="text-[12px] text-muted">
-                      <summary className="cursor-pointer font-medium select-none hover:text-fg">
+                    <details className="min-w-0 text-[12px] text-muted">
+                      <summary className="cursor-pointer font-medium select-none hover:text-fg py-1">
                         Entries ({approval.preview["entries"].length})
                       </summary>
                       <ul className="mt-1 space-y-0.5 rounded border border-line bg-[var(--bg-hover)] p-2 font-mono text-[11px] text-fg">
@@ -446,11 +447,11 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                             const path =
                               typeof item.path === "string" ? item.path : "?";
                             return (
-                              <li key={idx} className="flex gap-2">
-                                <span className="w-14 text-[10px] font-semibold uppercase text-muted">
+                              <li key={idx} className="flex flex-wrap items-baseline gap-2">
+                                <span className="w-14 shrink-0 text-[10px] font-semibold uppercase text-muted">
                                   {action}
                                 </span>
-                                <span className="break-all">{path}</span>
+                                <span className="min-w-0 break-all">{path}</span>
                               </li>
                             );
                           },
@@ -462,8 +463,8 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                   {(approval.kind === "merge" || approval.kind === "push") &&
                   Array.isArray(approval.preview["commits"]) &&
                   approval.preview["commits"].length > 0 ? (
-                    <details className="text-[12px] text-muted">
-                      <summary className="cursor-pointer font-medium select-none hover:text-fg">
+                    <details className="min-w-0 text-[12px] text-muted">
+                      <summary className="cursor-pointer font-medium select-none hover:text-fg py-1">
                         Commits ({approval.preview["commits"].length})
                       </summary>
                       <ul className="mt-1 space-y-0.5 rounded border border-line bg-[var(--bg-hover)] p-2 font-mono text-[11px] text-fg">
@@ -485,9 +486,9 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                                 ? item.subject
                                 : "";
                             return (
-                              <li key={idx} className="flex gap-2">
-                                <span className="font-mono text-muted">{sha}</span>
-                                <span className="text-fg">{subject}</span>
+                              <li key={idx} className="flex flex-wrap items-baseline gap-2">
+                                <span className="shrink-0 font-mono text-muted">{sha}</span>
+                                <span className="min-w-0 break-words text-fg">{subject}</span>
                               </li>
                             );
                           },
@@ -502,6 +503,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                         <Button
                           size="sm"
                           variant="primary"
+                          className="min-h-[40px] md:min-h-0"
                           disabled={isDecisionThis || blocker !== null}
                           onClick={() => handleDecision(approval.id, "approve")}
                           aria-label={`Approve ${KIND_LABELS[approval.kind] ?? approval.kind}`}
@@ -514,6 +516,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                         <Button
                           size="sm"
                           variant="secondary"
+                          className="min-h-[40px] md:min-h-0"
                           disabled={isDecisionThis}
                           onClick={() => handleDecision(approval.id, "reject")}
                           aria-label={`Reject ${KIND_LABELS[approval.kind] ?? approval.kind}`}
@@ -525,7 +528,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                         </Button>
                       </div>
                       {blocker ? (
-                        <p className="text-[12px] font-medium text-red-400">
+                        <p className="break-words text-[12px] font-medium text-red-400">
                           {blocker}
                         </p>
                       ) : null}
@@ -535,7 +538,7 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                   {approval.status === "failed" && approval.error ? (
                     <p
                       role="alert"
-                      className="border-t border-line/60 pt-2 text-[12px] font-medium text-red-400"
+                      className="break-words border-t border-line/60 pt-2 text-[12px] font-medium text-red-400"
                     >
                       {approval.error}
                     </p>
@@ -556,14 +559,14 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                               key={k}
                               className="flex flex-wrap items-center gap-1.5"
                             >
-                              <span className="font-medium text-muted">
+                              <span className="shrink-0 font-medium text-muted">
                                 {k}:
                               </span>
                               <a
                                 href={v}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="break-all text-[var(--accent)] hover:underline"
+                                className="min-w-0 break-all text-[var(--accent)] hover:underline"
                               >
                                 {v}
                               </a>
@@ -575,8 +578,8 @@ export function RunApprovals({ runId, finished }: RunApprovalsProps) {
                             key={k}
                             className="flex flex-wrap items-center gap-1.5"
                           >
-                            <span className="font-medium text-muted">{k}:</span>
-                            <span className="break-all font-mono text-fg">
+                            <span className="shrink-0 font-medium text-muted">{k}:</span>
+                            <span className="min-w-0 break-all font-mono text-fg">
                               {typeof v === "object" && v !== null
                                 ? JSON.stringify(v)
                                 : String(v)}

@@ -44,13 +44,20 @@ export function RunDismiss({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Button type="button" size="sm" variant="secondary" onClick={toggle} disabled={busy}>
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        className="min-h-[40px] md:min-h-0"
+        onClick={toggle}
+        disabled={busy}
+      >
         {dismissedAt ? "Restore" : "Dismiss"}
       </Button>
       {dismissedAt ? (
         <span className="text-[12px] text-muted">Dismissed on {dismissedAt.slice(0, 10)}</span>
       ) : null}
-      {error ? <span className="text-[12px] text-red-500">{error}</span> : null}
+      {error ? <span className="break-words text-[12px] text-red-500">{error}</span> : null}
     </div>
   );
 }

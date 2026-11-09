@@ -92,7 +92,7 @@ export default async function AgentsPage({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         title="Agents"
         description="Pick a local project and an implementer, then watch the plan, implement, check and review loop."
@@ -103,7 +103,7 @@ export default async function AgentsPage({
           icon={Bot}
           title="No project with a local folder"
           description="Set a local folder on a project to start an agent run."
-          action={<Link href="/projects" className="text-[13px] text-[var(--accent)]">Open projects</Link>}
+          action={<Link href="/projects" className="inline-flex min-h-[40px] items-center text-[13px] text-[var(--accent)] md:min-h-0">Open projects</Link>}
         />
       ) : (
         <RunForm
@@ -113,14 +113,14 @@ export default async function AgentsPage({
         />
       )}
 
-      <section aria-labelledby="run-history">
-        <div className="mb-2 flex items-center justify-between gap-2">
+      <section aria-labelledby="run-history" className="min-w-0">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 id="run-history" className="text-[13px] font-semibold text-fg">
             Run history
           </h2>
           <Link
             href={showDismissed ? "/agents" : "/agents?dismissed=1"}
-            className="text-[12px] text-[var(--accent)] hover:underline"
+            className="inline-flex min-h-[40px] items-center text-[12px] text-[var(--accent)] hover:underline md:min-h-0"
           >
             {showDismissed ? "Hide dismissed" : "Show dismissed"}
           </Link>
@@ -128,8 +128,8 @@ export default async function AgentsPage({
         {runs.length === 0 ? (
           <p className="text-[13px] text-muted">{showDismissed ? "No runs yet." : "No runs to show."}</p>
         ) : (
-          <Card className="overflow-x-auto">
-            <table className="w-full text-left text-[13px]">
+          <Card className="min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[500px] text-left text-[13px] md:min-w-full">
               <thead className="border-b border-line text-[11px] uppercase text-faint">
                 <tr>
                   <th className="px-4 py-2">Started</th>
@@ -142,13 +142,13 @@ export default async function AgentsPage({
                 {runs.map((run) => (
                   <tr key={run.id} className="border-b border-line last:border-0">
                     <td className="whitespace-nowrap px-4 py-2 text-muted">{run.createdAt.replace("T", " ").slice(0, 16)}</td>
-                    <td className="px-4 py-2">{nameById.get(run.projectId) ?? run.projectId}</td>
-                    <td className="max-w-md truncate px-4 py-2">
+                    <td className="px-4 py-2 break-words">{nameById.get(run.projectId) ?? run.projectId}</td>
+                    <td className="max-w-[200px] truncate px-4 py-2 md:max-w-md">
                       <Link href={`/agents/runs/${run.id}`} className="text-[var(--accent)] hover:underline">
                         {run.request?.task?.slice(0, 120) || run.id}
                       </Link>
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="whitespace-nowrap px-4 py-2">
                       <Badge>{run.status}</Badge>
                       {run.dismissedAt ? <span className="ml-2 text-[11px] text-faint">dismissed</span> : null}
                     </td>

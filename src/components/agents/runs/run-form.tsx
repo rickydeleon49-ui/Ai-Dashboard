@@ -295,11 +295,11 @@ export function RunForm({
         (isAckRequired && !acknowledged)));
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>New run</CardTitle>
       </CardHeader>
-      <CardBody>
+      <CardBody className="min-w-0">
         <form onSubmit={submit} className="space-y-4">
           <Field
             label="Project"
@@ -335,18 +335,29 @@ export function RunForm({
             help="Optional. The run posts its outcome to this task's activity; it never changes the task's status."
           >
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="secondary" onClick={pickNextTask} disabled={!projectId}>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-[40px] md:min-h-0"
+                onClick={pickNextTask}
+                disabled={!projectId}
+              >
                 Next task
               </Button>
               {linkedTask ? (
                 <>
-                  <span className="text-sm text-fg">{linkedTask.title}</span>
-                  <Button type="button" variant="ghost" onClick={() => setLinkedTask(null)}>
+                  <span className="text-sm text-fg break-words">{linkedTask.title}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-[40px] md:min-h-0"
+                    onClick={() => setLinkedTask(null)}
+                  >
                     Clear
                   </Button>
                 </>
               ) : (
-                <span className="text-sm text-muted">{nextTaskNote ?? "None"}</span>
+                <span className="text-sm text-muted break-words">{nextTaskNote ?? "None"}</span>
               )}
             </div>
           </Field>
@@ -404,7 +415,7 @@ export function RunForm({
                   Could not read the Antigravity plugins.{" "}
                   <button
                     type="button"
-                    className="underline"
+                    className="inline-flex min-h-[40px] items-center underline md:min-h-0"
                     onClick={loadInventory}
                   >
                     Try again
@@ -423,7 +434,7 @@ export function RunForm({
                       </div>
                       <ul className="mt-1 list-inside list-disc space-y-0.5 text-fg">
                         {inventory.plugins.map((p) => (
-                          <li key={p.name}>
+                          <li key={p.name} className="break-all">
                             {p.name}
                             {p.hasHooks ? " (has hooks)" : ""}
                           </li>
@@ -438,12 +449,12 @@ export function RunForm({
                       </div>
                       <ul className="mt-1 list-inside list-disc space-y-0.5 text-fg">
                         {inventory.mcpServers.map((s) => (
-                          <li key={s}>{s}</li>
+                          <li key={s} className="break-all">{s}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
-                  <label className="flex items-center gap-2 pt-1 font-normal text-fg cursor-pointer">
+                  <label className="flex min-h-[40px] cursor-pointer items-center gap-2 pt-1 font-normal text-fg md:min-h-0">
                     <input
                       type="checkbox"
                       checked={acknowledged}
@@ -560,7 +571,12 @@ export function RunForm({
               {error}
             </p>
           ) : null}
-          <Button type="submit" variant="primary" disabled={isSubmitDisabled}>
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-full sm:w-auto min-h-[40px] md:min-h-0"
+            disabled={isSubmitDisabled}
+          >
             {busy ? "Starting..." : "Start run"}
           </Button>
         </form>
