@@ -39,22 +39,22 @@ export default async function ProjectTimelinePage({ params }: { params: Promise<
   if (!project) notFound();
 
   return (
-    <div className="space-y-5">
-      <div className="space-y-1">
-        <nav className="flex items-center gap-1.5 text-[12px] text-faint" aria-label="Breadcrumb">
-          <Link href="/projects" className="transition-colors hover:text-fg">
+    <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-1">
+        <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint min-w-0" aria-label="Breadcrumb">
+          <Link href="/projects" className="transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center">
             Projects
           </Link>
           <span>/</span>
-          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg">
+          <Link href={`/projects/${project.id}`} className="transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center truncate max-w-[200px] sm:max-w-none">
             {project.name}
           </Link>
           <span>/</span>
           <span className="text-muted">Timeline</span>
         </nav>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-fg">{project.name} — Timeline</h1>
-          <Link href={`/projects/${project.id}/tasks`} className="text-[12px] text-muted transition-colors hover:text-fg">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-fg break-words">{project.name} — Timeline</h1>
+          <Link href={`/projects/${project.id}/tasks`} className="text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center">
             Tasks
           </Link>
         </div>

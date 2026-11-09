@@ -379,10 +379,10 @@ export function TaskChecklist({
   }
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2.5 min-w-0">
       {/* Header and Progress */}
-      <div className="flex items-center justify-between gap-2 border-b border-line/60 pb-1.5">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="text-[12.5px] font-medium text-fg">Checklist</span>
           {totalCount > 0 ? (
             <span
@@ -403,16 +403,16 @@ export function TaskChecklist({
       {error ? (
         <div
           role="alert"
-          className="flex items-center justify-between gap-2 rounded border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[12px] text-red-400"
+          className="flex items-center justify-between gap-2 rounded border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[12px] text-red-400 min-w-0"
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            <span>{error}</span>
+            <span className="break-words">{error}</span>
           </div>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="rounded p-0.5 text-red-400 hover:text-red-300"
+            className="rounded p-0.5 text-red-400 hover:text-red-300 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center"
             aria-label="Dismiss error"
           >
             <X className="h-3 w-3" />
@@ -422,9 +422,9 @@ export function TaskChecklist({
 
       {/* Checklist Items List */}
       {items.length === 0 ? (
-        <p className="py-1 text-[12px] text-faint">No checklist items yet.</p>
+        <p className="py-1 text-[12px] text-faint break-words">No checklist items yet.</p>
       ) : (
-        <ul className="space-y-1.5" aria-label="Task checklist items">
+        <ul className="space-y-1.5 min-w-0" aria-label="Task checklist items">
           {items.map((item, index) => {
             const isEditing = editingItemId === item.id;
             const isConfirmingConvert = confirmingConvertId === item.id;
@@ -433,7 +433,7 @@ export function TaskChecklist({
               <li
                 key={item.id}
                 className={cn(
-                  "group flex items-center justify-between gap-2 rounded-md border border-line/50 bg-[var(--bg-subtle)]/50 px-2 py-1.5 text-[12.5px] transition-colors hover:border-line",
+                  "group flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 rounded-md border border-line/50 bg-[var(--bg-subtle)]/50 px-2 py-1.5 text-[12.5px] transition-colors hover:border-line min-w-0",
                   item.done && "bg-[var(--bg-subtle)]/25",
                 )}
               >
@@ -451,7 +451,7 @@ export function TaskChecklist({
                     disabled={isViewer}
                     onClick={() => handleToggleDone(item)}
                     className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                      "flex h-6 w-6 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-4 md:w-4 shrink-0 items-center justify-center rounded border transition-colors",
                       item.done
                         ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
                         : "border-line bg-surface text-faint hover:border-[var(--accent-line)] hover:text-fg",
@@ -479,7 +479,7 @@ export function TaskChecklist({
                         maxLength={500}
                         autoFocus
                         disabled={savingEdit}
-                        className="h-6.5 text-[12.5px]"
+                        className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 text-[12.5px]"
                         aria-label={`Edit text for item ${item.text}`}
                         onKeyDown={(e) => {
                           if (e.key === "Escape") cancelEdit();
@@ -490,7 +490,7 @@ export function TaskChecklist({
                         size="sm"
                         variant="primary"
                         disabled={savingEdit}
-                        className="h-6.5 px-2 text-[11px]"
+                        className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 px-2 text-[11px]"
                         aria-label="Save item"
                       >
                         {savingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
@@ -501,7 +501,7 @@ export function TaskChecklist({
                         variant="ghost"
                         onClick={cancelEdit}
                         disabled={savingEdit}
-                        className="h-6.5 px-2 text-[11px]"
+                        className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 px-2 text-[11px]"
                         aria-label="Cancel editing"
                       >
                         <X className="h-3 w-3" />
@@ -530,7 +530,7 @@ export function TaskChecklist({
                           type="button"
                           onClick={() => handleConvert(item.id)}
                           disabled={converting}
-                          className="font-semibold text-emerald-400 hover:underline"
+                          className="font-semibold text-emerald-400 hover:underline min-h-[40px] md:min-h-0 inline-flex items-center"
                         >
                           {converting ? "..." : "Yes"}
                         </button>
@@ -539,7 +539,7 @@ export function TaskChecklist({
                           type="button"
                           onClick={() => setConfirmingConvertId(null)}
                           disabled={converting}
-                          className="text-faint hover:underline"
+                          className="text-faint hover:underline min-h-[40px] md:min-h-0 inline-flex items-center"
                         >
                           No
                         </button>
@@ -554,7 +554,7 @@ export function TaskChecklist({
                           aria-label={`Move "${item.text}" up`}
                           title="Move up"
                           className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg",
+                            "flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg",
                             index === 0 && "cursor-not-allowed opacity-25 hover:text-faint",
                           )}
                         >
@@ -568,7 +568,7 @@ export function TaskChecklist({
                           aria-label={`Move "${item.text}" down`}
                           title="Move down"
                           className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg",
+                            "flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg",
                             index === items.length - 1 && "cursor-not-allowed opacity-25 hover:text-faint",
                           )}
                         >
@@ -581,7 +581,7 @@ export function TaskChecklist({
                           onClick={() => startEdit(item)}
                           aria-label={`Edit "${item.text}"`}
                           title="Edit item"
-                          className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
+                          className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
                         >
                           <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </button>
@@ -592,7 +592,7 @@ export function TaskChecklist({
                           onClick={() => setConfirmingConvertId(item.id)}
                           aria-label={`Convert "${item.text}" to full task`}
                           title="Convert to full task"
-                          className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-[var(--accent-text)]"
+                          className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-[var(--accent-text)]"
                         >
                           <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </button>
@@ -603,7 +603,7 @@ export function TaskChecklist({
                           onClick={() => handleDelete(item.id)}
                           aria-label={`Delete "${item.text}"`}
                           title="Delete item"
-                          className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
+                          className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
                         >
                           <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </button>
@@ -619,7 +619,7 @@ export function TaskChecklist({
 
       {/* Add Item Form (Members, Admins, Owners, and Desktop) */}
       {!isViewer && items.length < MAX_CHECKLIST_ITEMS_PER_TASK ? (
-        <form onSubmit={handleAddItem} className="flex items-center gap-1.5 pt-1">
+        <form onSubmit={handleAddItem} className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 pt-1 min-w-0">
           <Input
             ref={addInputRef}
             value={newText}
@@ -627,7 +627,7 @@ export function TaskChecklist({
             maxLength={500}
             disabled={adding}
             placeholder="Add an item... (Enter to add)"
-            className="h-7 text-[12px]"
+            className="h-7 min-h-[40px] md:min-h-0 md:h-7 text-[12px] min-w-0 flex-1"
             aria-label="New checklist item text"
           />
           <Button
@@ -635,7 +635,7 @@ export function TaskChecklist({
             size="sm"
             variant="secondary"
             disabled={adding || !newText.trim()}
-            className="h-7 shrink-0 px-2.5 text-[11.5px]"
+            className="h-7 min-h-[40px] md:min-h-0 md:h-7 shrink-0 px-2.5 text-[11.5px]"
           >
             {adding ? (
               <Loader2 className="h-3 w-3 animate-spin" />

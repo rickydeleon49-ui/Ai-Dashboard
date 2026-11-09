@@ -282,7 +282,7 @@ export function AssigneePicker({
             type="button"
             disabled={disabled}
             onClick={() => (isOpen ? closePicker() : openPicker())}
-            className="shrink-0 rounded px-2 py-1 text-[11.5px] font-medium underline underline-offset-2 transition-colors hover:text-fg disabled:opacity-50"
+            className="shrink-0 rounded px-2 py-1 text-[11.5px] font-medium underline underline-offset-2 transition-colors hover:text-fg disabled:opacity-50 min-h-[40px] md:min-h-0 inline-flex items-center"
           >
             Change
           </button>
@@ -300,7 +300,7 @@ export function AssigneePicker({
           disabled={disabled}
           onClick={() => (isOpen ? closePicker() : openPicker())}
           className={cn(
-            "flex h-8 w-full items-center justify-between rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 text-[13px] text-fg transition-colors",
+            "flex h-8 min-h-[40px] md:min-h-0 md:h-8 w-full items-center justify-between rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 text-[13px] text-fg transition-colors",
             "hover:border-[var(--border-strong)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]",
             disabled && "cursor-not-allowed opacity-50",
           )}
@@ -356,7 +356,7 @@ export function AssigneePicker({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search active members..."
-              className="h-7 w-full rounded border border-line bg-[var(--bg-subtle)] pl-7 pr-2 text-[12px] text-fg placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+              className="h-7 min-h-[40px] md:min-h-0 md:h-7 w-full rounded border border-line bg-[var(--bg-subtle)] pl-7 pr-2 text-[12px] text-fg placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
             />
           </div>
 
@@ -371,7 +371,7 @@ export function AssigneePicker({
                 closePicker();
               }}
               className={cn(
-                "flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-[12.5px] transition-colors",
+                "flex cursor-pointer items-center justify-between rounded px-2 py-1.5 min-h-[40px] md:min-h-0 text-[12.5px] transition-colors",
                 value === null
                   ? "bg-[var(--accent-soft)] font-medium text-[var(--accent-text)]"
                   : "text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",
@@ -408,7 +408,7 @@ export function AssigneePicker({
                       closePicker();
                     }}
                     className={cn(
-                      "flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-[12.5px] transition-colors",
+                      "flex cursor-pointer items-center justify-between rounded px-2 py-1.5 min-h-[40px] md:min-h-0 text-[12.5px] transition-colors",
                       isSelected
                         ? "bg-[var(--accent-soft)] font-medium text-[var(--accent-text)]"
                         : "text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",

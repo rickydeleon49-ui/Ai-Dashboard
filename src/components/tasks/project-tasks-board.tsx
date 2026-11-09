@@ -167,14 +167,15 @@ export function ProjectTasksBoard({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-fg">Milestones &amp; tasks</h2>
+    <div className="space-y-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+        <h2 className="text-[15px] font-semibold text-fg break-words">Milestones &amp; tasks</h2>
         {!isViewer ? (
           <Button
             type="button"
             variant="secondary"
             size="sm"
+            className="min-h-[40px] md:min-h-0"
             onClick={() => setCreatingMilestone((v) => !v)}
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -183,14 +184,14 @@ export function ProjectTasksBoard({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           {accountsMode ? (
             <Select
               aria-label="Filter tasks by assignment"
               value={assignmentFilter}
               onChange={(e) => setAssignmentFilter(e.target.value as typeof assignmentFilter)}
-              className="w-auto min-w-36 text-[12.5px]"
+              className="w-auto min-w-36 text-[12.5px] min-h-[40px] md:min-h-0"
             >
               <option value="all">All assignees</option>
               <option value="to_me">Assigned to me</option>
@@ -202,7 +203,7 @@ export function ProjectTasksBoard({
             <button
               type="button"
               onClick={() => setAssignmentFilter("all")}
-              className="h-8 rounded-md px-2 text-[12.5px] text-faint transition-colors hover:text-fg"
+              className="h-8 min-h-[40px] md:min-h-0 md:h-8 rounded-md px-2 text-[12.5px] text-faint transition-colors hover:text-fg inline-flex items-center"
             >
               Clear filter
             </button>
@@ -210,7 +211,7 @@ export function ProjectTasksBoard({
         </div>
 
         {!isViewer && filteredTasks.length > 0 ? (
-          <label className="flex cursor-pointer items-center gap-2 select-none text-[12.5px] text-faint hover:text-fg">
+          <label className="flex cursor-pointer items-center gap-2 select-none text-[12.5px] text-faint hover:text-fg min-h-[40px] md:min-h-0">
             <input
               type="checkbox"
               aria-label="Select all visible tasks"
@@ -248,10 +249,10 @@ export function ProjectTasksBoard({
         />
       ) : (
         groups.map((group) => (
-          <Card key={group.milestone?.id ?? "none"}>
+          <Card key={group.milestone?.id ?? "none"} className="min-w-0">
             {group.milestone ? (
               editingMilestoneId === group.milestone.id && !isViewer ? (
-                <div className="border-b border-line p-4">
+                <div className="border-b border-line p-4 min-w-0">
                   <MilestoneFormInline
                     projectId={projectId}
                     milestone={group.milestone}
@@ -263,8 +264,8 @@ export function ProjectTasksBoard({
                   />
                 </div>
               ) : (
-                <CardHeader>
-                  <div className="flex min-w-0 items-center gap-2">
+                <CardHeader className="flex-wrap items-center justify-between gap-2 min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <CardTitle className="truncate">{group.milestone.title}</CardTitle>
                     <Badge className={MILESTONE_STATUS_META[group.milestone.status].className}>
                       {MILESTONE_STATUS_META[group.milestone.status].label}
@@ -283,7 +284,7 @@ export function ProjectTasksBoard({
                       <button
                         type="button"
                         onClick={() => setEditingMilestoneId(group.milestone!.id)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
+                        className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
                         title="Edit milestone"
                       >
                         <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -298,12 +299,12 @@ export function ProjectTasksBoard({
                 </CardHeader>
               )
             ) : group.tasks.length > 0 || (creatingTaskFor === "none" && !isViewer) ? (
-              <CardHeader>
-                <CardTitle className="text-faint">No milestone</CardTitle>
+              <CardHeader className="min-w-0">
+                <CardTitle className="text-faint break-words">No milestone</CardTitle>
               </CardHeader>
             ) : null}
 
-            <CardBody className="space-y-2">
+            <CardBody className="space-y-2 min-w-0">
               {group.tasks.map((task) => (
                 <TaskRow
                   key={task.id}
@@ -345,7 +346,7 @@ export function ProjectTasksBoard({
                   <button
                     type="button"
                     onClick={() => setCreatingTaskFor(group.milestone?.id ?? "none")}
-                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-faint transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
+                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-faint transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg min-h-[40px] md:min-h-0"
                   >
                     <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
                     Add task
@@ -414,16 +415,16 @@ function MilestoneFormInline({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-line bg-[var(--bg-subtle)] p-3">
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-line bg-[var(--bg-subtle)] p-3 min-w-0">
       <Field label="Title">
-        <Input name="title" required maxLength={200} autoFocus defaultValue={milestone?.title ?? ""} placeholder="Beta launch" />
+        <Input name="title" required maxLength={200} autoFocus defaultValue={milestone?.title ?? ""} placeholder="Beta launch" className="min-h-[40px] md:min-h-0" />
       </Field>
       <Field label="Description">
         <Textarea name="description" rows={2} defaultValue={milestone?.description ?? ""} />
       </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
         <Field label="Status">
-          <Select name="status" defaultValue={milestone?.status ?? "open"}>
+          <Select name="status" defaultValue={milestone?.status ?? "open"} className="min-h-[40px] md:min-h-0">
             {MILESTONE_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {MILESTONE_STATUS_META[s].label}
@@ -432,16 +433,16 @@ function MilestoneFormInline({
           </Select>
         </Field>
         <Field label="Due date">
-          <Input type="date" name="dueDate" defaultValue={milestone?.dueDate?.slice(0, 10) ?? ""} />
+          <Input type="date" name="dueDate" defaultValue={milestone?.dueDate?.slice(0, 10) ?? ""} className="min-h-[40px] md:min-h-0" />
         </Field>
       </div>
-      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[12px] text-red-400 break-words">{error}</p> : null}
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" size="sm" disabled={saving}>
+        <Button type="submit" variant="primary" size="sm" disabled={saving} className="min-h-[40px] md:min-h-0">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} /> : null}
           {editing ? "Save" : "Create milestone"}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} className="min-h-[40px] md:min-h-0">
           Cancel
         </Button>
       </div>
@@ -479,7 +480,7 @@ function DeleteMilestoneButton({
       onClick={remove}
       disabled={busy}
       title={confirming ? "Click again to confirm" : "Delete milestone"}
-      className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400 disabled:opacity-50"
+      className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400 disabled:opacity-50"
     >
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />}
     </button>
@@ -553,16 +554,16 @@ function TaskFormInline({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-line bg-[var(--bg-subtle)] p-3">
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-line bg-[var(--bg-subtle)] p-3 min-w-0">
       <Field label="Title">
-        <Input name="title" required maxLength={200} autoFocus defaultValue={task?.title ?? ""} placeholder="Write the migration script" />
+        <Input name="title" required maxLength={200} autoFocus defaultValue={task?.title ?? ""} placeholder="Write the migration script" className="min-h-[40px] md:min-h-0" />
       </Field>
       <Field label="Description">
         <Textarea name="description" rows={2} defaultValue={task?.description ?? ""} />
       </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
         <Field label="Status">
-          <Select name="status" defaultValue={task?.status ?? "todo"}>
+          <Select name="status" defaultValue={task?.status ?? "todo"} className="min-h-[40px] md:min-h-0">
             {TASK_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {TASK_STATUS_META[s].label}
@@ -571,7 +572,7 @@ function TaskFormInline({
           </Select>
         </Field>
         <Field label="Priority">
-          <Select name="priority" defaultValue={task?.priority ?? "medium"}>
+          <Select name="priority" defaultValue={task?.priority ?? "medium"} className="min-h-[40px] md:min-h-0">
             {TASK_PRIORITIES.map((p) => (
               <option key={p} value={p}>
                 {TASK_PRIORITY_META[p].label}
@@ -580,10 +581,10 @@ function TaskFormInline({
           </Select>
         </Field>
         <Field label="Due date">
-          <Input type="date" name="dueDate" defaultValue={task?.dueDate?.slice(0, 10) ?? ""} />
+          <Input type="date" name="dueDate" defaultValue={task?.dueDate?.slice(0, 10) ?? ""} className="min-h-[40px] md:min-h-0" />
         </Field>
         <Field label="Milestone">
-          <Select name="milestoneId" defaultValue={task?.milestoneId ?? milestoneId ?? ""}>
+          <Select name="milestoneId" defaultValue={task?.milestoneId ?? milestoneId ?? ""} className="min-h-[40px] md:min-h-0">
             <option value="">No milestone</option>
             {milestones.map((m) => (
               <option key={m.id} value={m.id}>
@@ -606,13 +607,13 @@ function TaskFormInline({
         </Field>
       ) : null}
 
-      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[12px] text-red-400 break-words">{error}</p> : null}
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" size="sm" disabled={saving}>
+        <Button type="submit" variant="primary" size="sm" disabled={saving} className="min-h-[40px] md:min-h-0">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} /> : null}
           {editing ? "Save" : "Create task"}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} className="min-h-[40px] md:min-h-0">
           Cancel
         </Button>
       </div>
@@ -718,8 +719,8 @@ function TaskRow({
   const assignerMember = task.assignedBy && membersMap ? membersMap.get(task.assignedBy) : null;
 
   return (
-    <div id={`task-${task.id}`} className="scroll-mt-20 rounded-lg border border-line bg-[var(--bg-subtle)]/40">
-      <div className="flex items-center gap-2 px-2.5 py-2">
+    <div id={`task-${task.id}`} className="scroll-mt-20 rounded-lg border border-line bg-[var(--bg-subtle)]/40 min-w-0">
+      <div className="flex items-center gap-2 px-2.5 py-2 overflow-x-auto min-w-0">
         {!isViewer && onToggleSelect ? (
           <input
             type="checkbox"
@@ -735,7 +736,7 @@ function TaskRow({
           disabled={statusSaving || isViewer}
           aria-label={`Status for ${task.title}`}
           onChange={(e) => changeStatus(e.target.value)}
-          className="h-6.5 w-[8.5rem] shrink-0 text-[12px]"
+          className="h-6.5 min-h-[40px] md:min-h-0 md:h-6.5 w-[8.5rem] shrink-0 text-[12px]"
         >
           {TASK_STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -747,7 +748,7 @@ function TaskRow({
         <button
           type="button"
           onClick={onExpandToggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left min-h-[40px] md:min-h-0"
         >
           <ChevronDown
             className={cn("h-3 w-3 shrink-0 text-faint transition-transform", expanded && "rotate-180")}
@@ -796,7 +797,7 @@ function TaskRow({
             <button
               type="button"
               onClick={onEditToggle}
-              className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
+              className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-fg"
               title="Edit task"
             >
               <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -805,7 +806,7 @@ function TaskRow({
               type="button"
               onClick={remove}
               title={confirmingDelete ? "Click again to confirm" : "Delete task"}
-              className="flex h-6 w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
+              className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center rounded text-faint transition-colors hover:text-red-400"
             >
               <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
@@ -902,14 +903,14 @@ function TaskDependencies({
   const availableTasks = otherTasks.filter((t) => !blockerIds.has(t.id));
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
+    <div className="space-y-2 min-w-0">
+      <div className="flex items-center justify-between min-w-0">
         <span className="text-[11.5px] font-medium text-faint">Blocked by ({blockers.length})</span>
         {!adding && availableTasks.length > 0 ? (
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="text-[11.5px] text-faint transition-colors hover:text-fg"
+            className="text-[11.5px] text-faint transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center"
           >
             + Add blocker
           </button>
@@ -917,13 +918,13 @@ function TaskDependencies({
       </div>
 
       {blockers.length > 0 ? (
-        <ul className="space-y-1">
+        <ul className="space-y-1 min-w-0">
           {blockers.map((b) => (
             <li
               key={b.id}
-              className="flex items-center justify-between gap-2 rounded bg-surface px-2 py-1 text-[12px]"
+              className="flex items-center justify-between gap-2 rounded bg-surface px-2 py-1 text-[12px] min-w-0"
             >
-              <span className={cn("truncate text-muted", DONE_STATUSES.has(b.status) && "line-through text-faint")}>
+              <span className={cn("truncate text-muted min-w-0 flex-1", DONE_STATUSES.has(b.status) && "line-through text-faint")}>
                 {b.title}
               </span>
               <div className="flex shrink-0 items-center gap-1.5">
@@ -933,7 +934,7 @@ function TaskDependencies({
                 <button
                   type="button"
                   onClick={() => removeDependency(b.id)}
-                  className="text-faint hover:text-red-400"
+                  className="flex h-8 w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-6 md:w-6 items-center justify-center text-faint hover:text-red-400"
                   title="Remove blocker"
                 >
                   <Trash2 className="h-3 w-3" />
@@ -945,11 +946,11 @@ function TaskDependencies({
       ) : null}
 
       {adding ? (
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1 min-w-0">
           <Select
             onChange={(e) => addDependency(e.target.value)}
             defaultValue=""
-            className="h-7 text-[12px]"
+            className="h-7 min-h-[40px] md:min-h-0 md:h-7 text-[12px]"
             autoFocus
           >
             <option value="" disabled>
@@ -961,13 +962,13 @@ function TaskDependencies({
               </option>
             ))}
           </Select>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)} className="min-h-[40px] md:min-h-0">
             Cancel
           </Button>
         </div>
       ) : null}
 
-      {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[11px] text-red-400 break-words">{error}</p> : null}
     </div>
   );
 }
