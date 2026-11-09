@@ -526,6 +526,53 @@ account once it succeeds.
 See `.env.example` for every variable and `docs/OVERVIEW.md` §2b/§7 for how
 route restriction, workspace resolution and role checks fit together.
 
+## Self-hosted mode (preview)
+
+Run Command Center headless on an always-on machine you own (Linux mini PC
+first, macOS second) so agent runs continue with no desktop app open.
+
+### Safety rules
+
+- **Separate mode**: requires `AGENT_HOST_MODE=self-hosted`.
+- **Refuses conflicting environments**: the server refuses to start if
+  `AUTH_MODE=accounts`, `DATABASE_URL`, `DASHBOARD_PASSWORD`, any `RAILWAY_*`
+  variable, `DASHBOARD_LOCAL`, or `DESKTOP_INTERNAL_SECRET` are set.
+- **Binds to loopback**: binds `127.0.0.1` by default (never all interfaces).
+  `AGENT_HOST_ALLOW_LAN=1` allows a private/Tailscale address.
+- **Tailscale provides HTTPS**: `tailscale serve --bg --https=443 http://127.0.0.1:3000`.
+- **Approvals ask you to sign in again**: run approvals (merge, push, draft PR)
+  require signing in again within the last 5 minutes.
+
+### Setup
+
+1. **Clone** the repository on your machine.
+2. **Install dependencies**: `npm ci`
+3. **Build**: `npm run build`
+4. **Set operator password**: `npm run operator:password`
+5. **Copy env example**: copy `.env.selfhosted.example` to `.env.selfhosted` and
+   adjust paths.
+6. **Install the service**:
+   - **Linux (systemd user unit)**: copy `scripts/service/command-center.service`
+     to `~/.config/systemd/user/command-center.service`, update the path
+     placeholders and `ReadWritePaths=`, then enable with:
+     ```bash
+     systemctl --user daemon-reload
+     systemctl --user enable --now command-center.service
+     ```
+   - **macOS (launchd LaunchAgent)**: copy
+     `scripts/service/com.commandcenter.selfhosted.plist` to
+     `~/Library/LaunchAgents/com.commandcenter.selfhosted.plist`, update the
+     path placeholders, then load with:
+     ```bash
+     launchctl load ~/Library/LaunchAgents/com.commandcenter.selfhosted.plist
+     ```
+7. **Start Tailscale HTTPS**:
+   ```bash
+   tailscale serve --bg --https=443 http://127.0.0.1:3000
+   ```
+
+Windows: not supported as a service yet.
+
 ## Architecture
 
 Start with **[docs/OVERVIEW.md](docs/OVERVIEW.md)** — what the app does, the

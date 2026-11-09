@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.commandcenter.selfhosted</string>
+
+    <key>WorkingDirectory</key>
+    <!-- Replace with the absolute path to your cloned repository -->
+    <string>/path/to/Ai-Dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Replace with the absolute path to start-selfhosted.sh in your repo -->
+        <string>/path/to/Ai-Dashboard/scripts/service/start-selfhosted.sh</string>
+    </array>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <!-- Replace with your desired stdout log path, e.g. /path/to/data/stdout.log -->
+    <string>/path/to/data/stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <!-- Replace with your desired stderr log path, e.g. /path/to/data/stderr.log -->
+    <string>/path/to/data/stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <!-- Ensure Node, npm, git, and agent CLIs (claude, codex, agy) are on PATH -->
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>
