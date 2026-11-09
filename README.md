@@ -573,6 +573,8 @@ first, macOS second) so agent runs continue with no desktop app open.
 
 Windows: not supported as a service yet.
 
+See [docs/SELF_HOSTED.md](docs/SELF_HOSTED.md) for the step-by-step guide, acceptance checklist and troubleshooting.
+
 ## Architecture
 
 Start with **[docs/OVERVIEW.md](docs/OVERVIEW.md)** — what the app does, the
