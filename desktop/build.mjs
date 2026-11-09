@@ -11,6 +11,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "esbuild";
+import { copyTerminalVendor } from "./vendor.mjs";
 
 const require_ = createRequire(import.meta.url);
 const root = process.cwd();
@@ -231,5 +232,13 @@ if (!(await exists(sqliteAddon))) {
   process.exit(1);
 }
 console.log("• verified node_modules/better-sqlite3 is present for runner");
+
+/*
+ * Terminal runtime. The installer ships desktop/** but not node_modules, so
+ * node-pty (this platform's N-API prebuild only) and xterm are copied beside
+ * the main process code. desktop/vendor is generated and git-ignored.
+ */
+await copyTerminalVendor(root, path.join(root, "desktop", "vendor"));
+console.log("• copied terminal runtime to desktop/vendor");
 
 console.log("Standalone bundle ready for packaging.");

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal</title>
+  <link rel="stylesheet" href="../vendor/xterm/xterm.css">
+  <link rel="stylesheet" href="terminal.css">
+  <script src="../vendor/xterm/xterm.js"></script>
+  <script src="../vendor/xterm/addon-fit.js"></script>
+  <script src="usage-strip.js"></script>
+  <script src="terminal.js" defer></script>
+</head>
+<body>
+  <div id="top-bar" class="top-bar">
+    <div id="tabs-container" class="tabs-container">
+      <div id="tabs-list" class="tabs-list" role="tablist"></div>
+      <div class="new-tab-wrapper">
+        <button id="new-tab-btn" class="new-tab-btn" type="button" aria-label="New terminal" title="New terminal">+</button>
+        <div id="shell-menu" class="shell-menu hidden" role="menu"></div>
+      </div>
+    </div>
+    <div id="quick-launch-group" class="quick-launch-group">
+      <button type="button" class="quick-launch-btn" data-tool="claude" disabled>Claude Code</button>
+      <button type="button" class="quick-launch-btn" data-tool="agy" disabled>Antigravity</button>
+      <button type="button" class="quick-launch-btn" data-tool="codex" disabled>Codex</button>
+    </div>
+    <div id="usage-strip"></div>
+  </div>
+  <div id="terminal-area" class="terminal-area"></div>
+</body>
+</html>

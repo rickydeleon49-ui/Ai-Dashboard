@@ -31,7 +31,7 @@ function isSafeRoute(route) {
 }
 
 /** The only actions the renderer may ask for. */
-const ACTIONS = ["folder", "reveal", "editor", "terminal"];
+const ACTIONS = ["folder", "reveal", "editor", "terminal", "app-terminal"];
 
 contextBridge.exposeInMainWorld("desktop", {
   /** True only inside the desktop shell, so the web build can branch on it. */
