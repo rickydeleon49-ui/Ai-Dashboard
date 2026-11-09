@@ -14,10 +14,13 @@ import assert from "node:assert/strict";
 import { afterEach, before, describe, it } from "node:test";
 import React from "react";
 
-if (typeof (React as { createContext?: unknown }).createContext !== "function") {
+if (
+  typeof (React as { createContext?: unknown }).createContext !== "function"
+) {
   (React as { createContext?: unknown }).createContext = () => ({
     Provider: ({ children }: { children: unknown }) => children,
-    Consumer: ({ children }: { children: (val: unknown) => unknown }) => children(null),
+    Consumer: ({ children }: { children: (val: unknown) => unknown }) =>
+      children(null),
   });
 }
 
@@ -26,7 +29,8 @@ let proxyModule: ProxyModule;
 let NextRequest: typeof import("next/server").NextRequest;
 
 const PASSWORD = "correct-horse-battery-staple";
-const DESKTOP_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const DESKTOP_SECRET =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 before(async () => {
   proxyModule = await import("../../src/proxy");
@@ -90,7 +94,10 @@ async function call(
   url = "http://localhost:3000/api/projects",
 ): Promise<Response> {
   const stubEvent = {} as Parameters<ProxyModule["proxy"]>[1];
-  return proxyModule.proxy(request(method, url, headers), stubEvent) as Promise<Response>;
+  return proxyModule.proxy(
+    request(method, url, headers),
+    stubEvent,
+  ) as Promise<Response>;
 }
 
 const auth = { authorization: `Basic ${btoa(`user:${PASSWORD}`)}` };
@@ -139,7 +146,9 @@ describe("desktop mode cryptographic launch secret authentication", () => {
 
   it("rejects requests with an invalid desktop secret with 401", async () => {
     desktop();
-    const invalidHeader = { "x-dashboard-desktop-secret": "wrong-secret-value-00000000000000" };
+    const invalidHeader = {
+      "x-dashboard-desktop-secret": "wrong-secret-value-00000000000000",
+    };
     const response = await call("GET", invalidHeader);
     assert.equal(response.status, 401);
   });
@@ -208,12 +217,18 @@ describe("precedence: accounts and password mode take precedence over local bypa
     // Unauthenticated request must receive 401 Basic auth, NOT desktop access
     const unauthResponse = await call("GET");
     assert.equal(unauthResponse.status, 401);
-    assert.match(unauthResponse.headers.get("www-authenticate") ?? "", /^Basic/);
+    assert.match(
+      unauthResponse.headers.get("www-authenticate") ?? "",
+      /^Basic/,
+    );
 
     // Supplying desktop secret alone must NOT bypass password mode
     const secretOnlyResponse = await call("GET", desktopHeader);
     assert.equal(secretOnlyResponse.status, 401);
-    assert.match(secretOnlyResponse.headers.get("www-authenticate") ?? "", /^Basic/);
+    assert.match(
+      secretOnlyResponse.headers.get("www-authenticate") ?? "",
+      /^Basic/,
+    );
 
     // Supplying valid password succeeds
     const authResponse = await call("GET", auth);
@@ -249,17 +264,30 @@ describe("precedence: accounts and password mode take precedence over local bypa
   });
 });
 
-describe("self-hosted mode (until sign-in exists)", () => {
-  it("fails closed with 503 on every request", async () => {
-    for (const k of ["DASHBOARD_PASSWORD", "AUTH_MODE", "DATABASE_URL", "DASHBOARD_LOCAL", "DESKTOP_INTERNAL_SECRET"]) {
+describe("self-hosted mode", () => {
+  it("fails closed with 503 on every request when no operator password is set", async () => {
+    for (const k of [
+      "DASHBOARD_PASSWORD",
+      "AUTH_MODE",
+      "DATABASE_URL",
+      "DASHBOARD_LOCAL",
+      "DESKTOP_INTERNAL_SECRET",
+    ]) {
       delete env[k];
     }
     env.NODE_ENV = "development";
     env.AGENT_HOST_MODE = "self-hosted";
-    for (const method of ["GET", "POST"]) {
-      const response = await call(method);
-      assert.equal(response.status, 503);
-      assert.match(await response.text(), /Self-hosted sign-in is not set up yet/);
+    const savedFile = env.OPERATOR_FILE;
+    env.OPERATOR_FILE = "/nonexistent-dir-aw5/operator.json";
+    try {
+      for (const method of ["GET", "POST"]) {
+        const response = await call(method);
+        assert.equal(response.status, 503);
+        assert.match(await response.text(), /npm run operator:password/);
+      }
+    } finally {
+      if (savedFile === undefined) delete env.OPERATOR_FILE;
+      else env.OPERATOR_FILE = savedFile;
     }
   });
 
@@ -273,33 +301,48 @@ describe("self-hosted mode (until sign-in exists)", () => {
 describe("cross-site request forgery in hosted password mode", () => {
   it("blocks an authenticated mutation a browser reports as cross-site", async () => {
     hosted();
-    const response = await call("POST", { ...auth, "sec-fetch-site": "cross-site" });
+    const response = await call("POST", {
+      ...auth,
+      "sec-fetch-site": "cross-site",
+    });
     assert.equal(response.status, 403);
   });
 
   it("blocks foreign origin mutations in hosted password mode", async () => {
     hosted();
-    const response = await call("POST", { ...auth, origin: "https://attacker.example" });
+    const response = await call("POST", {
+      ...auth,
+      origin: "https://attacker.example",
+    });
     assert.equal(response.status, 403);
   });
 
   for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
     it(`blocks cross-site ${method}`, async () => {
       hosted();
-      const response = await call(method, { ...auth, "sec-fetch-site": "cross-site" });
+      const response = await call(method, {
+        ...auth,
+        "sec-fetch-site": "cross-site",
+      });
       assert.equal(response.status, 403);
     });
   }
 
   it("allows same origin requests", async () => {
     hosted();
-    const response = await call("POST", { ...auth, "sec-fetch-site": "same-origin" });
+    const response = await call("POST", {
+      ...auth,
+      "sec-fetch-site": "same-origin",
+    });
     assert.notEqual(response.status, 403);
   });
 
   it("does not block reads", async () => {
     hosted();
-    const response = await call("GET", { ...auth, "sec-fetch-site": "cross-site" });
+    const response = await call("GET", {
+      ...auth,
+      "sec-fetch-site": "cross-site",
+    });
     assert.notEqual(response.status, 403);
   });
 });

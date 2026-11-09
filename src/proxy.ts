@@ -1,8 +1,15 @@
-import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
+import {
+  NextResponse,
+  type NextRequest,
+  type NextFetchEvent,
+} from "next/server";
 import type { NextAuthRequest } from "next-auth";
 import { safeEqual } from "@/lib/safe-equal";
 import { isAccountsMode, isSelfHostedMode } from "@/lib/auth-mode";
 import { validateStartupConfig } from "@/core/selfhost/startup";
+import { readOperatorFile } from "@/core/selfhost/operator-store";
+import { OPERATOR_COOKIE, verifyOperatorSession } from "@/core/auth/operator";
+import { requireRecentSignIn } from "@/core/auth/operator-routes";
 
 /**
  * Access control for the whole application.
@@ -69,7 +76,10 @@ function setupRequired(): NextResponse {
 
   return new NextResponse(html, {
     status: 503,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
   });
 }
 
@@ -139,7 +149,10 @@ function accountsNotConfigured(): NextResponse {
 
   return new NextResponse(html, {
     status: 503,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
   });
 }
 
@@ -156,7 +169,10 @@ function unauthenticatedResponse(request: NextRequest): NextResponse {
     );
   }
   const signInUrl = new URL("/api/auth/signin", request.url);
-  signInUrl.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
+  signInUrl.searchParams.set(
+    "callbackUrl",
+    request.nextUrl.pathname + request.nextUrl.search,
+  );
   return NextResponse.redirect(signInUrl);
 }
 
@@ -231,7 +247,9 @@ function isAllowedInAccountsMode(pathname: string): boolean {
   const allowed = pathname.startsWith("/api/")
     ? ACCOUNTS_MODE_ALLOWED_API_PATHS
     : ACCOUNTS_MODE_ALLOWED_PAGES;
-  return allowed.some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  return allowed.some(
+    (base) => pathname === base || pathname.startsWith(`${base}/`),
+  );
 }
 
 /** Shown for a page or API route this deployment doesn't expose in accounts mode. */
@@ -283,20 +301,25 @@ async function handleAccountsMode(request: NextRequest, event: NextFetchEvent) {
   // wrapper takes a different internal branch than the plain-config case
   // its docs example shows — one that resolves to the actual handler
   // asynchronously instead of returning it outright.
-  const gate = await auth(async (req: NextAuthRequest, _event: NextFetchEvent) => {
-    if (isAuthRoute(req.nextUrl.pathname)) {
-      return MUTATING.has(req.method) && isCrossSite(req) ? forbidden() : NextResponse.next();
-    }
-    if (!req.auth) return unauthenticatedResponse(req);
+  const gate = await auth(
+    async (req: NextAuthRequest, _event: NextFetchEvent) => {
+      if (isAuthRoute(req.nextUrl.pathname)) {
+        return MUTATING.has(req.method) && isCrossSite(req)
+          ? forbidden()
+          : NextResponse.next();
+      }
+      if (!req.auth) return unauthenticatedResponse(req);
 
-    // Checked after authentication so an unauthenticated caller learns
-    // nothing about which requests would otherwise have been accepted —
-    // same reasoning as the CSRF check just below.
-    if (!isAllowedInAccountsMode(req.nextUrl.pathname)) return notFoundInAccountsMode(req);
+      // Checked after authentication so an unauthenticated caller learns
+      // nothing about which requests would otherwise have been accepted —
+      // same reasoning as the CSRF check just below.
+      if (!isAllowedInAccountsMode(req.nextUrl.pathname))
+        return notFoundInAccountsMode(req);
 
-    if (MUTATING.has(req.method) && isCrossSite(req)) return forbidden();
-    return NextResponse.next();
-  });
+      if (MUTATING.has(req.method) && isCrossSite(req)) return forbidden();
+      return NextResponse.next();
+    },
+  );
   return gate(request, event);
 }
 
@@ -346,7 +369,79 @@ function desktopUnauthorized(request: NextRequest): NextResponse {
   });
 }
 
-export { validateStartupConfig };
+/** Shown in self-hosted mode until the operator password has been set on the machine. */
+function operatorNotConfigured(): NextResponse {
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign-in not set up</title>
+<style>
+  body { background:#08090b; color:#ededef; font:14px/1.6 ui-sans-serif,system-ui,sans-serif;
+         display:grid; place-items:center; min-height:100dvh; margin:0; padding:24px; }
+  main { max-width:34rem; }
+  h1 { font-size:1.05rem; margin:0 0 .75rem; }
+  p { color:#8b8d98; margin:0 0 .75rem; }
+  code { background:#16191f; border:1px solid rgba(255,255,255,.1); border-radius:4px;
+         padding:.15em .4em; font-family:ui-monospace,monospace; font-size:.9em; color:#b9a7ff; }
+</style>
+<main>
+  <h1>Operator sign-in is not set up</h1>
+  <p>Run <code>npm run operator:password</code> on the machine that runs Command Center to
+     choose the operator password, then reload this page.</p>
+</main>`;
+  return new NextResponse(html, {
+    status: 503,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+function signInRequired(request: NextRequest): NextResponse {
+  const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "sign_in_required" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const loginUrl = new URL("/login", request.url);
+  loginUrl.searchParams.set("next", pathname + search);
+  const response = NextResponse.redirect(loginUrl);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+/**
+ * Self-hosted mode: every matched route (pages, API, the agent event stream)
+ * needs a valid operator session. Only the login page and the login call are open.
+ */
+async function handleSelfHostedMode(
+  request: NextRequest,
+): Promise<NextResponse> {
+  const record = readOperatorFile();
+  if (!record) return operatorNotConfigured();
+
+  const { pathname } = request.nextUrl;
+  const method = request.method;
+  if (MUTATING.has(method) && isCrossSite(request)) return forbidden();
+
+  const open =
+    ((method === "GET" || method === "HEAD") && pathname === "/login") ||
+    (method === "POST" && pathname === "/api/operator/login");
+  if (open) return NextResponse.next();
+
+  const session = await verifyOperatorSession(
+    request.cookies.get(OPERATOR_COOKIE)?.value,
+    Date.now(),
+    record.sessionKey,
+  );
+  if (!session) return signInRequired(request);
+  return NextResponse.next();
+}
+
+export { validateStartupConfig, requireRecentSignIn };
 
 export async function proxy(request: NextRequest, event: NextFetchEvent) {
   // 1. Hosted accounts mode takes strict precedence over any local variables or secrets.
@@ -370,17 +465,13 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     const supplied = decoded.slice(decoded.indexOf(":") + 1);
     if (!safeEqual(supplied, password)) return unauthorized();
 
-    if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
+    if (MUTATING.has(request.method) && isCrossSite(request))
+      return forbidden();
     return NextResponse.next();
   }
 
-  // 2b. Self-hosted mode: until sign-in exists (AW5-02), fail closed.
-  if (isSelfHostedMode()) {
-    return new NextResponse("Self-hosted sign-in is not set up yet", {
-      status: 503,
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
+  // 2b. Self-hosted mode: a single operator signs in with a password set on the machine.
+  if (isSelfHostedMode()) return handleSelfHostedMode(request);
 
   // 3. Desktop shell mode authenticated via per-launch cryptographic secret.
   // Requires DESKTOP_INTERNAL_SECRET and constant-time match on x-dashboard-desktop-secret.
@@ -407,7 +498,8 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
       return desktopUnauthorized(request);
     }
 
-    if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
+    if (MUTATING.has(request.method) && isCrossSite(request))
+      return forbidden();
     return NextResponse.next();
   }
 

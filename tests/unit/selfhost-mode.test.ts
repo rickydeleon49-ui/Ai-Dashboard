@@ -3,7 +3,11 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { getAuthMode, isDesktopMode, isSelfHostedMode } from "../../src/lib/auth-mode";
+import {
+  getAuthMode,
+  isDesktopMode,
+  isSelfHostedMode,
+} from "../../src/lib/auth-mode";
 import { validateBindAddress } from "../../src/core/selfhost/bind";
 import { validateStartupConfig } from "../../src/core/selfhost/startup";
 
@@ -29,12 +33,19 @@ function clean(): void {
   for (const k of KEYS) delete env[k];
 }
 
-const SELF = { AGENT_HOST_MODE: "self-hosted" };
+const SELF = { AGENT_HOST_MODE: "self-hosted", HOSTNAME: "127.0.0.1" };
 
 describe("isSelfHostedMode", () => {
   it("is true only for the exact value", () => {
     assert.equal(isSelfHostedMode({ AGENT_HOST_MODE: "self-hosted" }), true);
-    for (const v of ["Self-Hosted", "self-hosted ", "true", "1", "", "selfhosted"]) {
+    for (const v of [
+      "Self-Hosted",
+      "self-hosted ",
+      "true",
+      "1",
+      "",
+      "selfhosted",
+    ]) {
       assert.equal(isSelfHostedMode({ AGENT_HOST_MODE: v }), false, v);
     }
     assert.equal(isSelfHostedMode({}), false);
@@ -58,10 +69,18 @@ describe("validateStartupConfig (self-hosted)", () => {
     ["AUTH_MODE=accounts", { AUTH_MODE: "accounts" }, /AUTH_MODE=accounts/],
     ["DATABASE_URL", { DATABASE_URL: "postgres://x/y" }, /DATABASE_URL/],
     ["DASHBOARD_PASSWORD", { DASHBOARD_PASSWORD: "pw" }, /DASHBOARD_PASSWORD/],
-    ["RAILWAY_ENVIRONMENT", { RAILWAY_ENVIRONMENT: "production" }, /Railway.*RAILWAY_ENVIRONMENT/],
+    [
+      "RAILWAY_ENVIRONMENT",
+      { RAILWAY_ENVIRONMENT: "production" },
+      /Railway.*RAILWAY_ENVIRONMENT/,
+    ],
     ["RAILWAY_PROJECT_ID", { RAILWAY_PROJECT_ID: "x" }, /RAILWAY_PROJECT_ID/],
     ["DASHBOARD_LOCAL=1", { DASHBOARD_LOCAL: "1" }, /DASHBOARD_LOCAL/],
-    ["DESKTOP_INTERNAL_SECRET", { DESKTOP_INTERNAL_SECRET: "s" }, /DESKTOP_INTERNAL_SECRET/],
+    [
+      "DESKTOP_INTERNAL_SECRET",
+      { DESKTOP_INTERNAL_SECRET: "s" },
+      /DESKTOP_INTERNAL_SECRET/,
+    ],
   ];
   for (const [name, extra, re] of refusals) {
     it(`refuses ${name} with its own message`, () => {
@@ -72,37 +91,142 @@ describe("validateStartupConfig (self-hosted)", () => {
   }
 
   it("does not refuse unrelated AUTH_MODE values", () => {
-    assert.equal(validateStartupConfig({ ...SELF, AUTH_MODE: "password" }).valid, true);
+    assert.equal(
+      validateStartupConfig({ ...SELF, AUTH_MODE: "password" }).valid,
+      true,
+    );
   });
 
   it("reads process.env by default", () => {
     clean();
     env.AGENT_HOST_MODE = "self-hosted";
+    env.HOSTNAME = "127.0.0.1";
     assert.equal(validateStartupConfig().valid, true);
     env.DATABASE_URL = "postgres://x/y";
     assert.equal(validateStartupConfig().valid, false);
   });
 });
 
+describe("validateStartupConfig (self-hosted bind address)", () => {
+  const MODE = { AGENT_HOST_MODE: "self-hosted" };
+
+  it("refuses when HOSTNAME is missing or blank, naming the variable", () => {
+    for (const env of [
+      { ...MODE },
+      { ...MODE, HOSTNAME: "" },
+      { ...MODE, HOSTNAME: "   " },
+    ]) {
+      const r = validateStartupConfig(env);
+      assert.equal(r.valid, false);
+      assert.match(r.error ?? "", /HOSTNAME/);
+      assert.match(r.error ?? "", /127.0.0.1/);
+    }
+  });
+
+  it("refuses wildcard, public and hostname binds", () => {
+    for (const h of ["0.0.0.0", "::", "[::]", "8.8.8.8", "example.com", "0"]) {
+      assert.equal(
+        validateStartupConfig({ ...MODE, HOSTNAME: h }).valid,
+        false,
+        h,
+      );
+    }
+  });
+
+  it("allows loopback", () => {
+    for (const h of ["127.0.0.1", "::1", "localhost"]) {
+      assert.equal(
+        validateStartupConfig({ ...MODE, HOSTNAME: h }).valid,
+        true,
+        h,
+      );
+    }
+  });
+
+  it("allows a LAN address only with AGENT_HOST_ALLOW_LAN=1 exactly", () => {
+    assert.equal(
+      validateStartupConfig({ ...MODE, HOSTNAME: "192.168.1.5" }).valid,
+      false,
+    );
+    for (const v of ["true", "0", "yes", ""]) {
+      assert.equal(
+        validateStartupConfig({
+          ...MODE,
+          HOSTNAME: "192.168.1.5",
+          AGENT_HOST_ALLOW_LAN: v,
+        }).valid,
+        false,
+        v,
+      );
+    }
+    assert.equal(
+      validateStartupConfig({
+        ...MODE,
+        HOSTNAME: "192.168.1.5",
+        AGENT_HOST_ALLOW_LAN: "1",
+      }).valid,
+      true,
+    );
+    // Wildcards stay refused even with LAN allowed.
+    assert.equal(
+      validateStartupConfig({
+        ...MODE,
+        HOSTNAME: "0.0.0.0",
+        AGENT_HOST_ALLOW_LAN: "1",
+      }).valid,
+      false,
+    );
+  });
+
+  it("does not require HOSTNAME outside self-hosted mode", () => {
+    assert.equal(validateStartupConfig({}).valid, true);
+  });
+});
+
 describe("validateStartupConfig (unchanged for other modes)", () => {
   it("keeps the desktop-local conflicts", () => {
-    assert.equal(validateStartupConfig({ DASHBOARD_LOCAL: "1", DASHBOARD_PASSWORD: "p" }).valid, false);
     assert.equal(
-      validateStartupConfig({ DESKTOP_INTERNAL_SECRET: "s", AUTH_MODE: "accounts" }).valid,
+      validateStartupConfig({ DASHBOARD_LOCAL: "1", DASHBOARD_PASSWORD: "p" })
+        .valid,
       false,
     );
     assert.equal(
-      validateStartupConfig({ DASHBOARD_LOCAL: "1", DATABASE_URL: "postgres://x" }).valid,
+      validateStartupConfig({
+        DESKTOP_INTERNAL_SECRET: "s",
+        AUTH_MODE: "accounts",
+      }).valid,
+      false,
+    );
+    assert.equal(
+      validateStartupConfig({
+        DASHBOARD_LOCAL: "1",
+        DATABASE_URL: "postgres://x",
+      }).valid,
       false,
     );
   });
 
   it("allows plain desktop, password and accounts setups", () => {
     assert.equal(validateStartupConfig({}).valid, true);
-    assert.equal(validateStartupConfig({ DASHBOARD_LOCAL: "1", DESKTOP_INTERNAL_SECRET: "s" }).valid, true);
-    assert.equal(validateStartupConfig({ DASHBOARD_PASSWORD: "p", RAILWAY_ENVIRONMENT: "x" }).valid, true);
     assert.equal(
-      validateStartupConfig({ AUTH_MODE: "accounts", DATABASE_URL: "postgres://x" }).valid,
+      validateStartupConfig({
+        DASHBOARD_LOCAL: "1",
+        DESKTOP_INTERNAL_SECRET: "s",
+      }).valid,
+      true,
+    );
+    assert.equal(
+      validateStartupConfig({
+        DASHBOARD_PASSWORD: "p",
+        RAILWAY_ENVIRONMENT: "x",
+      }).valid,
+      true,
+    );
+    assert.equal(
+      validateStartupConfig({
+        AUTH_MODE: "accounts",
+        DATABASE_URL: "postgres://x",
+      }).valid,
       true,
     );
   });
@@ -135,7 +259,15 @@ describe("getAuthMode precedence", () => {
 });
 
 describe("validateBindAddress", () => {
-  const always: string[] = ["127.0.0.1", "127.1.2.3", "::1", "localhost", "LOCALHOST", "[::1]", "::ffff:127.0.0.1"];
+  const always: string[] = [
+    "127.0.0.1",
+    "127.1.2.3",
+    "::1",
+    "localhost",
+    "LOCALHOST",
+    "[::1]",
+    "::ffff:127.0.0.1",
+  ];
   const lanOnly: string[] = [
     "10.0.0.1",
     "10.255.255.255",
@@ -179,14 +311,26 @@ describe("validateBindAddress", () => {
 
   it("allows loopback with or without allowLan", () => {
     for (const h of always) {
-      assert.deepEqual(validateBindAddress(h, { allowLan: false }), { ok: true }, h);
-      assert.deepEqual(validateBindAddress(h, { allowLan: true }), { ok: true }, h);
+      assert.deepEqual(
+        validateBindAddress(h, { allowLan: false }),
+        { ok: true },
+        h,
+      );
+      assert.deepEqual(
+        validateBindAddress(h, { allowLan: true }),
+        { ok: true },
+        h,
+      );
     }
   });
 
   it("allows private and Tailscale only with allowLan", () => {
     for (const h of lanOnly) {
-      assert.deepEqual(validateBindAddress(h, { allowLan: true }), { ok: true }, h);
+      assert.deepEqual(
+        validateBindAddress(h, { allowLan: true }),
+        { ok: true },
+        h,
+      );
       const off = validateBindAddress(h, { allowLan: false });
       assert.equal(off.ok, false, h);
     }
