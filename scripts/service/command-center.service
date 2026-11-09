@@ -1,0 +1,27 @@
+[Unit]
+Description=Command Center (Self-hosted Agent Workflow Control Center)
+Documentation=https://github.com/rickydeleon49-ui/Ai-Dashboard
+After=network.target
+
+[Service]
+Type=simple
+# Replace /path/to/Ai-Dashboard with the absolute path to your cloned repository
+WorkingDirectory=/path/to/Ai-Dashboard
+ExecStart=/path/to/Ai-Dashboard/scripts/service/start-selfhosted.sh
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+
+# ProtectSystem=strict mounts the filesystem read-only.
+# Uncomment and configure ReadWritePaths with absolute paths to your data folder,
+# agent worktrees directory, project repositories, and repo directory:
+# ReadWritePaths=/path/to/data
+# ReadWritePaths=/path/to/worktrees
+# ReadWritePaths=/path/to/Ai-Dashboard
+
+[Install]
+WantedBy=default.target
