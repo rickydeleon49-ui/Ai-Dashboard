@@ -61,7 +61,7 @@ export function SidebarNav({
                     href={item.href}
                     onClick={onNavigate}
                     className={cn(
-                      "group flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors",
+                      "group flex h-8 min-h-[40px] md:min-h-0 items-center gap-2.5 rounded-md px-2 text-[13px] transition-colors",
                       active
                         ? "bg-[var(--bg-hover)] font-medium text-fg"
                         : "text-muted hover:bg-[var(--bg-subtle)] hover:text-fg",
@@ -104,10 +104,11 @@ export function SidebarNav({
   );
 }
 
-export function SidebarBrand() {
+export function SidebarBrand({ onNavigate }: { onNavigate?: () => void } = {}) {
   return (
     <Link
       href="/"
+      onClick={onNavigate}
       className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-4"
     >
       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--accent)] shadow-sm">

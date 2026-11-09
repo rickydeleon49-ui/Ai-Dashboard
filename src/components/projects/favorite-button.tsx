@@ -59,6 +59,7 @@ export function FavoriteButton({
       className={cn(
         "flex shrink-0 items-center justify-center rounded-md transition-colors",
         dimension,
+        "min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0",
         optimistic
           ? "text-amber-400 hover:bg-amber-400/10"
           : "text-faint hover:bg-[var(--bg-subtle)] hover:text-muted",

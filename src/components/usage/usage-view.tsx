@@ -70,15 +70,15 @@ export function UsageView() {
   const anyData = snapshot.tools.some((t) => t.hasData) || snapshot.codexLimits !== null;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {error ? (
-        <p role="alert" className="text-[12px] text-red-500">
+        <p role="alert" className="text-[12px] text-red-500 break-words">
           {error}. Showing the last result.
         </p>
       ) : null}
 
       {anyData ? (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
           {TOOL_ORDER.map((id) => {
             const tool = byTool.get(id);
             return tool ? (
@@ -103,13 +103,13 @@ export function UsageView() {
       <AppUsageCard app={snapshot.app} />
 
       {snapshot.warnings.length > 0 ? (
-        <details className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px]">
-          <summary className="cursor-pointer text-muted">
+        <details className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[13px] min-w-0">
+          <summary className="cursor-pointer text-muted min-h-[40px] md:min-h-0 flex items-center">
             Data notes ({snapshot.warnings.length})
           </summary>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-muted">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-muted min-w-0">
             {snapshot.warnings.map((w, i) => (
-              <li key={`${i}-${w}`}>{w}</li>
+              <li key={`${i}-${w}`} className="break-words">{w}</li>
             ))}
           </ul>
         </details>
@@ -140,10 +140,10 @@ function Trend({ current, previous }: { current: UsageTotals; previous: UsageTot
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wide text-faint">{label}</p>
-      <p className={cn("text-lg font-semibold text-fg", NUM)}>{value}</p>
-      {hint ? <p className="text-[11px] text-faint">{hint}</p> : null}
+    <div className="min-w-0">
+      <p className="text-[11px] uppercase tracking-wide text-faint break-words">{label}</p>
+      <p className={cn("text-lg font-semibold text-fg break-words", NUM)}>{value}</p>
+      {hint ? <p className="text-[11px] text-faint break-words">{hint}</p> : null}
     </div>
   );
 }
@@ -166,37 +166,37 @@ function ToolCard({
       : [];
 
   return (
-    <Card aria-label={`${label} usage`}>
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-        <div className="flex items-center gap-2 text-[11px] text-faint">
+    <Card aria-label={`${label} usage`} className="min-w-0">
+      <CardHeader className="flex-wrap items-center justify-between gap-2 min-w-0">
+        <CardTitle className="break-words min-w-0">{label}</CardTitle>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-faint">
           {tool.stale ? <Badge>stale</Badge> : null}
           <span>Updated {formatRelative(tool.updatedAt, now)}</span>
         </div>
       </CardHeader>
-      <CardBody className="space-y-4">
+      <CardBody className="min-w-0 space-y-4">
         {!tool.hasData && !limits ? (
-          <p className="text-[13px] text-muted">No data yet.</p>
+          <p className="text-[13px] text-muted break-words">No data yet.</p>
         ) : null}
 
         {tool.hasData ? (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid min-w-0 grid-cols-2 gap-3">
               <Stat label="Today" value={`${formatCompact(tool.today.tokens)} tokens`} hint={`${tool.today.replies.toLocaleString("en-US")} replies`} />
               {tool.today.costUsd !== null ? (
                 <Stat label="Cost today" value={formatUsd(tool.today.costUsd)} hint="API-equivalent" />
               ) : null}
             </div>
 
-            <div className="text-[13px] text-muted">
-              <p>
+            <div className="min-w-0 text-[13px] text-muted break-words">
+              <p className="break-words">
                 Last 7 days:{" "}
                 <span className={cn("text-fg", NUM)}>{formatCompact(tool.last7Days.tokens)}</span>
                 {tool.last7Days.costUsd !== null ? (
                   <span className={NUM}> · {formatUsd(tool.last7Days.costUsd)}</span>
                 ) : null}
               </p>
-              <p className="text-[12px]">
+              <p className="text-[12px] break-words">
                 <Trend current={tool.last7Days} previous={tool.previous7Days} />
               </p>
             </div>
@@ -204,9 +204,9 @@ function ToolCard({
         ) : null}
 
         {id === "claude-code" && tool.thisWeek ? (
-          <div className="border-t border-line pt-3 text-[13px] text-muted">
-            <p className="text-[11px] uppercase tracking-wide text-faint">This week (resets Tue 02:00 PT)</p>
-            <p>
+          <div className="min-w-0 border-t border-line pt-3 text-[13px] text-muted break-words">
+            <p className="text-[11px] uppercase tracking-wide text-faint break-words">This week (resets Tue 02:00 PT)</p>
+            <p className="break-words">
               <span className={cn("text-fg", NUM)}>{formatCompact(tool.thisWeek.tokens)}</span>
               {tool.thisWeek.costUsd !== null ? (
                 <span className={NUM}> · {formatUsd(tool.thisWeek.costUsd)}</span>
@@ -222,55 +222,61 @@ function ToolCard({
         ) : null}
 
         {id === "codex" && limits ? (
-          <div className="space-y-3 border-t border-line pt-3">
+          <div className="min-w-0 space-y-3 border-t border-line pt-3">
             <LimitBar label="5-hour" window={limits.fiveHour} now={now} />
             <LimitBar label="Weekly" window={limits.weekly} now={now} />
           </div>
         ) : null}
 
         {id === "antigravity" ? (
-          <div className="space-y-1 border-t border-line pt-3 text-[13px] text-muted">
+          <div className="min-w-0 space-y-1 border-t border-line pt-3 text-[13px] text-muted">
             {split.length > 0 ? (
-              split.map((m) => (
-                <p key={m.model} className="flex justify-between gap-2">
-                  <span>{m.model === "agy-cli" ? "CLI" : "IDE"} <span className="text-faint">(30 days)</span></span>
-                  <span className={NUM}>
-                    {formatCompact(m.tokens)} · {m.replies.toLocaleString("en-US")} replies
-                  </span>
-                </p>
-              ))
+              <div className="overflow-x-auto min-w-0">
+                {split.map((m) => (
+                  <p key={m.model} className="flex flex-wrap justify-between gap-1 break-words">
+                    <span className="break-words">{m.model === "agy-cli" ? "CLI" : "IDE"} <span className="text-faint">(30 days)</span></span>
+                    <span className={cn(NUM, "whitespace-nowrap")}>
+                      {formatCompact(m.tokens)} · {m.replies.toLocaleString("en-US")} replies
+                    </span>
+                  </p>
+                ))}
+              </div>
             ) : null}
-            <p className="text-[11px] text-faint">
+            <p className="text-[11px] text-faint break-words">
               agy doesn&apos;t expose its quota, so no limit bar.
             </p>
           </div>
         ) : null}
 
         {tool.byMachine.length > 0 ? (
-          <div className="border-t border-line pt-3">
-            <p className="text-[11px] uppercase tracking-wide text-faint">By machine (7 days)</p>
-            <ul className="mt-1 space-y-0.5 text-[13px] text-muted">
-              {tool.byMachine.map((m) => (
-                <li key={m.machine} className="flex justify-between gap-2">
-                  <span>{machineLabel(m.machine)}</span>
-                  <span className={NUM}>{formatCompact(m.tokens)}</span>
-                </li>
-              ))}
-            </ul>
+          <div className="min-w-0 border-t border-line pt-3">
+            <p className="text-[11px] uppercase tracking-wide text-faint break-words">By machine (7 days)</p>
+            <div className="overflow-x-auto min-w-0">
+              <ul className="mt-1 space-y-0.5 text-[13px] text-muted min-w-0">
+                {tool.byMachine.map((m) => (
+                  <li key={m.machine} className="flex justify-between gap-2 min-w-0">
+                    <span className="break-words min-w-0">{machineLabel(m.machine)}</span>
+                    <span className={cn(NUM, "whitespace-nowrap shrink-0")}>{formatCompact(m.tokens)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         ) : null}
 
         {id !== "antigravity" && tool.topModels.length > 0 ? (
-          <div className="border-t border-line pt-3">
-            <p className="text-[11px] uppercase tracking-wide text-faint">Top models (30 days)</p>
-            <ul className="mt-1 space-y-0.5 text-[13px] text-muted">
-              {tool.topModels.slice(0, 3).map((m) => (
-                <li key={m.model} className="flex justify-between gap-2">
-                  <span className="truncate">{m.model}</span>
-                  <span className={NUM}>{formatCompact(m.tokens)}</span>
-                </li>
-              ))}
-            </ul>
+          <div className="min-w-0 border-t border-line pt-3">
+            <p className="text-[11px] uppercase tracking-wide text-faint break-words">Top models (30 days)</p>
+            <div className="overflow-x-auto min-w-0">
+              <ul className="mt-1 space-y-0.5 text-[13px] text-muted min-w-0">
+                {tool.topModels.slice(0, 3).map((m) => (
+                  <li key={m.model} className="flex justify-between gap-2 min-w-0">
+                    <span className="break-words min-w-0">{m.model}</span>
+                    <span className={cn(NUM, "whitespace-nowrap shrink-0")}>{formatCompact(m.tokens)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         ) : null}
       </CardBody>
@@ -355,10 +361,10 @@ function FolderFooter({ folder, onChanged }: { folder: string; onChanged: () => 
   }
 
   return (
-    <div className="space-y-2 text-[12px] text-muted">
+    <div className="min-w-0 space-y-2 text-[12px] text-muted">
       {editing ? (
         <form
-          className="flex flex-col gap-2 sm:flex-row sm:items-center"
+          className="flex flex-col gap-2 sm:flex-row sm:items-center min-w-0"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
@@ -372,10 +378,16 @@ function FolderFooter({ folder, onChanged }: { folder: string; onChanged: () => 
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="Absolute path to the usage folder"
-            className="sm:max-w-md"
+            className="sm:max-w-md min-h-[40px] md:min-h-0"
           />
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="primary" disabled={busy || value.trim() === ""}>
+          <div className="flex gap-2 min-w-0">
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              disabled={busy || value.trim() === ""}
+              className="min-h-[40px] md:min-h-0"
+            >
               Save
             </Button>
             <Button
@@ -386,13 +398,14 @@ function FolderFooter({ folder, onChanged }: { folder: string; onChanged: () => 
                 setEditing(false);
                 setProblem(null);
               }}
+              className="min-h-[40px] md:min-h-0"
             >
               Cancel
             </Button>
           </div>
         </form>
       ) : (
-        <p className="flex flex-wrap items-center gap-2">
+        <p className="flex flex-wrap items-center gap-2 min-w-0">
           <span>Folder:</span>
           <code className="break-all text-fg">{folder}</code>
           <Button
@@ -403,13 +416,14 @@ function FolderFooter({ folder, onChanged }: { folder: string; onChanged: () => 
               setValue(folder);
               setEditing(true);
             }}
+            className="min-h-[40px] md:min-h-0"
           >
             Change
           </Button>
         </p>
       )}
       {problem ? (
-        <p role="alert" className="text-red-500">
+        <p role="alert" className="text-red-500 break-words">
           {problem}
         </p>
       ) : null}

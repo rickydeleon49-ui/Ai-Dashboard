@@ -35,17 +35,17 @@ export function ProjectCard({ project }: { project: Project }) {
     <Link
       href={`/projects/${project.id}`}
       className={cn(
-        "group relative flex flex-col rounded-xl border border-line bg-surface p-3.5",
+        "group relative flex flex-col rounded-xl border border-line bg-surface p-3.5 min-w-0",
         "transition-all duration-150 hover:border-[var(--border-strong)] hover:bg-[var(--bg-subtle)]",
       )}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-2.5 min-w-0">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             {project.source === "github" ? (
               <Github className="h-3.5 w-3.5 shrink-0 text-faint" strokeWidth={1.75} />
             ) : null}
-            <h3 className="truncate text-[13.5px] font-medium leading-snug text-fg">
+            <h3 className="break-words text-[13.5px] font-medium leading-snug text-fg">
               {project.name}
             </h3>
             {gh?.isPrivate ? (
@@ -53,7 +53,7 @@ export function ProjectCard({ project }: { project: Project }) {
             ) : null}
           </div>
 
-          <p className="mt-1 line-clamp-2 min-h-[2.4em] text-[12.5px] leading-[1.45] text-muted">
+          <p className="mt-1 line-clamp-2 min-h-[2.4em] text-[12.5px] leading-[1.45] text-muted break-words">
             {project.description ?? "No description yet."}
           </p>
         </div>
@@ -66,9 +66,9 @@ export function ProjectCard({ project }: { project: Project }) {
       </div>
 
       {project.tags.length > 0 ? (
-        <div className="mt-2.5 flex flex-wrap gap-1">
+        <div className="mt-2.5 flex flex-wrap gap-1 min-w-0">
           {project.tags.slice(0, 4).map((tag) => (
-            <Badge key={tag}>{tag}</Badge>
+            <Badge key={tag} className="break-words">{tag}</Badge>
           ))}
           {project.tags.length > 4 ? (
             <Badge className="text-faint">+{project.tags.length - 4}</Badge>
@@ -76,30 +76,30 @@ export function ProjectCard({ project }: { project: Project }) {
         </div>
       ) : null}
 
-      <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-3 text-[11px] text-faint">
+      <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-3 text-[11px] text-faint min-w-0">
         <Badge className={status.className}>{status.label}</Badge>
         <Badge>{source.label}</Badge>
 
         {gh?.language ? (
           <span className="flex items-center gap-1.5">
             <span
-              className="h-2 w-2 rounded-full"
+              className="h-2 w-2 rounded-full shrink-0"
               style={{ backgroundColor: languageColor(gh.language) }}
               aria-hidden
             />
-            {gh.language}
+            <span className="break-words">{gh.language}</span>
           </span>
         ) : null}
 
         {gh?.stars ? (
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 shrink-0">
             <StarIcon className="h-3 w-3" strokeWidth={1.75} />
             {formatCompact(gh.stars)}
           </span>
         ) : null}
 
         {gh?.forks ? (
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 shrink-0">
             <GitFork className="h-3 w-3" strokeWidth={1.75} />
             {formatCompact(gh.forks)}
           </span>
@@ -116,7 +116,7 @@ export function ProjectCard({ project }: { project: Project }) {
 /** Responsive grid wrapper, so every listing shares one set of breakpoints. */
 export function ProjectGrid({ projects }: { projects: Project[] }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-w-0">
       {projects.map((project) => (
         <ProjectCard key={project.id} project={project} />
       ))}

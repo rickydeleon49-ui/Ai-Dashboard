@@ -160,13 +160,13 @@ export function CommandPalette({
         type="button"
         onClick={openPalette}
         className={cn(
-          "group flex h-8 w-full max-w-72 items-center gap-2 rounded-md border border-line",
+          "group flex h-8 min-h-[40px] md:min-h-0 w-full max-w-72 items-center gap-2 rounded-md border border-line",
           "bg-[var(--bg-subtle)] px-2.5 text-[13px] text-faint transition-colors",
           "hover:border-[var(--border-strong)] hover:text-muted",
         )}
       >
         <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
-        <span className="flex-1 text-left">Search projects…</span>
+        <span className="flex-1 text-left truncate">Search projects…</span>
         <kbd className="rounded border border-line bg-[var(--bg-elevated)] px-1 py-px font-sans text-[10px] text-faint">
           ⌘K
         </kbd>
@@ -181,10 +181,10 @@ export function CommandPalette({
       <button
         type="button"
         onClick={openPalette}
-        className="flex h-8 w-full max-w-72 items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 text-[13px] text-faint"
+        className="flex h-8 min-h-[40px] md:min-h-0 w-full max-w-72 items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 text-[13px] text-faint"
       >
         <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
-        <span className="flex-1 text-left">Search projects…</span>
+        <span className="flex-1 text-left truncate">Search projects…</span>
       </button>
 
       <div
@@ -236,7 +236,7 @@ export function CommandPalette({
                       onMouseEnter={() => setIndex(i)}
                       onClick={() => run(command)}
                       className={cn(
-                        "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors",
+                        "flex w-full min-h-[40px] md:min-h-0 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors",
                         i === index ? "bg-[var(--bg-hover)]" : "hover:bg-[var(--bg-subtle)]",
                       )}
                     >

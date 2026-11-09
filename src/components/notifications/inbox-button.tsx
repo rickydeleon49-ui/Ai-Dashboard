@@ -102,7 +102,7 @@ export function InboxButton({ workspaceId }: { workspaceId: string }) {
         aria-controls={open ? panelId : undefined}
         title="Notifications"
         onClick={() => setOpen((value) => !value)}
-        className="relative flex h-8 min-w-8 items-center justify-center gap-1 rounded-md px-1.5 text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
+        className="relative flex h-8 min-w-8 min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-8 md:min-w-8 items-center justify-center gap-1 rounded-md px-1.5 text-muted transition-colors hover:bg-[var(--bg-subtle)] hover:text-fg"
       >
         <Bell className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
         {count !== null && count > 0 ? (
