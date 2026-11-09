@@ -372,23 +372,92 @@ function desktopUnauthorized(request: NextRequest): NextResponse {
 /** Shown in self-hosted mode until the operator password has been set on the machine. */
 function operatorNotConfigured(): NextResponse {
   const html = `<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sign-in not set up</title>
 <style>
-  body { background:#08090b; color:#ededef; font:14px/1.6 ui-sans-serif,system-ui,sans-serif;
-         display:grid; place-items:center; min-height:100dvh; margin:0; padding:24px; }
-  main { max-width:34rem; }
-  h1 { font-size:1.05rem; margin:0 0 .75rem; }
-  p { color:#8b8d98; margin:0 0 .75rem; }
-  code { background:#16191f; border:1px solid rgba(255,255,255,.1); border-radius:4px;
-         padding:.15em .4em; font-family:ui-monospace,monospace; font-size:.9em; color:#b9a7ff; }
+  * { box-sizing: border-box; }
+  :root {
+    color-scheme: dark light;
+    --bg: #08090b;
+    --card: #0d0f12;
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #ededef;
+    --muted: #8b8d98;
+    --ring: rgba(110, 86, 207, 0.55);
+    --code-bg: #16191f;
+    --code-border: rgba(255, 255, 255, 0.14);
+    --code-text: #b9a7ff;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f4f6;
+      --card: #ffffff;
+      --border: rgba(0, 0, 0, 0.12);
+      --text: #1a1a1e;
+      --muted: #60626c;
+      --ring: rgba(110, 86, 207, 0.4);
+      --code-bg: #ededf0;
+      --code-border: rgba(0, 0, 0, 0.12);
+      --code-text: #5b45b0;
+      --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+  }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 16px;
+  }
+  main {
+    width: 100%;
+    max-width: 32rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+  }
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 .75rem;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  p {
+    color: var(--muted);
+    margin: 0 0 .75rem;
+  }
+  p:last-child {
+    margin-bottom: 0;
+  }
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 4px;
+    padding: .15em .4em;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: .9em;
+    color: var(--code-text);
+  }
 </style>
 <main>
   <h1>Operator sign-in is not set up</h1>
   <p>Run <code>npm run operator:password</code> on the machine that runs Command Center to
      choose the operator password, then reload this page.</p>
-</main>`;
+</main>
+</html>`;
   return new NextResponse(html, {
     status: 503,
     headers: {

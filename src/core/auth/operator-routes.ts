@@ -163,17 +163,125 @@ export function renderLoginPage(
 <meta name="robots" content="noindex">
 <title>${heading} · Command Center</title>
 <style>
-  :root { color-scheme: dark light; }
-  body { background:#08090b; color:#ededef; font:14px/1.6 ui-sans-serif,system-ui,sans-serif;
-         display:grid; place-items:center; min-height:100dvh; margin:0; padding:24px; }
-  main { width:100%; max-width:22rem; }
-  h1 { font-size:1.05rem; margin:0 0 .5rem; }
-  p { color:#8b8d98; margin:0 0 1rem; }
-  input, button { font:inherit; width:100%; box-sizing:border-box; padding:.6rem .75rem; border-radius:6px; }
-  input { background:#16191f; color:#ededef; border:1px solid rgba(255,255,255,.18); margin-bottom:.75rem; }
-  button { background:#b9a7ff; color:#08090b; border:0; font-weight:600; cursor:pointer; }
-  button[disabled] { opacity:.6; cursor:wait; }
-  #err { color:#ff8a8a; min-height:1.4em; margin:.5rem 0 0; }
+  * { box-sizing: border-box; }
+  :root {
+    color-scheme: dark light;
+    --bg: #08090b;
+    --card: #0d0f12;
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #ededef;
+    --muted: #8b8d98;
+    --input-bg: #16191f;
+    --input-border: rgba(255, 255, 255, 0.18);
+    --btn-bg: #6e56cf;
+    --btn-fg: #ffffff;
+    --btn-hover: #7c66d9;
+    --ring: rgba(110, 86, 207, 0.55);
+    --err: #ff8a8a;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f4f6;
+      --card: #ffffff;
+      --border: rgba(0, 0, 0, 0.12);
+      --text: #1a1a1e;
+      --muted: #60626c;
+      --input-bg: #ffffff;
+      --input-border: rgba(0, 0, 0, 0.2);
+      --btn-bg: #6e56cf;
+      --btn-fg: #ffffff;
+      --btn-hover: #5c46b8;
+      --ring: rgba(110, 86, 207, 0.4);
+      --err: #ce2c31;
+      --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+  }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 16px;
+  }
+  main {
+    width: 100%;
+    max-width: 24rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+  }
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 .5rem;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  p {
+    color: var(--muted);
+    margin: 0 0 1.25rem;
+  }
+  form {
+    margin: 0;
+  }
+  input, button {
+    font: inherit;
+    font-size: 14px;
+    width: 100%;
+    height: 44px;
+    border-radius: 8px;
+    transition: border-color .15s ease, background-color .15s ease;
+  }
+  input {
+    background: var(--input-bg);
+    color: var(--text);
+    border: 1px solid var(--input-border);
+    padding: 0 14px;
+    margin-bottom: 12px;
+  }
+  input:focus {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-color: var(--ring);
+  }
+  button {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border: 0;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  button:hover:not(:disabled) {
+    background: var(--btn-hover);
+  }
+  button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button[disabled] {
+    opacity: .6;
+    cursor: wait;
+  }
+  #err {
+    color: var(--err);
+    min-height: 1.4em;
+    margin: .75rem 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+  }
 </style>
 <main>
   <h1>${heading}</h1>
