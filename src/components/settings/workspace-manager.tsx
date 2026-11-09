@@ -75,7 +75,7 @@ export function WorkspaceManager({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0">
       <ul className="space-y-1.5">
         {workspaces.map((workspace) => {
           const isCurrent = workspace.id === currentId;
@@ -83,7 +83,7 @@ export function WorkspaceManager({
           return (
             <li
               key={workspace.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2"
+              className="flex items-center justify-between gap-3 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2 min-w-0"
             >
               <div className="min-w-0">
                 <p className="truncate text-[13px] text-fg">{workspace.name}</p>
@@ -102,6 +102,7 @@ export function WorkspaceManager({
                   type="button"
                   size="sm"
                   variant="outline"
+                  className="min-h-[40px] md:min-h-0 shrink-0"
                   disabled={isSwitching}
                   onClick={() => switchTo(workspace.id)}
                 >
@@ -114,17 +115,23 @@ export function WorkspaceManager({
         })}
       </ul>
 
-      <form onSubmit={createWorkspace} className="flex items-end gap-2">
-        <Field label="New team workspace" className="flex-1">
+      <form onSubmit={createWorkspace} className="flex flex-col gap-2 sm:flex-row sm:items-end min-w-0">
+        <Field label="New team workspace" className="flex-1 min-w-0">
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Acme Corp"
             maxLength={100}
             required
+            className="min-h-[40px] md:min-h-0"
           />
         </Field>
-        <Button type="submit" variant="secondary" disabled={creating || name.trim().length === 0}>
+        <Button
+          type="submit"
+          variant="secondary"
+          className="min-h-[40px] md:min-h-0 shrink-0"
+          disabled={creating || name.trim().length === 0}
+        >
           {creating ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
@@ -134,7 +141,7 @@ export function WorkspaceManager({
         </Button>
       </form>
 
-      {error ? <p className="text-[12px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[12px] text-red-400 break-words">{error}</p> : null}
     </div>
   );
 }

@@ -70,11 +70,11 @@ export function GitHubTokenForm({
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form onSubmit={submit} className="space-y-3 min-w-0">
       {status.present ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2 min-w-0">
           <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" strokeWidth={2} />
-          <span className="text-[12.5px] text-fg">
+          <span className="min-w-0 break-words text-[12.5px] text-fg">
             {credentialSource === "oauth" ? "Connected via GitHub" : "Token saved"}
             <span className="ml-1 font-mono text-faint">…{status.hint}</span>
           </span>
@@ -82,7 +82,7 @@ export function GitHubTokenForm({
             type="button"
             size="sm"
             variant="danger"
-            className="ml-auto"
+            className="ml-auto min-h-[40px] md:min-h-0"
             onClick={clear}
             disabled={busy}
           >
@@ -91,7 +91,7 @@ export function GitHubTokenForm({
           </Button>
         </div>
       ) : credentialSource === "environment" ? (
-        <p className="rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2 text-[12.5px] text-muted">
+        <p className="rounded-md border border-line bg-[var(--bg-subtle)] px-2.5 py-2 text-[12.5px] text-muted break-words">
           Using the <code className="font-mono text-[11.5px]">GITHUB_TOKEN</code>{" "}
           environment variable. Saving a token here will take precedence over it.
         </p>
@@ -101,7 +101,7 @@ export function GitHubTokenForm({
         label={status.present ? "Replace token" : "Personal access token"}
         help="Stored on this machine only, and never shown again after saving."
       >
-        <div className="flex gap-2">
+        <div className="flex gap-2 min-w-0">
           <Input
             name="token"
             value={token}
@@ -110,11 +110,12 @@ export function GitHubTokenForm({
             autoComplete="off"
             spellCheck={false}
             placeholder="github_pat_… or ghp_…"
-            className="font-mono text-[12px]"
+            className="font-mono text-[12px] min-w-0 min-h-[40px] md:min-h-0"
           />
           <Button
             type="button"
             size="md"
+            className="min-h-[40px] md:min-h-0 shrink-0"
             onClick={() => setVisible((v) => !v)}
             aria-label={visible ? "Hide token" : "Show token"}
             title={visible ? "Hide token" : "Show token"}
@@ -128,27 +129,32 @@ export function GitHubTokenForm({
         </div>
       </Field>
 
-      {error ? <p className="text-[11.5px] text-red-400">{error}</p> : null}
+      {error ? <p className="text-[11.5px] text-red-400 break-words">{error}</p> : null}
 
-      <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" disabled={busy || !token.trim()}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="submit"
+          variant="primary"
+          className="min-h-[40px] md:min-h-0"
+          disabled={busy || !token.trim()}
+        >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} /> : null}
           Save token
         </Button>
         {saved ? (
-          <span className="text-[12px] text-emerald-400">
+          <span className="text-[12px] text-emerald-400 break-words">
             Saved — sync the hub to pull your repositories.
           </span>
         ) : null}
       </div>
 
-      <p className="text-[11.5px] leading-relaxed text-faint">
+      <p className="text-[11.5px] leading-relaxed text-faint break-words">
         Create one at{" "}
         <a
           href="https://github.com/settings/tokens"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[var(--accent-text)] hover:underline"
+          className="text-[var(--accent-text)] hover:underline break-all"
         >
           github.com/settings/tokens
         </a>

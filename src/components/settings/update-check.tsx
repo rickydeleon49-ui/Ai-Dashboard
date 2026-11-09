@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowUpRight, Loader2, RefreshCw } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { UpdateStatus } from "@/core/updates/service";
 
 /**
@@ -34,14 +35,20 @@ export function UpdateCheck({ version }: { version: string }) {
   }
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-baseline justify-between gap-4">
-        <span className="text-[12.5px] text-muted">Version</span>
-        <span className="font-mono text-[12px] text-fg">{version}</span>
+    <div className="space-y-2.5 min-w-0">
+      <div className="flex items-baseline justify-between gap-4 min-w-0">
+        <span className="text-[12.5px] text-muted shrink-0">Version</span>
+        <span className="font-mono text-[12px] text-fg min-w-0 truncate text-right">{version}</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" onClick={check} disabled={busy}>
+        <Button
+          type="button"
+          size="sm"
+          className="min-h-[40px] md:min-h-0"
+          onClick={check}
+          disabled={busy}
+        >
           {busy ? (
             <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
           ) : (
@@ -55,7 +62,7 @@ export function UpdateCheck({ version }: { version: string }) {
             href={status.releasesUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className={buttonClasses("primary", "sm")}
+            className={cn(buttonClasses("primary", "sm"), "min-h-[40px] md:min-h-0")}
           >
             Get {status.latest}
             <ArrowUpRight className="h-3 w-3" strokeWidth={2} />
@@ -64,7 +71,7 @@ export function UpdateCheck({ version }: { version: string }) {
       </div>
 
       {status?.detail ? (
-        <p className="text-[11.5px] leading-relaxed text-faint">{status.detail}</p>
+        <p className="text-[11.5px] leading-relaxed text-faint break-words">{status.detail}</p>
       ) : null}
     </div>
   );
