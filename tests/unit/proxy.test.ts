@@ -34,6 +34,7 @@ before(async () => {
 });
 
 const TOUCHED = [
+  "AGENT_HOST_MODE",
   "DASHBOARD_LOCAL",
   "DASHBOARD_PASSWORD",
   "DESKTOP_INTERNAL_SECRET",
@@ -245,6 +246,27 @@ describe("precedence: accounts and password mode take precedence over local bypa
     delete env.AUTH_MODE;
     delete env.DATABASE_URL;
     assert.equal(proxyModule.validateStartupConfig().valid, true);
+  });
+});
+
+describe("self-hosted mode (until sign-in exists)", () => {
+  it("fails closed with 503 on every request", async () => {
+    for (const k of ["DASHBOARD_PASSWORD", "AUTH_MODE", "DATABASE_URL", "DASHBOARD_LOCAL", "DESKTOP_INTERNAL_SECRET"]) {
+      delete env[k];
+    }
+    env.NODE_ENV = "development";
+    env.AGENT_HOST_MODE = "self-hosted";
+    for (const method of ["GET", "POST"]) {
+      const response = await call(method);
+      assert.equal(response.status, 503);
+      assert.match(await response.text(), /Self-hosted sign-in is not set up yet/);
+    }
+  });
+
+  it("password mode still takes precedence", async () => {
+    hosted();
+    env.AGENT_HOST_MODE = "self-hosted";
+    assert.equal((await call("GET")).status, 401);
   });
 });
 

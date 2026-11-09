@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
 import type { NextAuthRequest } from "next-auth";
 import { safeEqual } from "@/lib/safe-equal";
-import { isAccountsMode } from "@/lib/auth-mode";
+import { isAccountsMode, isSelfHostedMode } from "@/lib/auth-mode";
+import { validateStartupConfig } from "@/core/selfhost/startup";
 
 /**
  * Access control for the whole application.
@@ -345,23 +346,7 @@ function desktopUnauthorized(request: NextRequest): NextResponse {
   });
 }
 
-export function validateStartupConfig(): { valid: boolean; error?: string } {
-  if (process.env.DASHBOARD_LOCAL === "1" || process.env.DESKTOP_INTERNAL_SECRET) {
-    if (process.env.AUTH_MODE === "accounts" || Boolean(process.env.DATABASE_URL)) {
-      return {
-        valid: false,
-        error: "Desktop local mode cannot be used with AUTH_MODE=accounts or DATABASE_URL.",
-      };
-    }
-    if (Boolean(process.env.DASHBOARD_PASSWORD?.trim())) {
-      return {
-        valid: false,
-        error: "Desktop local mode cannot be used with DASHBOARD_PASSWORD.",
-      };
-    }
-  }
-  return { valid: true };
-}
+export { validateStartupConfig };
 
 export async function proxy(request: NextRequest, event: NextFetchEvent) {
   // 1. Hosted accounts mode takes strict precedence over any local variables or secrets.
@@ -387,6 +372,14 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
 
     if (MUTATING.has(request.method) && isCrossSite(request)) return forbidden();
     return NextResponse.next();
+  }
+
+  // 2b. Self-hosted mode: until sign-in exists (AW5-02), fail closed.
+  if (isSelfHostedMode()) {
+    return new NextResponse("Self-hosted sign-in is not set up yet", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   // 3. Desktop shell mode authenticated via per-launch cryptographic secret.

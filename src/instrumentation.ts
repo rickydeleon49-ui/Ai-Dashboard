@@ -28,6 +28,10 @@
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  const { validateStartupConfig } = await import("@/core/selfhost/startup");
+  const startup = validateStartupConfig();
+  if (!startup.valid) throw new Error(`Invalid startup configuration: ${startup.error}`);
+
   const { ensureDatabaseReady } = await import("@/db/bootstrap");
   ensureDatabaseReady();
 }
