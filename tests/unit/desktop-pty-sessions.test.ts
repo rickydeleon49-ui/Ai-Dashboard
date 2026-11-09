@@ -53,7 +53,12 @@ after(() => {
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("desktop pty sessions (real node-pty)", () => {
+// GitHub's Windows runners have no attachable console: node-pty's kill helper
+// fails with "AttachConsole failed" and the test process dies. Real shells are
+// still tested on Linux CI, locally on Windows and in the desktop e2e suite.
+const headlessWindowsCi = isWin && Boolean(process.env.CI);
+
+describe("desktop pty sessions (real node-pty)", { skip: headlessWindowsCi && "no console on Windows CI runners" }, () => {
   it("runs a command, reports exit after kill and drops the count", async () => {
     const { manager, output, exits } = realManager();
     const dir = tempDir();
