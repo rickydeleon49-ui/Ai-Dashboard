@@ -30,7 +30,12 @@ export async function register(): Promise<void> {
 
   const { validateStartupConfig } = await import("@/core/selfhost/startup");
   const startup = validateStartupConfig();
-  if (!startup.valid) throw new Error(`Invalid startup configuration: ${startup.error}`);
+  if (!startup.valid) {
+    // Throwing alone leaves `next start` listening (every request then errors).
+    // A forbidden configuration must stop the process, not just fail requests.
+    console.error(`Invalid startup configuration: ${startup.error}`);
+    process.exit(1);
+  }
 
   const { ensureDatabaseReady } = await import("@/db/bootstrap");
   ensureDatabaseReady();
