@@ -39,7 +39,7 @@ import { githubLinks } from "@/core/github/types";
 import type { Project, ProjectFile } from "@/core/projects/types";
 import type { Milestone, Task } from "@/core/tasks/types";
 import type { KnowledgeDocument } from "@/core/knowledge/types";
-import { formatCompact, formatDate, formatRelative } from "@/lib/utils";
+import { cn, formatCompact, formatDate, formatRelative } from "@/lib/utils";
 import { isAccountsMode } from "@/lib/auth-mode";
 
 export const dynamic = "force-dynamic";
@@ -124,38 +124,39 @@ export default async function ProjectDetailPage({
   const repoUrl = project.repositoryUrl ?? gh?.htmlUrl ?? null;
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       {/* Header */}
-      <div className="space-y-3">
-        <nav className="flex items-center gap-1.5 text-[12px] text-faint">
-          <Link href="/projects" className="transition-colors hover:text-fg">
+      <div className="min-w-0 space-y-3">
+        <nav className="flex flex-wrap items-center gap-1.5 text-[12px] text-faint min-w-0">
+          <Link href="/projects" className="transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center">
             Projects
           </Link>
           <span>/</span>
           <span className="text-muted">{SOURCE_META[project.source].label}</span>
         </nav>
 
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3 min-w-0">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               {project.source === "github" ? (
                 <Github className="h-4.5 w-4.5 shrink-0 text-muted" strokeWidth={1.75} />
               ) : null}
-              <h1 className="text-xl font-semibold tracking-tight text-fg">
+              <h1 className="text-xl font-semibold tracking-tight text-fg break-words">
                 {project.name}
               </h1>
               <FavoriteButton
                 projectId={project.id}
                 favorite={project.favorite}
                 size="md"
+                className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 md:h-8 md:w-8"
               />
             </div>
 
-            <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-muted">
+            <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-muted break-words">
               {project.description ?? "No description yet."}
             </p>
 
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 min-w-0">
               <Badge className={status.className}>{status.label}</Badge>
               <Badge>{SOURCE_META[project.source].label}</Badge>
               <Badge>{TYPE_META[project.type].label}</Badge>
@@ -171,7 +172,7 @@ export default async function ProjectDetailPage({
                 </Badge>
               ) : null}
               {project.tags.map((tag) => (
-                <Link key={tag} href={`/projects?tag=${encodeURIComponent(tag)}`}>
+                <Link key={tag} href={`/projects?tag=${encodeURIComponent(tag)}`} className="inline-flex items-center min-h-[40px] md:min-h-0">
                   <Badge className="transition-colors hover:text-fg">{tag}</Badge>
                 </Link>
               ))}
@@ -180,7 +181,7 @@ export default async function ProjectDetailPage({
 
           <Link
             href={`/projects/${project.id}/edit`}
-            className={buttonClasses("secondary", "md")}
+            className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
           >
             <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
             Edit
@@ -189,12 +190,12 @@ export default async function ProjectDetailPage({
       </div>
 
       {/* Primary actions */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3 min-w-0 [&_button]:min-h-[40px] md:[&_button]:min-h-0">
         {/* The workspace reads the project from the URL, so this link is the
             whole of "open in AI" — no hidden state to set first. */}
         <Link
           href={`/ai/chat?project=${encodeURIComponent(project.id)}`}
-          className={buttonClasses("secondary", "md")}
+          className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
         >
           <Cpu className="h-3.5 w-3.5" strokeWidth={1.75} />
           Open in AI Workspace
@@ -203,7 +204,7 @@ export default async function ProjectDetailPage({
         {isAgentRunsEnabled() ? (
           <Link
             href={`/settings/agents/projects/${encodeURIComponent(project.id)}`}
-            className={buttonClasses("secondary", "md")}
+            className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
           >
             <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />
             Agent policy
@@ -232,7 +233,7 @@ export default async function ProjectDetailPage({
               href={githubLinks.issues(repoUrl)}
               target="_blank"
               rel="noopener noreferrer"
-              className={buttonClasses("secondary", "md")}
+              className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
             >
               <CircleDot className="h-3.5 w-3.5" strokeWidth={1.75} />
               Issues
@@ -245,7 +246,7 @@ export default async function ProjectDetailPage({
               href={githubLinks.pulls(repoUrl)}
               target="_blank"
               rel="noopener noreferrer"
-              className={buttonClasses("secondary", "md")}
+              className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
             >
               <GitPullRequest className="h-3.5 w-3.5" strokeWidth={1.75} />
               Pull requests
@@ -255,7 +256,7 @@ export default async function ProjectDetailPage({
               href={githubLinks.projects(repoUrl)}
               target="_blank"
               rel="noopener noreferrer"
-              className={buttonClasses("secondary", "md")}
+              className={cn(buttonClasses("secondary", "md"), "min-h-[40px] md:min-h-0")}
             >
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
               Projects
@@ -266,19 +267,19 @@ export default async function ProjectDetailPage({
         ) : null}
 
         {!repoUrl && !project.projectUrl ? (
-          <p className="px-1 text-[12.5px] text-faint">
+          <p className="px-1 text-[12.5px] text-faint break-words">
             Add a repository or project URL to get one-click launch buttons here.
           </p>
         ) : null}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <ArchiveButton project={project} />
           <DeleteButton project={project} />
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+        <div className="min-w-0 space-y-4 lg:col-span-2">
           {/* Milestones & tasks */}
           <MilestonesTasksCard projectId={project.id} milestones={milestones} tasks={tasks} />
 
@@ -287,16 +288,16 @@ export default async function ProjectDetailPage({
 
           {/* GitHub repository panel */}
           {gh ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Repository</CardTitle>
+            <Card className="min-w-0">
+              <CardHeader className="flex-wrap items-center justify-between gap-1 min-w-0">
+                <CardTitle className="break-words">Repository</CardTitle>
                 {gh.fullName ? (
-                  <span className="font-mono text-[11.5px] text-faint">
+                  <span className="font-mono text-[11.5px] text-faint break-all">
                     {gh.fullName}
                   </span>
                 ) : null}
               </CardHeader>
-              <CardBody className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <CardBody className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-4">
                 <Detail label="Language">
                   {gh.language ? (
                     <span className="flex items-center gap-1.5">
@@ -340,19 +341,19 @@ export default async function ProjectDetailPage({
           ) : null}
 
           {/* Notes */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Notes</CardTitle>
+          <Card className="min-w-0">
+            <CardHeader className="min-w-0">
+              <CardTitle className="break-words">Notes</CardTitle>
               <Link
                 href={`/projects/${project.id}/edit`}
-                className="text-[12px] text-muted transition-colors hover:text-fg"
+                className="text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center"
               >
                 Edit
               </Link>
             </CardHeader>
-            <CardBody>
+            <CardBody className="min-w-0">
               {project.notes ? (
-                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-fg">
+                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-fg">
                   {project.notes}
                 </p>
               ) : (
@@ -365,37 +366,37 @@ export default async function ProjectDetailPage({
           </Card>
 
           {isAccountsMode() ? null : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Files &amp; assets</CardTitle>
+            <Card className="min-w-0">
+              <CardHeader className="min-w-0">
+                <CardTitle className="break-words">Files &amp; assets</CardTitle>
                 {files.length > 0 ? (
                   <span className="text-[12px] tabular-nums text-faint">
                     {files.length}
                   </span>
                 ) : null}
               </CardHeader>
-              <CardBody>
+              <CardBody className="min-w-0 overflow-x-auto">
                 <ProjectFiles projectId={project.id} files={files} />
               </CardBody>
             </Card>
           )}
 
           {/* Activity */}
-          <Card className="overflow-hidden">
-            <CardHeader>
-              <CardTitle>Activity</CardTitle>
+          <Card className="min-w-0 overflow-hidden">
+            <CardHeader className="min-w-0">
+              <CardTitle className="break-words">Activity</CardTitle>
             </CardHeader>
             <ActivityFeed items={activity} />
           </Card>
         </div>
 
         {/* Sidebar */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Details</CardTitle>
+        <div className="min-w-0 space-y-4">
+          <Card className="min-w-0">
+            <CardHeader className="min-w-0">
+              <CardTitle className="break-words">Details</CardTitle>
             </CardHeader>
-            <CardBody className="space-y-3">
+            <CardBody className="min-w-0 space-y-3">
               <Detail label="Status">{status.label}</Detail>
               <Detail label="Type">{TYPE_META[project.type].label}</Detail>
               <Detail label="Source">{SOURCE_META[project.source].label}</Detail>
@@ -407,11 +408,11 @@ export default async function ProjectDetailPage({
             </CardBody>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Links</CardTitle>
+          <Card className="min-w-0">
+            <CardHeader className="min-w-0">
+              <CardTitle className="break-words">Links</CardTitle>
             </CardHeader>
-            <CardBody className="space-y-2.5">
+            <CardBody className="min-w-0 space-y-2.5 [&_button]:min-h-[40px] md:[&_button]:min-h-0">
               <LinkRow label="Repository" href={project.repositoryUrl} />
               <LinkRow label="Project URL" href={project.projectUrl} />
               {project.localPath ? (
@@ -462,26 +463,26 @@ function MilestonesTasksCard({
     .slice(0, 3);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Milestones &amp; tasks</CardTitle>
+    <Card className="min-w-0">
+      <CardHeader className="flex-wrap items-center justify-between gap-2 min-w-0">
+        <CardTitle className="break-words">Milestones &amp; tasks</CardTitle>
         <div className="flex items-center gap-3">
           <Link
             href={`/projects/${projectId}/timeline`}
-            className="text-[12px] text-muted transition-colors hover:text-fg"
+            className="text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center"
           >
             Timeline
           </Link>
           <Link
             href={`/projects/${projectId}/tasks`}
-            className="text-[12px] text-muted transition-colors hover:text-fg"
+            className="text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center"
           >
             Open
           </Link>
         </div>
       </CardHeader>
-      <CardBody className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <CardBody className="min-w-0 space-y-4">
+        <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-4">
           <Detail label="Tasks">{tasks.length}</Detail>
           <Detail label="Done">
             {done}/{tasks.length}
@@ -495,16 +496,16 @@ function MilestonesTasksCard({
         </div>
 
         {upcomingMilestones.length > 0 ? (
-          <div className="space-y-1.5 border-t border-line pt-3">
+          <div className="space-y-1.5 border-t border-line pt-3 min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
               Upcoming milestones
             </p>
-            <ul className="space-y-1">
+            <ul className="space-y-1 min-w-0">
               {upcomingMilestones.map((m) => (
-                <li key={m.id} className="flex items-center gap-2 text-[13px]">
+                <li key={m.id} className="flex items-center gap-2 text-[13px] min-w-0">
                   <Link
                     href={`/projects/${projectId}/tasks`}
-                    className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)]"
+                    className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)] min-h-[40px] md:min-h-0 inline-flex items-center"
                   >
                     {m.title}
                   </Link>
@@ -519,7 +520,7 @@ function MilestonesTasksCard({
             </ul>
           </div>
         ) : tasks.length === 0 && milestones.length === 0 ? (
-          <p className="text-[13px] text-faint">
+          <p className="text-[13px] text-faint break-words">
             No milestones or tasks yet. Break this project down to track real progress.
           </p>
         ) : null}
@@ -548,26 +549,26 @@ function KnowledgeBaseCard({
     .slice(0, 5);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Knowledge base</CardTitle>
+    <Card className="min-w-0">
+      <CardHeader className="flex-wrap items-center justify-between gap-2 min-w-0">
+        <CardTitle className="break-words">Knowledge base</CardTitle>
         <Link
           href={`/projects/${projectId}/knowledge`}
-          className="text-[12px] text-muted transition-colors hover:text-fg"
+          className="text-[12px] text-muted transition-colors hover:text-fg min-h-[40px] md:min-h-0 inline-flex items-center"
         >
           Open
         </Link>
       </CardHeader>
-      <CardBody className="space-y-3">
+      <CardBody className="min-w-0 space-y-3">
         <Detail label="Documents">{documents.length}</Detail>
 
         {highlighted.length > 0 ? (
-          <ul className="space-y-1 border-t border-line pt-3">
+          <ul className="space-y-1 border-t border-line pt-3 min-w-0">
             {highlighted.map((doc) => (
-              <li key={doc.id} className="flex items-center gap-2 text-[13px]">
+              <li key={doc.id} className="flex items-center gap-2 text-[13px] min-w-0">
                 <Link
                   href={`/projects/${projectId}/knowledge/${doc.id}`}
-                  className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)]"
+                  className="min-w-0 flex-1 truncate text-fg transition-colors hover:text-[var(--accent-text)] min-h-[40px] md:min-h-0 inline-flex items-center"
                 >
                   {doc.title}
                 </Link>
@@ -576,7 +577,7 @@ function KnowledgeBaseCard({
             ))}
           </ul>
         ) : (
-          <p className="text-[13px] text-faint">
+          <p className="text-[13px] text-faint break-words">
             No documents yet. Keep notes, runbooks and decisions somewhere findable.
           </p>
         )}
@@ -593,11 +594,11 @@ function Detail({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-faint break-words">
         {label}
       </p>
-      <div className="mt-0.5 text-[13px] text-fg">{children}</div>
+      <div className="mt-0.5 text-[13px] text-fg break-words">{children}</div>
     </div>
   );
 }
@@ -605,15 +606,15 @@ function Detail({
 function LinkRow({ label, href }: { label: string; href: string | null }) {
   if (!href) return null;
   return (
-    <div>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-faint break-words">
         {label}
       </p>
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-0.5 flex items-center gap-1.5 break-all text-[12.5px] text-[var(--accent-text)] transition-colors hover:underline"
+        className="mt-0.5 flex items-center gap-1.5 break-all text-[12.5px] text-[var(--accent-text)] transition-colors hover:underline min-h-[40px] md:min-h-0"
       >
         <ExternalLink className="h-3 w-3 shrink-0" strokeWidth={1.75} />
         {href.replace(/^https?:\/\//, "")}
